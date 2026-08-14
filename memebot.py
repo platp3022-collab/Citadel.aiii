@@ -525,13 +525,30 @@ class RiskReport:
     source: str = ""
 
 
+def _merge_reports(reports: list[RiskReport]) -> RiskReport:
+    reports = [r for r in reports if r.ok]
+    if not reports:
+        return RiskReport()
+    merged = RiskReport(ok=True, danger=any(r.danger for r in reports),
+                        source="+".join(dict.fromkeys(r.source for r in reports if r.source)))
+    mult = 1.0
+    for r in reports:
+        mult *= r.multiplier
+        merged.flags.extend(r.flags)
+    merged.multiplier = mult
+    return merged
+
+
 async def risk_check(session: aiohttp.ClientSession, chain: str, token: str) -> RiskReport:
     chain = (chain or "").lower()
     try:
         if chain == "solana":
             return await _rugcheck(session, token)
         if chain in EVM_CHAIN_IDS:
-            return await _honeypot(session, chain, token)
+            results = await asyncio.gather(_honeypot(session, chain, token),
+                                           _goplus(session, chain, token),
+                                           return_exceptions=True)
+            return _merge_reports([r for r in results if isinstance(r, RiskReport)])
     except Exception as e:  # noqa: BLE001
         log.debug("risk %s/%s: %s", chain, token, e)
     return RiskReport()
@@ -594,6 +611,73 @@ async def _honeypot(session: aiohttp.ClientSession, chain: str, token: str) -> R
         desc = flag.get("description") if isinstance(flag, dict) else str(flag)
         if desc:
             rep.flags.append(f"🟡 {desc}")
+    return rep
+
+
+async def _goplus(session: aiohttp.ClientSession, chain: str, token: str) -> RiskReport:
+    """GoPlus Security: контракт (mint/owner/pause), концентрация холдеров, блокировка LP."""
+    url = f"https://api.gopluslabs.io/api/v1/token_security/{EVM_CHAIN_IDS[chain]}"
+    async with session.get(url, params={"contract_addresses": token},
+                           timeout=aiohttp.ClientTimeout(total=15)) as r:
+        if r.status != 200:
+            return RiskReport()
+        data = await r.json(content_type=None)
+
+    result = (data.get("result") or {}).get(token.lower()) or {}
+    if not result:
+        return RiskReport()
+
+    def on(key: str) -> bool:
+        return str(result.get(key, "0")) == "1"
+
+    rep = RiskReport(ok=True, source="goplus")
+
+    if on("is_honeypot") or on("cannot_sell_all"):
+        rep.danger = True
+        rep.multiplier = min(rep.multiplier, 0.1)
+        rep.flags.append("🔴 GoPlus: продать нельзя (honeypot)")
+    if on("hidden_owner") or on("can_take_back_ownership"):
+        rep.multiplier = min(rep.multiplier, 0.5)
+        rep.flags.append("🔴 скрытый/восстанавливаемый овнер контракта")
+    if on("is_mintable"):
+        rep.multiplier = min(rep.multiplier, 0.65)
+        rep.flags.append("🟡 контракт может доминтить токены")
+    if on("transfer_pausable"):
+        rep.multiplier = min(rep.multiplier, 0.5)
+        rep.flags.append("🔴 переводы токена можно поставить на паузу")
+    if on("is_blacklisted"):
+        rep.multiplier = min(rep.multiplier, 0.6)
+        rep.flags.append("🟡 в контракте есть чёрный список адресов")
+    if on("slippage_modifiable"):
+        rep.multiplier = min(rep.multiplier, 0.7)
+        rep.flags.append("🟡 налоги/проскальзывание можно менять на лету")
+    if not on("is_open_source"):
+        rep.multiplier = min(rep.multiplier, 0.85)
+        rep.flags.append("🟡 исходный код контракта не верифицирован")
+
+    owner_pct = num(result.get("owner_percent"))
+    creator_pct = num(result.get("creator_percent"))
+    if owner_pct >= 0.2:
+        rep.multiplier = min(rep.multiplier, 0.6)
+        rep.flags.append(f"🔴 овнер контракта держит {owner_pct*100:.0f}% supply")
+    elif creator_pct >= 0.2:
+        rep.multiplier = min(rep.multiplier, 0.7)
+        rep.flags.append(f"🟡 создатель держит {creator_pct*100:.0f}% supply")
+
+    holders = result.get("holders") or []
+    top10 = sum(num(h.get("percent")) for h in holders[:10]
+               if not h.get("is_contract") and not h.get("is_locked"))
+    if top10 >= 0.5:
+        rep.multiplier = min(rep.multiplier, 0.8)
+        rep.flags.append(f"🟡 топ-10 холдеров держат {top10*100:.0f}% supply")
+
+    lp_holders = result.get("lp_holders") or []
+    if lp_holders:
+        lp_locked = sum(num(h.get("percent")) for h in lp_holders if h.get("is_locked"))
+        if lp_locked < 0.5:
+            rep.multiplier = min(rep.multiplier, 0.55)
+            rep.flags.append(f"🔴 LP заблокирован лишь на {lp_locked*100:.0f}%")
+
     return rep
 
 
