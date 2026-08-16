@@ -278,12 +278,48 @@ async def handle_api(_request: web.Request) -> web.Response:
     return web.json_response(status_payload())
 
 
+STATIC_MARKER = (
+    'async function refresh() {\n'
+    '  let data;\n'
+    '  try {\n'
+    '    data = await (await fetch("/api/status")).json();\n'
+    '  } catch (e) { return; }\n'
+)
+
+
+def render_static(payload: dict) -> str:
+    """Автономный HTML-файл со снимком данных на момент генерации — без сервера,
+    просто открыть двойным кликом. Не обновляется сам (для живой версии нужен
+    `python dashboard.py` + запущенные боты)."""
+    embedded = json.dumps(payload, ensure_ascii=False)
+    page = PAGE.replace(
+        STATIC_MARKER,
+        f'async function refresh() {{\n  const data = {embedded};\n')
+    page = page.replace(
+        "setInterval(refresh, 5000);",
+        "// статичный снимок — не обновляется автоматически")
+    page = page.replace(
+        '<p class="sub">Статус ботов · обновляется каждые 5с · <span id="asof">—</span></p>',
+        '<p class="sub">Статичный снимок на момент генерации · '
+        'для живого обновления запусти <code>python dashboard.py</code> рядом с ботами · '
+        '<span id="asof">—</span></p>')
+    return page
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Веб-панель статуса memebot.py/socialbot.py")
     ap.add_argument("--host", default="127.0.0.1",
                     help="127.0.0.1 — только с этого компьютера; 0.0.0.0 — из локальной сети")
     ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--static", metavar="FILE",
+                    help="не запускать сервер — записать один самодостаточный HTML-снимок "
+                        "текущего статуса в FILE и выйти")
     args = ap.parse_args()
+
+    if args.static:
+        Path(args.static).write_text(render_static(status_payload()), encoding="utf-8")
+        print(f"Снимок записан: {args.static}")
+        return
 
     app = web.Application()
     app.router.add_get("/", handle_index)
