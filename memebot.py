@@ -1487,12 +1487,29 @@ class Bot:
                 log.exception("Ошибка анализа: %s", e)
 
         self.scans += 1
+        self.write_status(pairs_seen=len(pairs), candidates=len(candidates))
         if notify_empty and not alerted:
             await self.tg.send(
                 f"Скан завершён: {len(pairs)} пар, {len(candidates)} после фильтров, "
                 f"выше порога {self.threshold:.0f} — ничего.",
                 chat_id=self.tg.admin_chat_id or None)
         return alerted
+
+    def write_status(self, pairs_seen: int = 0, candidates: int = 0) -> None:
+        """Heartbeat-файл для веб-панели (dashboard.py) — сам по себе не нужен для работы бота."""
+        path = ROOT / "data" / "memebot_status.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "updated": time.time(), "started": self.started, "scans": self.scans,
+            "alerts_sent": self.alerts_sent, "last_seen_pairs": pairs_seen,
+            "last_candidates": candidates, "threshold": self.threshold,
+            "chains": cfg("scan.chains") or [], "news_items": len(self.news.items),
+            "muted": self.store.is_muted("global"),
+        }
+        try:
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            log.debug("write_status: %s", e)
 
     async def deep_analyze(self, pair: dict, nm: NewsMatch, prev: dict | None) -> Analysis:
         chain = str(pair.get("chainId", ""))

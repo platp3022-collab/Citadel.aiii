@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import html
+import json
 import logging
 import os
 import re
@@ -543,14 +544,12 @@ async def llm_scam_analyze(session: aiohttp.ClientSession, api_key: str, model: 
                    if isinstance(blk, dict) and blk.get("type") == "text").strip()
     text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
     try:
-        import json
         parsed = json.loads(text)
         return parsed if isinstance(parsed, dict) else None
     except Exception:  # noqa: BLE001
         m = re.search(r"\{.*\}", text, re.S)
         if m:
             try:
-                import json
                 return json.loads(m.group(0))
             except Exception:  # noqa: BLE001
                 return None
@@ -660,6 +659,9 @@ class Bot:
                                 os.environ.get("TELEGRAM_CHAT_ID", ""), dry=dry)
         self.chains = {c.lower() for c in (cfg("scan.chains") or [])}
         self.stop_event = asyncio.Event()
+        self.started = time.time()
+        self.scans = 0
+        self.alerts_sent_total = 0
 
     async def gather_mentions(self) -> list[Mention]:
         lookback = core.num(cfg("scan.lookback_hours"), 6)
@@ -740,11 +742,32 @@ class Bot:
                 sent += 1
                 await asyncio.sleep(1.0)
 
+        self.scans += 1
+        self.alerts_sent_total += sent
+        self.write_status(mentions=len(mentions), candidates=len(by_candidate))
+
         if notify_empty and sent == 0:
             await self.tg.send(
                 f"Скан завершён: {len(mentions)} упоминаний, {len(by_candidate)} кандидатов, "
                 f"алертов — 0.", chat_id=self.tg.admin_chat_id or None)
         return sent
+
+    def write_status(self, mentions: int = 0, candidates: int = 0) -> None:
+        """Heartbeat-файл для веб-панели (dashboard.py) — сам по себе не нужен для работы бота."""
+        path = ROOT / "data" / "socialbot_status.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "updated": time.time(), "started": self.started, "scans": self.scans,
+            "alerts_sent": self.alerts_sent_total, "last_mentions": mentions,
+            "last_candidates": candidates,
+            "tg_mode": self.tg_source.mode, "tg_enabled": self.tg_source.enabled,
+            "yt_mode": self.yt_source.mode, "yt_enabled": self.yt_source.enabled,
+            "keywords": len(cfg("keywords") or []),
+        }
+        try:
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            log.debug("write_status: %s", e)
 
     async def run(self) -> None:
         await self.tg_source.start(self.session)
