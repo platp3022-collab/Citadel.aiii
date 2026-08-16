@@ -529,6 +529,7 @@ class RiskReport:
     flags: list[str] = field(default_factory=list)
     source: str = ""
     dev_pct: float | None = None    # доля supply у овнера/создателя контракта, 0..1 (для трекинга "дев продаёт")
+    creator_address: str | None = None  # адрес кошелька-создателя (для истории по преды. токенам дева)
 
 
 def _merge_reports(reports: list[RiskReport]) -> RiskReport:
@@ -543,6 +544,8 @@ def _merge_reports(reports: list[RiskReport]) -> RiskReport:
         merged.flags.extend(r.flags)
         if r.dev_pct is not None:
             merged.dev_pct = max(merged.dev_pct or 0.0, r.dev_pct)
+        if r.creator_address and not merged.creator_address:
+            merged.creator_address = r.creator_address
     merged.multiplier = mult
     return merged
 
@@ -666,6 +669,8 @@ async def _goplus(session: aiohttp.ClientSession, chain: str, token: str) -> Ris
     owner_pct = num(result.get("owner_percent"))
     creator_pct = num(result.get("creator_percent"))
     rep.dev_pct = max(owner_pct, creator_pct)
+    rep.creator_address = str(result.get("creator_address")
+                              or result.get("owner_address") or "").lower() or None
     if owner_pct >= 0.2:
         rep.multiplier = min(rep.multiplier, 0.6)
         rep.flags.append(f"🔴 овнер контракта держит {owner_pct*100:.0f}% supply")
@@ -773,6 +778,7 @@ class Analysis:
     news: NewsMatch | None = None
     llm: dict | None = None
     dev_pct: float | None = None
+    creator_address: str | None = None
 
     @property
     def symbol(self) -> str:
@@ -937,7 +943,8 @@ def analyze(pair: dict, news: NewsMatch | None = None, prev: dict | None = None,
             flags.append(f"LLM оценил риск {risk:.0f}/10")
 
     a = Analysis(pair=pair, signals=signals, risks=flags, news=news, llm=llm,
-                dev_pct=risk_report.dev_pct if risk_report else None)
+                dev_pct=risk_report.dev_pct if risk_report else None,
+                creator_address=risk_report.creator_address if risk_report else None)
     a.base_score = round(max(0.0, min(100.0, base)), 1)
     a.multiplier = round(mult, 3)
     a.score = round(max(0.0, min(100.0, a.base_score * mult)), 1)
@@ -1023,8 +1030,10 @@ CREATE INDEX IF NOT EXISTS idx_snap ON snapshots(pair_address, ts);
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, pair_address TEXT NOT NULL,
     token_address TEXT, chain TEXT, symbol TEXT, ts REAL NOT NULL, score REAL,
-    price_usd REAL, max_price REAL, last_price REAL, checked_ts REAL, dev_pct REAL);
+    price_usd REAL, max_price REAL, last_price REAL, checked_ts REAL, dev_pct REAL,
+    creator_address TEXT);
 CREATE INDEX IF NOT EXISTS idx_alerts ON alerts(pair_address, ts);
+CREATE INDEX IF NOT EXISTS idx_alerts_creator ON alerts(creator_address);
 
 CREATE TABLE IF NOT EXISTS mutes (key TEXT PRIMARY KEY, until REAL);
 """
@@ -1041,10 +1050,17 @@ class Storage:
         self.lock = threading.Lock()
         with self.lock:
             self.conn.executescript(SCHEMA)
+            for stmt in ("ALTER TABLE alerts ADD COLUMN dev_pct REAL",
+                        "ALTER TABLE alerts ADD COLUMN creator_address TEXT"):
+                try:
+                    self.conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # уже есть — база создана после добавления этой колонки
             try:
-                self.conn.execute("ALTER TABLE alerts ADD COLUMN dev_pct REAL")
+                self.conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alerts_creator ON alerts(creator_address)")
             except sqlite3.OperationalError:
-                pass  # уже есть — база создана после добавления этой колонки
+                pass
             self.conn.commit()
 
     def last_snapshot(self, pair_address: str, min_age_sec: float = 600) -> dict | None:
@@ -1092,16 +1108,29 @@ class Storage:
         with self.lock:
             self.conn.execute(
                 "INSERT INTO alerts (pair_address, token_address, chain, symbol, ts,"
-                " score, price_usd, max_price, last_price, checked_ts, dev_pct)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " score, price_usd, max_price, last_price, checked_ts, dev_pct, creator_address)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (a.pair_address, a.token_address, a.chain, a.symbol, time.time(),
-                 a.score, price, price, price, time.time(), a.dev_pct))
+                 a.score, price, price, price, time.time(), a.dev_pct, a.creator_address))
             self.conn.commit()
 
     def update_alert_dev_pct(self, alert_id: int, dev_pct: float) -> None:
         with self.lock:
             self.conn.execute("UPDATE alerts SET dev_pct=? WHERE id=?", (dev_pct, alert_id))
             self.conn.commit()
+
+    def creator_history(self, creator_address: str, exclude_pair: str,
+                        limit: int = 5) -> list[dict]:
+        """Прошлые токены, на которые бот алертил от того же кошелька-создателя."""
+        if not creator_address:
+            return []
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT symbol, price_usd, max_price, last_price, ts FROM alerts"
+                " WHERE creator_address=? AND pair_address<>?"
+                " GROUP BY pair_address ORDER BY ts DESC LIMIT ?",
+                (creator_address, exclude_pair, limit)).fetchall()
+        return [dict(r) for r in rows]
 
     def open_alerts(self, hours: float = 24) -> list[dict]:
         with self.lock:
@@ -1276,7 +1305,7 @@ def _links(pair: dict) -> str:
     return " · ".join(out)
 
 
-def alert_message(a: Analysis) -> str:
+def alert_message(a: Analysis, dev_history: list[dict] | None = None) -> str:
     p = a.pair
     base = p.get("baseToken") or {}
     liq = num(dig(p, "liquidity", "usd"))
@@ -1330,9 +1359,23 @@ def alert_message(a: Analysis) -> str:
         if a.multiplier < 1:
             lines.append(f"  <i>(итог снижен ×{a.multiplier:.2f})</i>")
 
+    if dev_history:
+        lines += ["", "<b>👤 Прошлые токены этого дева:</b>"]
+        for h in dev_history:
+            p0, plast = num(h.get("price_usd")), num(h.get("last_price") or h.get("price_usd"))
+            pmax = num(h.get("max_price") or h.get("price_usd"))
+            if p0 > 0:
+                peak = (pmax / p0 - 1) * 100
+                now_from_peak = (plast / pmax - 1) * 100 if pmax > 0 else 0
+                lines.append(f"  • ${esc(h.get('symbol'))}: максимум {peak:+.0f}%, "
+                             f"сейчас {now_from_peak:+.0f}% от максимума ({fmt_age((time.time()-h.get('ts',0))/60)} назад)")
+
     lines += ["", "🔗 " + _links(p),
               f"<code>{esc(dig(p, 'baseToken', 'address', default=''))}</code>",
-              "", "<i>Не финансовый совет. Мем-коины = высокий риск потерять всё.</i>"]
+              "",
+              "💡 Риск-менеджмент: не больше 5–10% депозита на сделку, "
+              "не больше 0.5–0.7% саплая токена на один кошелёк.",
+              "<i>Не финансовый совет. Мем-коины = высокий риск потерять всё.</i>"]
     return "\n".join(lines)
 
 
@@ -1497,8 +1540,10 @@ class Bot:
                     log.info("Лимит алертов за проход достигнут")
                     break
 
+                dev_history = (self.store.creator_history(a.creator_address, a.pair_address)
+                              if a.creator_address else [])
                 sent = await self.tg.broadcast(
-                    alert_message(a),
+                    alert_message(a, dev_history=dev_history),
                     short_text=alert_message_short(a) if short_mode else None)
                 if sent:
                     self.store.record_alert(a)
