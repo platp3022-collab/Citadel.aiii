@@ -17,21 +17,25 @@ YouTube, и проверяет, не разводка ли это (шиллин�
 Настройка (.env рядом со скриптом, см. .env.example):
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID, TELEGRAM_CHAT_ID  — куда слать алерты
                                                                    (тот же бот, что в memebot.py)
-    TELEGRAM_API_ID, TELEGRAM_API_HASH  — с my.telegram.org, для юзер-клиента (поиск по TG)
     YOUTUBE_API_KEY                     — опционально, с console.cloud.google.com
                                            (YouTube Data API v3). Без ключа поиск по YouTube
-                                           всё равно работает — через yt-dlp (без логина,
-                                           просто медленнее).
+                                           всё равно работает — через yt-dlp (без логина).
+    TELEGRAM_API_ID, TELEGRAM_API_HASH  — опционально, с my.telegram.org, для юзер-клиента
+                                           (глобальный поиск по всему Telegram по ключевым
+                                           словам). Без них поиск по Telegram тоже работает,
+                                           но только по конкретным каналам — см. ниже.
     ANTHROPIC_API_KEY                   — опционально, для LLM-вердикта
 
-Первый запуск Telegram-клиента интерактивный: попросит номер телефона и код
-подтверждения (один раз, сессия сохранится в data/socialbot_session.session).
-Сделай это заранее:
-    python socialbot.py --login
-
-ВАЖНО: автоматический поиск через личный аккаунт технически нарушает разумные
-лимиты Telegram и может привести к ограничениям — по возможности используй
-отдельный (не основной) аккаунт для этого клиента.
+Поиск по Telegram — два режима (выбирается автоматически):
+  - Без TELEGRAM_API_ID/HASH: читает публичные веб-страницы t.me/s/<channel> для
+    списка каналов из CONFIG["telegram_search"]["public_channels"] в этом файле
+    (впиши туда username каналов без @). Логин не нужен, но искать можно только
+    по каналам, которые сам укажешь — у Telegram нет публичного поиска по всему
+    сервису без аккаунта (в отличие от YouTube).
+  - С TELEGRAM_API_ID/HASH: юзер-клиент (Telethon) с глобальным поиском по
+    ключевым словам по всему Telegram — как поиск в приложении. Нужен твой
+    аккаунт (лучше не основной — см. ниже) и разовый интерактивный логин:
+        python socialbot.py --login
 
 Запуск:
     python socialbot.py            # боевой режим, бесконечный цикл
@@ -44,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import html
 import logging
 import os
 import re
@@ -90,7 +95,8 @@ CONFIG: dict[str, Any] = {
     },
     "telegram_search": {
         "enabled": True,
-        "results_per_keyword": 40,
+        "results_per_keyword": 40,     # режим telethon: результатов на ключевое слово
+        "public_channels": [],         # режим public (без логина): список каналов, напр. ["durov"]
     },
     "youtube_search": {
         "enabled": True,
@@ -204,32 +210,75 @@ class Mention:
     ts: float
 
 
-class TelegramSource:
-    """Поиск свежих сообщений по ключевым словам через юзер-клиент Telethon.
+def _parse_public_channel_html(body: str, channel: str) -> list[Mention]:
+    """Разбирает статический HTML публичной веб-версии t.me/s/<channel>."""
+    out: list[Mention] = []
+    # каждое сообщение начинается с data-post="channel/id" — по нему режем на куски
+    parts = re.split(r'(?=data-post="[^"]+")', body)
+    for part in parts:
+        post_m = re.search(r'data-post="([^"]+)"', part)
+        text_m = re.search(
+            r'class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', part, re.S)
+        if not post_m or not text_m:
+            continue
+        raw = re.sub(r"<br\s*/?>", "\n", text_m.group(1))
+        raw = re.sub(r"<[^>]+>", "", raw)
+        text = html.unescape(raw).strip()
+        if not text:
+            continue
+        ts = time.time()
+        time_m = re.search(r'<time[^>]*\bdatetime="([^"]+)"', part)
+        if time_m:
+            try:
+                ts = datetime.fromisoformat(time_m.group(1)).timestamp()
+            except ValueError:
+                pass
+        out.append(Mention("telegram", f"@{channel}",
+                           f"https://t.me/{post_m.group(1)}", text, ts))
+    return out
 
-    Официальный Bot API не даёт читать чужие каналы — нужен полноценный
-    аккаунт. Использует глобальный поиск Telegram (то же, чем пользуется
-    встроенный поиск в приложении).
+
+class TelegramSource:
+    """Свежие сообщения из Telegram — два режима, выбираются автоматически:
+
+    - `telethon` — юзер-клиент, если заданы TELEGRAM_API_ID/HASH. Глобальный
+      поиск по ключевым словам по всему Telegram (как поиск в приложении),
+      но требует твой аккаунт и разовый интерактивный логин.
+    - `public`   — без логина и без ключей вообще: читает статические
+      веб-страницы t.me/s/<channel> для списка каналов из
+      `CONFIG["telegram_search"]["public_channels"]`. Ограничение — у
+      Telegram нет публичной страницы поиска по всему сервису (в отличие от
+      YouTube), поэтому этот режим мониторит только конкретные каналы,
+      которые ты сам укажешь, а не ищет по ключевым словам везде.
     """
 
     def __init__(self):
         api_id = int(os.environ.get("TELEGRAM_API_ID", "0") or 0)
         api_hash = os.environ.get("TELEGRAM_API_HASH", "")
-        self.enabled = bool(TelegramClient and api_id and api_hash
-                            and cfg("telegram_search.enabled", True))
         self.client: "TelegramClient | None" = None
-        if self.enabled:
+        self.channels = [str(c).lstrip("@") for c in
+                         (cfg("telegram_search.public_channels") or [])]
+
+        if TelegramClient and api_id and api_hash:
+            self.mode = "telethon"
             session_path = ROOT / "data"
             session_path.mkdir(parents=True, exist_ok=True)
             self.client = TelegramClient(str(session_path / "socialbot_session"),
                                          api_id, api_hash)
-        elif TelegramClient is None:
-            log.warning("telethon не установлен — поиск по Telegram выключен")
-        elif not (api_id and os.environ.get("TELEGRAM_API_HASH")):
-            log.warning("TELEGRAM_API_ID/TELEGRAM_API_HASH не заданы — поиск по Telegram выключен")
+        else:
+            self.mode = "public"
+            if not self.channels:
+                log.warning(
+                    "TELEGRAM_API_ID/HASH не заданы, а CONFIG['telegram_search']"
+                    "['public_channels'] пуст — поиск по Telegram выключен. "
+                    "Впиши туда список каналов (без @) или задай API_ID/HASH.")
 
-    async def start(self) -> None:
-        if not self.enabled:
+        self.enabled = cfg("telegram_search.enabled", True) and (
+            self.mode == "telethon" or bool(self.channels))
+
+    async def start(self, session: aiohttp.ClientSession) -> None:
+        self.http = session
+        if self.mode != "telethon" or not self.enabled:
             return
         await self.client.start()
         if not await self.client.is_user_authorized():
@@ -240,12 +289,24 @@ class TelegramSource:
         if self.client:
             await self.client.disconnect()
 
-    async def search(self, keyword: str, lookback_hours: float) -> list[Mention]:
+    async def gather(self, keywords: list[str], lookback_hours: float) -> list[Mention]:
+        """Собрать упоминания: по ключевым словам (telethon) либо по списку каналов (public)."""
         if not self.enabled:
             return []
+        if self.mode == "telethon":
+            tasks = [self._search_global(kw, lookback_hours) for kw in keywords]
+        else:
+            tasks = [self._fetch_public_channel(ch, lookback_hours) for ch in self.channels]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        out: list[Mention] = []
+        for res in results:
+            if isinstance(res, list):
+                out.extend(res)
+        return out
+
+    async def _search_global(self, keyword: str, lookback_hours: float) -> list[Mention]:
         cutoff = time.time() - lookback_hours * 3600
         limit = int(cfg("telegram_search.results_per_keyword", 40))
-        out: list[Mention] = []
         try:
             result = await self.client(SearchGlobalRequest(
                 q=keyword,
@@ -261,6 +322,7 @@ class TelegramSource:
             log.warning("TG поиск '%s': %s", keyword, e)
             return []
 
+        out: list[Mention] = []
         chats = {c.id: c for c in getattr(result, "chats", [])}
         for msg in getattr(result, "messages", []):
             text = getattr(msg, "message", "") or ""
@@ -277,6 +339,21 @@ class TelegramSource:
             link = f"https://t.me/{username}/{msg.id}" if username else ""
             out.append(Mention("telegram", str(name), link, text, ts))
         return out
+
+    async def _fetch_public_channel(self, channel: str, lookback_hours: float) -> list[Mention]:
+        try:
+            async with self.http.get(f"https://t.me/s/{channel}",
+                                     timeout=aiohttp.ClientTimeout(total=20)) as r:
+                if r.status != 200:
+                    log.warning("TG канал @%s: HTTP %s", channel, r.status)
+                    return []
+                body = await r.text()
+        except Exception as e:  # noqa: BLE001
+            log.warning("TG канал @%s: %s", channel, e)
+            return []
+
+        cutoff = time.time() - lookback_hours * 3600
+        return [m for m in _parse_public_channel_html(body, channel) if m.ts >= cutoff]
 
 
 class YouTubeSource:
@@ -587,9 +664,8 @@ class Bot:
     async def gather_mentions(self) -> list[Mention]:
         lookback = core.num(cfg("scan.lookback_hours"), 6)
         keywords = cfg("keywords") or []
-        tasks = []
+        tasks = [self.tg_source.gather(keywords, lookback)]
         for kw in keywords:
-            tasks.append(self.tg_source.search(kw, lookback))
             tasks.append(self.yt_source.search(kw, lookback))
         results = await asyncio.gather(*tasks, return_exceptions=True)
         mentions: list[Mention] = []
@@ -671,12 +747,12 @@ class Bot:
         return sent
 
     async def run(self) -> None:
-        await self.tg_source.start()
+        await self.tg_source.start(self.session)
         interval = core.num(cfg("scan.interval_seconds"), 300)
         await self.tg.send(
             "🤖 Соц-скам-сканер запущен.\n"
-            f"TG-поиск: {'вкл' if self.tg_source.enabled else 'выкл'} · "
-            f"YouTube-поиск: {'вкл' if self.yt_source.enabled else 'выкл'}\n"
+            f"TG-поиск: {'вкл (' + self.tg_source.mode + ')' if self.tg_source.enabled else 'выкл'} · "
+            f"YouTube-поиск: {'вкл (' + self.yt_source.mode + ')' if self.yt_source.enabled else 'выкл'}\n"
             f"Ключевых слов: {len(cfg('keywords') or [])}",
             chat_id=self.tg.admin_chat_id or None)
         try:
@@ -723,7 +799,7 @@ async def amain(args: argparse.Namespace) -> None:
     async with aiohttp.ClientSession(headers=core.UA, connector=connector) as session:
         bot = Bot(session, dry=args.dry)
         if args.once:
-            await bot.tg_source.start()
+            await bot.tg_source.start(session)
             found = await bot.scan_once(notify_empty=True)
             await bot.tg_source.stop()
             log.info("Готово. Алертов: %d", found)

@@ -79,35 +79,54 @@ python memebot.py --dry      # без отправки в Telegram, всё в к
 rug-pull проверки, что и `memebot.py` (RugCheck / honeypot.is / GoPlus), плюс ищет
 классические фразы-маркеры прямо в рекламном тексте и просит LLM оценить вероятность скама.
 
-### Настройка
+### Настройка — быстрый старт без ключей и логина
 
-Telegram Bot API не даёт читать чужие каналы — только те, куда бота добавили админом.
-Поэтому поиск по Telegram работает через **твой личный юзер-аккаунт** (библиотека Telethon),
-как встроенный поиск в приложении. Рекомендуется завести под это отдельный (не основной)
-аккаунт — автоматизированный поиск через личный профиль формально нарушает разумные лимиты
-Telegram и в теории может привести к ограничениям.
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+nano .env   # впиши TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID/TELEGRAM_CHAT_ID (те же, что у memebot.py)
+```
 
-1. Установи зависимости: `pip install -r requirements.txt` (добавляет `telethon`)
-2. Получи `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` на [my.telegram.org](https://my.telegram.org)
+YouTube ищет через `yt-dlp` без ключа автоматически. Для Telegram без логина открой
+`socialbot.py`, найди `CONFIG["telegram_search"]["public_channels"]` и впиши туда список
+username каналов, которые хочешь мониторить (без `@`), например:
+
+```python
+"public_channels": ["somecryptochannel", "anothercallschannel"],
+```
+
+Дальше просто:
+```bash
+python socialbot.py --once --dry     # проверить без реальной отправки
+python socialbot.py                  # боевой режим
+```
+
+**Ограничение этого режима**: у Telegram нет публичной страницы поиска по всему сервису
+(в отличие от YouTube) — без логина бот может читать только конкретные каналы, которые ты
+сам укажешь, а не искать по ключевым словам по всему Telegram.
+
+### Поиск по всему Telegram (опционально, нужен логин)
+
+Если хочется не список каналов, а глобальный поиск по ключевым словам по всему Telegram
+(как поиск в приложении) — можно подключить юзер-клиент (Telethon). Официальный Bot API
+для этого не подходит, читает только каналы, куда бота добавили админом. Рекомендуется
+завести под это отдельный (не основной) аккаунт — автоматизированный поиск через личный
+профиль формально нарушает разумные лимиты Telegram и в теории может привести к ограничениям.
+
+1. Получи `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` на [my.telegram.org](https://my.telegram.org)
    → API development tools → создать приложение. Впиши в `.env`.
-3. Получи `YOUTUBE_API_KEY` в [Google Cloud Console](https://console.cloud.google.com)
-   (включить YouTube Data API v3 → создать API key). Впиши в `.env`.
-4. Разовая авторизация Telegram-клиента (спросит номер телефона и код из SMS/Telegram):
+2. Разовая авторизация (спросит номер телефона и код из SMS/Telegram):
    ```bash
    python socialbot.py --login
    ```
    Сессия сохранится в `data/socialbot_session.session` — повторно логиниться не нужно.
-5. Запуск:
-   ```bash
-   python socialbot.py            # боевой режим
-   python socialbot.py --once     # один проход и выход
-   python socialbot.py --dry      # без отправки в Telegram, всё в консоль
-   ```
+3. Как только `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` заданы в `.env`, бот сам переключится
+   на этот режим при следующем запуске (`public_channels` в этом случае игнорируется).
 
-`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHANNEL_ID`/`TELEGRAM_CHAT_ID`/`ANTHROPIC_API_KEY` — те же,
-что и у `memebot.py` (алерты уходят в тот же бот/канал/чат).
+Так же и с YouTube: `YOUTUBE_API_KEY` (опционально, [Google Cloud Console](https://console.cloud.google.com)
+→ включить YouTube Data API v3 → создать API key) — с ним поиск идёт через официальный API
+(быстрее и стабильнее), без него — через `yt-dlp`.
 
-Если `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` или `YOUTUBE_API_KEY` не заданы — соответствующий
-источник просто выключается, бот продолжает работать на том, что доступно.
+`ANTHROPIC_API_KEY` — опционально, для LLM-вердикта по вероятности скама.
 
 Отказ от ответственности: инструмент фильтрации информации, не финансовый совет.
