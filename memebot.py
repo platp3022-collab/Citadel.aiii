@@ -118,7 +118,12 @@ CONFIG: dict[str, Any] = {
         },
     },
     "llm": {"enabled": False, "model": "claude-sonnet-5"},
-    "tracking": {"interval_minutes": 15, "window_hours": 48},
+    "tracking": {
+        "interval_minutes": 15, "window_hours": 48,
+        "dev_wallet_check": True,       # следить, не сливает ли дев/овнер свою долю после алерта
+        "dev_check_limit": 20,          # не больше N токенов за проход (щадим бесплатные лимиты API)
+        "dev_sold_threshold": 0.05,     # алерт, если доля упала минимум на 5 п.п.
+    },
     "storage": {"path": "data/memebot.db", "keep_days": 7},
 }
 
@@ -523,6 +528,7 @@ class RiskReport:
     multiplier: float = 1.0
     flags: list[str] = field(default_factory=list)
     source: str = ""
+    dev_pct: float | None = None    # доля supply у овнера/создателя контракта, 0..1 (для трекинга "дев продаёт")
 
 
 def _merge_reports(reports: list[RiskReport]) -> RiskReport:
@@ -535,6 +541,8 @@ def _merge_reports(reports: list[RiskReport]) -> RiskReport:
     for r in reports:
         mult *= r.multiplier
         merged.flags.extend(r.flags)
+        if r.dev_pct is not None:
+            merged.dev_pct = max(merged.dev_pct or 0.0, r.dev_pct)
     merged.multiplier = mult
     return merged
 
@@ -657,6 +665,7 @@ async def _goplus(session: aiohttp.ClientSession, chain: str, token: str) -> Ris
 
     owner_pct = num(result.get("owner_percent"))
     creator_pct = num(result.get("creator_percent"))
+    rep.dev_pct = max(owner_pct, creator_pct)
     if owner_pct >= 0.2:
         rep.multiplier = min(rep.multiplier, 0.6)
         rep.flags.append(f"🔴 овнер контракта держит {owner_pct*100:.0f}% supply")
@@ -763,6 +772,7 @@ class Analysis:
     risks: list[str] = field(default_factory=list)
     news: NewsMatch | None = None
     llm: dict | None = None
+    dev_pct: float | None = None
 
     @property
     def symbol(self) -> str:
@@ -926,7 +936,8 @@ def analyze(pair: dict, news: NewsMatch | None = None, prev: dict | None = None,
             mult *= 0.7
             flags.append(f"LLM оценил риск {risk:.0f}/10")
 
-    a = Analysis(pair=pair, signals=signals, risks=flags, news=news, llm=llm)
+    a = Analysis(pair=pair, signals=signals, risks=flags, news=news, llm=llm,
+                dev_pct=risk_report.dev_pct if risk_report else None)
     a.base_score = round(max(0.0, min(100.0, base)), 1)
     a.multiplier = round(mult, 3)
     a.score = round(max(0.0, min(100.0, a.base_score * mult)), 1)
@@ -1012,7 +1023,7 @@ CREATE INDEX IF NOT EXISTS idx_snap ON snapshots(pair_address, ts);
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, pair_address TEXT NOT NULL,
     token_address TEXT, chain TEXT, symbol TEXT, ts REAL NOT NULL, score REAL,
-    price_usd REAL, max_price REAL, last_price REAL, checked_ts REAL);
+    price_usd REAL, max_price REAL, last_price REAL, checked_ts REAL, dev_pct REAL);
 CREATE INDEX IF NOT EXISTS idx_alerts ON alerts(pair_address, ts);
 
 CREATE TABLE IF NOT EXISTS mutes (key TEXT PRIMARY KEY, until REAL);
@@ -1030,6 +1041,10 @@ class Storage:
         self.lock = threading.Lock()
         with self.lock:
             self.conn.executescript(SCHEMA)
+            try:
+                self.conn.execute("ALTER TABLE alerts ADD COLUMN dev_pct REAL")
+            except sqlite3.OperationalError:
+                pass  # уже есть — база создана после добавления этой колонки
             self.conn.commit()
 
     def last_snapshot(self, pair_address: str, min_age_sec: float = 600) -> dict | None:
@@ -1077,10 +1092,15 @@ class Storage:
         with self.lock:
             self.conn.execute(
                 "INSERT INTO alerts (pair_address, token_address, chain, symbol, ts,"
-                " score, price_usd, max_price, last_price, checked_ts)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " score, price_usd, max_price, last_price, checked_ts, dev_pct)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (a.pair_address, a.token_address, a.chain, a.symbol, time.time(),
-                 a.score, price, price, price, time.time()))
+                 a.score, price, price, price, time.time(), a.dev_pct))
+            self.conn.commit()
+
+    def update_alert_dev_pct(self, alert_id: int, dev_pct: float) -> None:
+        with self.lock:
+            self.conn.execute("UPDATE alerts SET dev_pct=? WHERE id=?", (dev_pct, alert_id))
             self.conn.commit()
 
     def open_alerts(self, hours: float = 24) -> list[dict]:
@@ -1282,6 +1302,8 @@ def alert_message(a: Analysis) -> str:
         f"🔄 Сделки 1ч: {b+s} (покупки {b/total*100:.0f}%)",
         f"⏱ Возраст пула: {fmt_age(age_minutes(p))}",
     ]
+    if a.dev_pct is not None:
+        lines.append(f"👤 Дев/овнер держит: {a.dev_pct*100:.0f}% supply")
 
     if a.news and (a.news.headlines or a.news.narratives):
         lines.append("")
@@ -1579,8 +1601,41 @@ class Bot:
                         for r in alerts:
                             self.store.update_alert_price(int(r["id"]), price)
                 self.store.prune(num(cfg("storage.keep_days"), 7))
+
+                if cfg("tracking.dev_wallet_check", True):
+                    await self._check_dev_wallets(by_token)
             except Exception as e:  # noqa: BLE001
                 log.exception("Сбой трекера: %s", e)
+
+    async def _check_dev_wallets(self, by_token: dict[str, list[dict]]) -> None:
+        """Axiom-style 'Dev Sold': следим, не упала ли доля овнера/дева с момента алерта."""
+        limit = int(num(cfg("tracking.dev_check_limit"), 20))
+        threshold = num(cfg("tracking.dev_sold_threshold"), 0.05)
+        checked = 0
+        for addr, alerts in by_token.items():
+            if checked >= limit:
+                break
+            chain = str(alerts[0].get("chain") or "")
+            if not chain or chain not in EVM_CHAIN_IDS:
+                continue  # RugCheck (Solana) не даёт сырой % дева — нечего сравнивать
+            checked += 1
+            try:
+                report = await risk_check(self.session, chain, addr)
+            except Exception as e:  # noqa: BLE001
+                log.debug("dev-check %s: %s", addr, e)
+                continue
+            if not report.ok or report.dev_pct is None:
+                continue
+            for r in alerts:
+                prev_pct = r.get("dev_pct")
+                if prev_pct is not None and report.dev_pct < prev_pct - threshold:
+                    symbol = str(r.get("symbol") or "?")
+                    await self.tg.broadcast(
+                        f"🚨 <b>${esc(symbol)}</b>: похоже, дев-кошелёк продаёт\n"
+                        f"Было {prev_pct*100:.0f}% supply при алерте → сейчас {report.dev_pct*100:.0f}%\n"
+                        f"<code>{esc(addr)}</code>")
+                self.store.update_alert_dev_pct(int(r["id"]), report.dev_pct)
+            await asyncio.sleep(0.5)
 
     async def telegram_loop(self) -> None:
         if not self.tg.token or self.tg.dry:
