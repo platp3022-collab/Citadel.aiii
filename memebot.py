@@ -779,6 +779,7 @@ class Analysis:
     llm: dict | None = None
     dev_pct: float | None = None
     creator_address: str | None = None
+    strategy: str = ""
 
     @property
     def symbol(self) -> str:
@@ -919,6 +920,24 @@ def _risk_flags(pair: dict, prev: dict | None) -> tuple[list[str], float]:
     return flags, mult
 
 
+def classify_strategy(pair: dict) -> str:
+    """Категоризация по стратегиям трейдинга мем-коинов (как в терминалах вроде Axiom):
+    Flip — быстрый вход на свежем моментуме; Intraday — Solana в диапазоне капы
+    для внутридневной торговли; Среднесрок — устоявшиеся пары на любой из основных сетей."""
+    chain = str(pair.get("chainId", "")).lower()
+    fdv = num(pair.get("fdv")) or num(pair.get("marketCap"))
+    age = age_minutes(pair)
+    h1 = num(dig(pair, "priceChange", "h1"))
+
+    if 0 <= age < 120 and h1 > 15:
+        return "Flip"
+    if chain == "solana" and 50_000 <= fdv <= 1_000_000:
+        return "Intraday"
+    if chain in ("solana", "ethereum", "bsc") and age >= 720:
+        return "Среднесрок"
+    return ""
+
+
 def analyze(pair: dict, news: NewsMatch | None = None, prev: dict | None = None,
             paid_orders: list[dict] | None = None,
             risk_report: RiskReport | None = None,
@@ -944,7 +963,8 @@ def analyze(pair: dict, news: NewsMatch | None = None, prev: dict | None = None,
 
     a = Analysis(pair=pair, signals=signals, risks=flags, news=news, llm=llm,
                 dev_pct=risk_report.dev_pct if risk_report else None,
-                creator_address=risk_report.creator_address if risk_report else None)
+                creator_address=risk_report.creator_address if risk_report else None,
+                strategy=classify_strategy(pair))
     a.base_score = round(max(0.0, min(100.0, base)), 1)
     a.multiplier = round(mult, 3)
     a.score = round(max(0.0, min(100.0, a.base_score * mult)), 1)
@@ -1320,7 +1340,8 @@ def alert_message(a: Analysis, dev_history: list[dict] | None = None) -> str:
         f"{head_emoji(a.score)} <b>${esc(base.get('symbol'))}</b> — "
         f"<b>{a.score:.0f}/100</b>  {score_bar(a.score)}",
         f"<i>{esc(base.get('name'))}</i> · {CHAIN_EMOJI.get(chain,'')} "
-        f"{esc(chain)}/{esc(p.get('dexId'))}",
+        f"{esc(chain)}/{esc(p.get('dexId'))}"
+        + (f" · 🏷 {esc(a.strategy)}" if a.strategy else ""),
         "",
         f"💵 Цена: <b>{fmt_price(num(p.get('priceUsd')))}</b>",
         f"📈 {num(pc.get('m5')):+.1f}% 5м · {num(pc.get('h1')):+.1f}% 1ч · "
