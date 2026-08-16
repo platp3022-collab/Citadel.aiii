@@ -18,7 +18,10 @@ YouTube, и проверяет, не разводка ли это (шиллин�
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID, TELEGRAM_CHAT_ID  — куда слать алерты
                                                                    (тот же бот, что в memebot.py)
     TELEGRAM_API_ID, TELEGRAM_API_HASH  — с my.telegram.org, для юзер-клиента (поиск по TG)
-    YOUTUBE_API_KEY                     — с console.cloud.google.com (YouTube Data API v3)
+    YOUTUBE_API_KEY                     — опционально, с console.cloud.google.com
+                                           (YouTube Data API v3). Без ключа поиск по YouTube
+                                           всё равно работает — через yt-dlp (без логина,
+                                           просто медленнее).
     ANTHROPIC_API_KEY                   — опционально, для LLM-вердикта
 
 Первый запуск Telegram-клиента интерактивный: попросит номер телефона и код
@@ -63,6 +66,11 @@ try:
     from telethon.tl.types import InputMessagesFilterEmpty, InputPeerEmpty
 except ImportError:
     TelegramClient = None  # соц-поиск по TG будет выключен
+
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None  # используется как запасной поиск по YouTube без API-ключа
 
 import memebot as core  # переиспользуем DexScreener, risk_check, Telegram, esc/fmt_* и т.д.
 
@@ -272,18 +280,39 @@ class TelegramSource:
 
 
 class YouTubeSource:
-    """Поиск свежих видео по ключевым словам через YouTube Data API v3."""
+    """Поиск свежих видео по ключевым словам.
+
+    Два режима:
+    - `api`   — официальный YouTube Data API v3, нужен YOUTUBE_API_KEY (быстро, лимит квоты).
+    - `ytdlp` — без ключа, через yt-dlp (скрейпит страницу поиска YouTube).
+                Медленнее (для описания видео нужен отдельный запрос на каждое),
+                но не требует Google-аккаунта/ключа вообще.
+    """
 
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
         self.api_key = os.environ.get("YOUTUBE_API_KEY", "")
-        self.enabled = bool(self.api_key) and cfg("youtube_search.enabled", True)
-        if not self.api_key:
-            log.warning("YOUTUBE_API_KEY не задан — поиск по YouTube выключен")
+        if self.api_key:
+            self.mode = "api"
+        elif yt_dlp is not None:
+            self.mode = "ytdlp"
+        else:
+            self.mode = "off"
+        self.enabled = self.mode != "off" and cfg("youtube_search.enabled", True)
+        if self.mode == "off":
+            log.warning("YOUTUBE_API_KEY не задан и yt-dlp не установлен — "
+                       "поиск по YouTube выключен")
+        elif self.mode == "ytdlp":
+            log.info("YouTube: поиск без API-ключа через yt-dlp")
 
     async def search(self, keyword: str, lookback_hours: float) -> list[Mention]:
         if not self.enabled:
             return []
+        if self.mode == "api":
+            return await self._search_api(keyword, lookback_hours)
+        return await self._search_ytdlp(keyword, lookback_hours)
+
+    async def _search_api(self, keyword: str, lookback_hours: float) -> list[Mention]:
         published_after = (datetime.now(timezone.utc) - timedelta(hours=lookback_hours)) \
             .strftime("%Y-%m-%dT%H:%M:%SZ")
         params = {
@@ -317,6 +346,39 @@ class YouTubeSource:
             except ValueError:
                 pass
             link = f"https://youtu.be/{vid}" if vid else ""
+            out.append(Mention("youtube", channel, link, f"{title}\n{desc}", ts))
+        return out
+
+    async def _search_ytdlp(self, keyword: str, lookback_hours: float) -> list[Mention]:
+        # без ключа опрос на видео дороже, чем к API — держим их поменьше
+        max_results = min(int(cfg("youtube_search.results_per_keyword", 15)), 8)
+
+        def run() -> list[dict]:
+            opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+                    "extract_flat": False, "socket_timeout": 15}
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(f"ytsearch{max_results}:{keyword}", download=False)
+            return (info or {}).get("entries") or []
+
+        try:
+            entries = await asyncio.get_running_loop().run_in_executor(None, run)
+        except Exception as e:  # noqa: BLE001
+            log.warning("yt-dlp поиск '%s': %s", keyword, e)
+            return []
+
+        cutoff = time.time() - lookback_hours * 3600
+        out: list[Mention] = []
+        for e in entries:
+            if not e:
+                continue
+            ts = core.num(e.get("timestamp"), 0)
+            if ts and ts < cutoff:
+                continue
+            ts = ts or time.time()
+            vid = e.get("id")
+            title, desc = e.get("title", "") or "", e.get("description", "") or ""
+            channel = e.get("channel") or e.get("uploader") or "YouTube"
+            link = f"https://youtu.be/{vid}" if vid else (e.get("webpage_url") or "")
             out.append(Mention("youtube", channel, link, f"{title}\n{desc}", ts))
         return out
 
