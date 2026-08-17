@@ -1,0 +1,8 @@
+anthropic>=0.70
+pandas>=2.0
+numpy>=1.26
+yfinance>=0.2.40
+
+# Only needed for crypto pairs (BTC/USDT style tickers). Safe to remove if you
+# only screen equities — main.py imports it lazily.
+ccxt>=4.3

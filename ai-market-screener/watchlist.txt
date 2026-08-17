@@ -1,0 +1,11 @@
+# One ticker per line. Text after # is ignored.
+# Equities / ETFs use plain symbols; crypto uses exchange pairs (BTC/USDT).
+
+AAPL
+MSFT
+NVDA
+AMD
+TSLA
+META
+AMZN
+GOOGL
