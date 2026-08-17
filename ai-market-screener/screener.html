@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Market Screener</title>
+<style>
+:root{--bg:#F1F3F2;--surface:#FBFCFB;--surface-2:#E7ECEA;--rule:#D2DAD7;
+--ink:#14211F;--ink-2:#4B5E5B;--ink-3:#7A8B88;--accent:#0B6B63;--accent-ink:#075049;
+--accent-wash:#DCEAE7;--amber:#8A5715;--amber-wash:#F3E8D4;--red:#9A2E2E;--red-wash:#F4E0DE;
+--btn-ink:#FFFFFF;
+--fb:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+--fu:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+--fm:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+--bg:#0E1615;--surface:#141F1D;--surface-2:#1B2726;--rule:#2A3937;
+--ink:#E2E9E7;--ink-2:#A0B3AF;--ink-3:#758884;--accent:#4FC0B2;--accent-ink:#7FD6CA;
+--accent-wash:#12312D;--amber:#D8A650;--amber-wash:#33280F;--red:#E08A84;--red-wash:#38201E;
+--btn-ink:#08201E}}
+:root[data-theme="dark"]{--bg:#0E1615;--surface:#141F1D;--surface-2:#1B2726;--rule:#2A3937;
+--ink:#E2E9E7;--ink-2:#A0B3AF;--ink-3:#758884;--accent:#4FC0B2;--accent-ink:#7FD6CA;
+--accent-wash:#12312D;--amber:#D8A650;--amber-wash:#33280F;--red:#E08A84;--red-wash:#38201E;
+--btn-ink:#08201E}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);
+font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:920px;margin:0 auto;padding:36px 22px 80px}
+header{border-bottom:1px solid var(--rule);padding-bottom:20px;margin-bottom:26px;
+display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between}
+h1{font-size:1.85rem;margin:0;font-weight:600;letter-spacing:-.02em}
+.tag{font-family:var(--fu);font-size:11px;font-weight:700;letter-spacing:.14em;
+text-transform:uppercase;color:var(--accent)}
+h2{font-size:1.3rem;margin:30px 0 10px;font-weight:600}
+h3{font-family:var(--fu);font-size:.88rem;font-weight:700;margin:22px 0 9px}
+p{margin:0 0 13px;max-width:66ch}
+a{color:var(--accent)}
+.lab{display:block;font-family:var(--fu);font-size:11.5px;font-weight:700;
+letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);margin-bottom:6px}
+.hint{font-family:var(--fu);font-size:12px;color:var(--ink-3);margin:5px 0 0;max-width:70ch}
+textarea,input,select{width:100%;padding:10px 12px;background:var(--surface);color:var(--ink);
+border:1px solid var(--rule);border-radius:2px;font-family:var(--fm);font-size:13px;line-height:1.5}
+textarea{min-height:118px;resize:vertical}
+.row{display:grid;gap:16px;margin-bottom:16px}
+@media(min-width:660px){.row.c3{grid-template-columns:1fr 1fr 1fr}.row.c2{grid-template-columns:1fr 1fr}}
+button{font-family:var(--fu);font-size:14px;font-weight:700;letter-spacing:.03em;
+padding:13px 26px;background:var(--accent);color:var(--btn-ink);border:none;border-radius:2px;cursor:pointer}
+button:hover{opacity:.88}
+button:disabled{opacity:.5;cursor:progress}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--rule);padding:9px 16px;font-size:13px}
+.tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--rule)}
+.tabs button{background:none;color:var(--ink-3);border:none;border-bottom:2px solid transparent;
+padding:10px 16px;font-size:13px;border-radius:0}
+.tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--rule);padding:18px 20px;margin-bottom:18px}
+.card.ok{border-left:3px solid var(--accent)}
+.card.warn{border-left:3px solid var(--amber)}
+.card.err{border-left:3px solid var(--red)}
+.card h4{font-family:var(--fu);font-size:11px;font-weight:700;letter-spacing:.12em;
+text-transform:uppercase;margin:0 0 8px}
+.card.ok h4{color:var(--accent)}.card.warn h4{color:var(--amber)}.card.err h4{color:var(--red)}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin-bottom:20px}
+table{border-collapse:collapse;width:100%;font-family:var(--fu);font-size:13.5px}
+th{text-align:left;padding:10px 14px;background:var(--surface-2);font-size:11px;font-weight:700;
+letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--rule);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{font-family:var(--fm);color:var(--ink);font-weight:600}
+.score{font-family:var(--fm);font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.pill{display:inline-block;padding:2px 9px;border-radius:2px;font-size:11px;font-weight:700}
+.p-long{background:var(--accent-wash);color:var(--accent-ink)}
+.p-short{background:var(--red-wash);color:var(--red)}
+.p-none{background:var(--surface-2);color:var(--ink-3)}
+.plan{border:1px solid var(--rule);background:var(--surface);padding:18px 20px;margin-bottom:14px}
+.plan h4{font-family:var(--fu);font-size:15px;margin:0 0 11px}
+.plan dl{display:grid;grid-template-columns:1fr;gap:7px 18px;margin:0;font-size:14px}
+@media(min-width:600px){.plan dl{grid-template-columns:auto 1fr}}
+.plan dt{font-family:var(--fu);font-size:11px;font-weight:700;letter-spacing:.09em;
+text-transform:uppercase;color:var(--ink-3);padding-top:3px}
+.plan dd{margin:0;color:var(--ink-2)}
+.meta{font-family:var(--fu);font-size:12px;color:var(--ink-3)}
+#log{font-family:var(--fm);font-size:12px;background:var(--surface-2);border:1px solid var(--rule);
+padding:12px 14px;max-height:230px;overflow-y:auto;margin-bottom:18px;display:none;white-space:pre-wrap}
+#log .e{color:var(--red)}
+#log .d{color:var(--accent)}
+pre{background:var(--surface-2);border:1px solid var(--rule);padding:13px 15px;overflow-x:auto;
+font-family:var(--fm);font-size:12px;line-height:1.55;margin:0 0 18px}
+details{border:1px solid var(--rule);background:var(--surface);padding:12px 16px;margin-bottom:18px}
+summary{cursor:pointer;font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink-2)}
+details[open] summary{margin-bottom:14px}
+footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:18px;
+font-family:var(--fu);font-size:12px;color:var(--ink-3)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>AI Market Screener</h1>
+  <span class="tag" id="mode-tag">одна страница · без установки</span>
+</header>
+
+<div id="filewarn" class="card warn hidden">
+  <h4>Страница открыта не с диска</h4>
+  <p>Похоже, файл открыт через сервер с ограничительной политикой. Запросы к
+  бирже и к API могут блокироваться. Скачайте <code>screener.html</code> и
+  откройте двойным кликом — так работает без ограничений.</p>
+</div>
+
+<details id="setup">
+  <summary>Ключ API и настройки</summary>
+  <div class="row">
+    <div>
+      <label class="lab" for="key">Ключ Anthropic</label>
+      <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+      <p class="hint">Хранится только в localStorage вашего браузера и уходит
+      единственным адресом — на api.anthropic.com. Ключ можно получить на
+      <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>
+      → Settings → API Keys.</p>
+    </div>
+  </div>
+  <div class="row c3">
+    <div><label class="lab" for="effort">Глубина анализа</label>
+      <select id="effort">
+        <option value="low">low — быстро и дёшево</option>
+        <option value="medium">medium</option>
+        <option value="high" selected>high — по умолчанию</option>
+        <option value="xhigh">xhigh</option>
+        <option value="max">max — дороже всего</option>
+      </select></div>
+    <div><label class="lab" for="lang">Язык отчёта</label>
+      <select id="lang"><option value="ru" selected>Русский</option><option value="en">English</option></select></div>
+    <div><label class="lab" for="model">Модель</label>
+      <select id="model">
+        <option value="claude-opus-5" selected>claude-opus-5</option>
+        <option value="claude-sonnet-5">claude-sonnet-5 — дешевле</option>
+      </select></div>
+  </div>
+  <button class="ghost" id="savekey" type="button">Сохранить настройки</button>
+</details>
+
+<h2>Данные</h2>
+<div class="tabs" role="tablist">
+  <button role="tab" id="tab-cx" aria-selected="true" aria-controls="pane-cx">Крипта · Binance</button>
+  <button role="tab" id="tab-csv" aria-selected="false" aria-controls="pane-csv">Свои данные · CSV</button>
+</div>
+
+<div id="pane-cx" role="tabpanel">
+  <label class="lab" for="symbols">Пары</label>
+  <textarea id="symbols" spellcheck="false">BTC/USDT
+ETH/USDT
+SOL/USDT
+BNB/USDT
+XRP/USDT</textarea>
+  <p class="hint">По одной в строке. Дневные свечи берутся с публичного API Binance —
+  он открыт для браузера, ключ для него не нужен. Акции сюда не подходят: Yahoo и
+  большинство брокеров запрещают запросы со страниц, поэтому для них есть вкладка CSV.</p>
+</div>
+
+<div id="pane-csv" role="tabpanel" class="hidden">
+  <label class="lab" for="csv">CSV с дневными свечами</label>
+  <textarea id="csv" spellcheck="false" placeholder="ticker,date,open,high,low,close,volume
+AAPL,2026-01-02,185.1,187.4,184.2,186.9,54210000
+AAPL,2026-01-03,186.8,188.0,185.5,187.2,48930000"></textarea>
+  <p class="hint">Колонки в любом порядке, разделитель — запятая, точка с запятой
+  или табуляция. Несколько инструментов в одном файле различаются колонкой
+  <code>ticker</code>. Нужно минимум 60 строк на инструмент, а для SMA200 — 200.
+  Выгрузка из TradingView, Investing.com или брокера подойдёт как есть.</p>
+</div>
+
+<div class="row c2" style="margin-top:16px">
+  <div><label class="lab" for="window">Окно анализа, баров</label>
+    <input type="number" id="window" value="100" min="30" max="400"></div>
+  <div><label class="lab" for="bars">Загружать баров</label>
+    <input type="number" id="bars" value="400" min="60" max="1000"></div>
+</div>
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin:22px 0 18px">
+  <button id="go" type="button">Собрать план</button>
+  <button class="ghost" id="dry" type="button">Только данные, без вызова API</button>
+</div>
+
+<div id="log"></div>
+<div id="out"></div>
+
+<footer>Не является инвестиционной рекомендацией. Инструмент фильтрации информации:
+все уровни и сценарии — гипотезы, а не сигналы.</footer>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   0. helpers
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const LOG = $("log");
+
+function log(msg, cls) {
+  LOG.style.display = "block";
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = new Date().toLocaleTimeString() + "  " + msg;
+  LOG.appendChild(line);
+  LOG.scrollTop = LOG.scrollHeight;
+}
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+const r2 = (x, d) => (x === null || x === undefined || !isFinite(x))
+  ? null : Math.round(x * Math.pow(10, d === undefined ? 2 : d)) / Math.pow(10, d === undefined ? 2 : d);
+
+/* =====================================================================
+   1. indicators — a direct port of the pandas implementation in main.py
+   ===================================================================== */
+
+// pandas: ewm(span=n, adjust=False) — seeded on the first value
+function ema(v, span) {
+  const a = 2 / (span + 1), out = new Array(v.length);
+  let prev = v[0];
+  out[0] = prev;
+  for (let i = 1; i < v.length; i++) { prev = a * v[i] + (1 - a) * prev; out[i] = prev; }
+  return out;
+}
+
+// pandas: rolling(n, min_periods=n).mean()
+function sma(v, n) {
+  const out = new Array(v.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < v.length; i++) {
+    sum += v[i];
+    if (i >= n) sum -= v[i - n];
+    if (i >= n - 1) out[i] = sum / n;
+  }
+  return out;
+}
+
+// pandas: ewm(alpha=1/period, adjust=False) seeded at `start`
+function wilder(v, period, start) {
+  const a = 1 / period, out = new Array(v.length).fill(null);
+  let prev = v[start];
+  out[start] = prev;
+  for (let i = start + 1; i < v.length; i++) { prev = a * v[i] + (1 - a) * prev; out[i] = prev; }
+  return out;
+}
+
+function rsi(close, period) {
+  period = period || 14;
+  const n = close.length, gain = new Array(n).fill(0), loss = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const d = close[i] - close[i - 1];
+    gain[i] = d > 0 ? d : 0;
+    loss[i] = d < 0 ? -d : 0;
+  }
+  // close.diff() is NaN at index 0, so pandas seeds the EWM at index 1.
+  const ag = wilder(gain, period, 1), al = wilder(loss, period, 1);
+  const out = new Array(n).fill(null);
+  // min_periods=period, and observations start at index 1 -> first value at index `period`
+  for (let i = period; i < n; i++) {
+    if (ag[i] === null) continue;
+    if (ag[i] === 0 && al[i] === 0) { out[i] = 50; continue; }
+    if (al[i] === 0) { out[i] = 100; continue; }
+    out[i] = 100 - 100 / (1 + ag[i] / al[i]);
+  }
+  return out;
+}
+
+function atr(high, low, close, period) {
+  period = period || 14;
+  const n = high.length, tr = new Array(n);
+  // pandas .max(axis=1) skips NaN, so TR[0] collapses to high-low
+  tr[0] = high[0] - low[0];
+  for (let i = 1; i < n; i++) {
+    const pc = close[i - 1];
+    tr[i] = Math.max(high[i] - low[i], Math.abs(high[i] - pc), Math.abs(low[i] - pc));
+  }
+  const w = wilder(tr, period, 0), out = new Array(n).fill(null);
+  for (let i = period - 1; i < n; i++) out[i] = w[i];   // min_periods=period from index 0
+  return out;
+}
+
+// today's volume vs the mean of the PRIOR `period` sessions
+function rvol(vol, period) {
+  period = period || 20;
+  const n = vol.length, out = new Array(n).fill(null);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    if (i >= 1) sum += vol[i - 1];
+    if (i > period) sum -= vol[i - 1 - period];
+    if (i >= period) { const base = sum / period; out[i] = base ? vol[i] / base : null; }
+  }
+  return out;
+}
+
+// a bar that is the extreme of its centred window
+function swingPivots(high, low, left, right) {
+  left = left === undefined ? 3 : left;
+  right = right === undefined ? 3 : right;
+  const half = Math.floor((left + right + 1) / 2), highs = [], lows = [];
+  for (let i = half; i < high.length - half; i++) {
+    let mx = -Infinity, mn = Infinity;
+    for (let j = i - half; j <= i + half; j++) {
+      if (high[j] > mx) mx = high[j];
+      if (low[j] < mn) mn = low[j];
+    }
+    if (high[i] === mx) highs.push(high[i]);
+    if (low[i] === mn) lows.push(low[i]);
+  }
+  return [highs, lows];
+}
+
+function clusterLevels(levels, tolerance) {
+  const clean = levels.filter(isFinite).sort((a, b) => a - b);
+  if (!clean.length) return [];
+  const groups = [[clean[0]]];
+  for (let i = 1; i < clean.length; i++) {
+    const g = groups[groups.length - 1];
+    if (clean[i] - g[g.length - 1] <= tolerance) g.push(clean[i]);
+    else groups.push([clean[i]]);
+  }
+  return groups.map((g) => r2(g.reduce((a, b) => a + b, 0) / g.length, 4));
+}
+
+/* =====================================================================
+   2. snapshot — mirrors build_snapshot() in main.py
+   ===================================================================== */
+
+function buildSnapshot(ticker, bars, windowLen, assetClass) {
+  const close = bars.map((b) => b.c), high = bars.map((b) => b.h),
+        low = bars.map((b) => b.l), vol = bars.map((b) => b.v),
+        open = bars.map((b) => b.o);
+  const n = close.length;
+  const last = (arr) => arr[n - 1];
+
+  const e20 = ema(close, 20), s50 = sma(close, 50), s200 = sma(close, 200);
+  const r14 = rsi(close, 14), a14 = atr(high, low, close, 14), rv = rvol(vol, 20);
+
+  const price = last(close);
+  const atrNow = r2(last(a14), 4);
+  const e20n = r2(last(e20), 4), s50n = r2(last(s50), 4), s200n = r2(last(s200), 4);
+
+  const pct = (bk) => (n <= bk || close[n - 1 - bk] === 0)
+    ? null : r2((close[n - 1] / close[n - 1 - bk] - 1) * 100);
+  const dist = (lv) => lv === null ? null : r2((lv / price - 1) * 100);
+
+  let stack = "insufficient_history";
+  if (e20n !== null && s50n !== null && s200n !== null) {
+    if (price > e20n && e20n > s50n && s50n > s200n) stack = "bullish";
+    else if (price < e20n && e20n < s50n && s50n < s200n) stack = "bearish";
+    else stack = "mixed";
+  }
+
+  const win = bars.slice(-windowLen);
+  const wh = win.map((b) => b.h), wl = win.map((b) => b.l);
+  const pv = swingPivots(wh, wl);
+  const tol = (atrNow || price * 0.01) * 0.75;
+  const res = clusterLevels(pv[0], tol).filter((x) => x > price);
+  const sup = clusterLevels(pv[1], tol).filter((x) => x < price);
+  const nearRes = res.length ? Math.min.apply(null, res) : null;
+  const nearSup = sup.length ? Math.max.apply(null, sup) : null;
+
+  const w20 = bars.slice(-20);
+  const snap = {
+    ticker: ticker,
+    asset_class: assetClass,
+    last_bar: bars[n - 1].d,
+    bars_available: n,
+    price: r2(price, 4),
+    change_1d_pct: pct(1), change_5d_pct: pct(5), change_20d_pct: pct(20),
+    ema20: e20n, sma50: s50n, sma200: s200n,
+    price_vs_ema20_pct: dist(e20n), price_vs_sma50_pct: dist(s50n),
+    price_vs_sma200_pct: dist(s200n),
+    ma_stack: stack,
+    rsi14: r2(last(r14)), rsi14_5d_ago: n > 6 ? r2(r14[n - 6]) : null,
+    atr14: atrNow,
+    atr14_pct_of_price: atrNow ? r2((atrNow / price) * 100) : null,
+    rvol: r2(last(rv)),
+    avg_volume_20d: r2(w20.reduce((a, b) => a + b.v, 0) / w20.length, 0),
+    gap_pct: n > 1 ? r2((open[n - 1] / close[n - 2] - 1) * 100) : null,
+    range_20d: { high: r2(Math.max.apply(null, w20.map((b) => b.h)), 4),
+                 low: r2(Math.min.apply(null, w20.map((b) => b.l)), 4) },
+    resistance_levels: res.sort((a, b) => a - b).slice(0, 4),
+    support_levels: sup.sort((a, b) => b - a).slice(0, 4),
+    nearest_resistance: nearRes, nearest_support: nearSup,
+    pct_to_resistance: dist(nearRes), pct_to_support: dist(nearSup),
+    news: []
+  };
+  snap["range_" + windowLen + "d"] = {
+    high: r2(Math.max.apply(null, wh), 4), low: r2(Math.min.apply(null, wl), 4)
+  };
+  return snap;
+}
+
+function buildBreadth(snaps) {
+  if (!snaps.length) return {};
+  const share = (fn) => {
+    const rel = snaps.filter((s) => fn(s) !== null);
+    return rel.length ? r2(100 * rel.filter((s) => fn(s)).length / rel.length) : null;
+  };
+  const rs = snaps.map((s) => s.rsi14).filter((x) => x !== null);
+  return {
+    instruments: snaps.length,
+    above_sma50_pct: share((s) => s.sma50 === null ? null : s.price > s.sma50),
+    above_sma200_pct: share((s) => s.sma200 === null ? null : s.price > s.sma200),
+    advancers_1d_pct: share((s) => s.change_1d_pct === null ? null : s.change_1d_pct > 0),
+    avg_rsi14: rs.length ? r2(rs.reduce((a, b) => a + b, 0) / rs.length) : null
+  };
+}
+
+function buildPayload(instruments, windowLen) {
+  return {
+    as_of_utc: new Date().toISOString().slice(0, 19),
+    session_date: instruments.map((s) => s.last_bar).sort().slice(-1)[0],
+    analysis_window_days: windowLen,
+    data_notes: "All indicators are pre-computed from daily bars. A null value means "
+      + "there was not enough history to compute it. Support/resistance are clustered "
+      + "swing pivots from the analysis window. rvol compares today's volume to the "
+      + "mean of the prior 20 sessions.",
+    market_context: { benchmarks: [], breadth: buildBreadth(instruments) },
+    instruments: instruments
+  };
+}
+
+/* =====================================================================
+   3. data sources
+   ===================================================================== */
+
+async function fetchBinance(pair, limit) {
+  const symbol = pair.replace("/", "").toUpperCase();
+  const url = "https://api.binance.com/api/v3/klines?symbol=" + encodeURIComponent(symbol)
+            + "&interval=1d&limit=" + limit;
+  const res = await fetch(url);
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("биржа не знает пару " + pair);
+    throw new Error("Binance ответил " + res.status);
+  }
+  const raw = await res.json();
+  if (!Array.isArray(raw) || !raw.length) throw new Error("пустой ответ по " + pair);
+  return raw.map((k) => ({
+    d: new Date(k[0]).toISOString().slice(0, 10),
+    o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5]
+  }));
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) throw new Error("в CSV нет данных");
+  const sep = (lines[0].match(/;/g) || []).length ? ";"
+            : (lines[0].match(/\t/g) || []).length ? "\t" : ",";
+  const head = lines[0].split(sep).map((h) => h.trim().toLowerCase().replace(/^"|"$/g, ""));
+  const col = (names) => {
+    for (const nm of names) { const i = head.indexOf(nm); if (i >= 0) return i; }
+    return -1;
+  };
+  const iT = col(["ticker", "symbol", "тикер"]);
+  const iD = col(["date", "time", "datetime", "дата"]);
+  const iO = col(["open", "o", "откр"]);
+  const iH = col(["high", "h", "макс"]);
+  const iL = col(["low", "l", "мин"]);
+  const iC = col(["close", "c", "adj close", "закр"]);
+  const iV = col(["volume", "vol", "v", "объем", "объём"]);
+  for (const [name, idx] of [["date", iD], ["open", iO], ["high", iH], ["low", iL], ["close", iC]]) {
+    if (idx < 0) throw new Error("в CSV нет колонки " + name);
+  }
+  const num = (s) => {
+    const clean = String(s).replace(/["\s ]/g, "").replace(/,(?=\d{1,2}$)/, ".").replace(/,/g, "");
+    return parseFloat(clean);
+  };
+  const byTicker = {};
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(sep);
+    if (cells.length < 3) continue;
+    const t = (iT >= 0 ? String(cells[iT]).trim().replace(/^"|"$/g, "") : "DATA").toUpperCase();
+    const bar = { d: String(cells[iD]).trim().replace(/^"|"$/g, "").slice(0, 10),
+                  o: num(cells[iO]), h: num(cells[iH]), l: num(cells[iL]),
+                  c: num(cells[iC]), v: iV >= 0 ? num(cells[iV]) : 0 };
+    if (![bar.o, bar.h, bar.l, bar.c].every(isFinite)) continue;
+    if (!isFinite(bar.v)) bar.v = 0;
+    (byTicker[t] = byTicker[t] || []).push(bar);
+  }
+  for (const t in byTicker) byTicker[t].sort((a, b) => a.d < b.d ? -1 : 1);
+  return byTicker;
+}
+
+/* =====================================================================
+   4. Claude API — called straight from the browser
+   ===================================================================== */
+
+const SYSTEM_PROMPT = `You are a disciplined technical strategist writing one pre-market trading plan for a single self-directed trader. You are the judgement layer of an automated screener: the arithmetic is already done and handed to you as JSON.
+
+# Input contract
+You receive one JSON snapshot per run. Read it as ground truth and as your only source of market data — you have no live feed, no chart, and no knowledge of anything that happened after the snapshot's session_date.
+
+- Every indicator is pre-computed from daily bars. Do not recompute them.
+- null means "not enough history to compute". Treat it as unknown. Never substitute a guess, and never treat a null as zero or as neutral.
+- ma_stack is bullish (price > EMA20 > SMA50 > SMA200), bearish (the exact inverse), mixed, or insufficient_history.
+- rvol is today's volume divided by the mean of the prior 20 sessions. Below 0.7 is dead participation; above 1.5 is a genuine crowd.
+- support_levels / resistance_levels are clustered swing pivots taken from the analysis window, sorted by distance from the current price.
+- atr14 is the daily true range in price units — this is your unit of noise. Any stop closer than 1x ATR from the entry is inside the noise band.
+- market_context.breadth describes the supplied basket only, not the whole market. Do not generalise it into a claim about the broad market.
+
+# Hard rules
+1. Use only numbers present in the snapshot. Never invent a price, level, indicator reading, earnings date, analyst target, or news item. If a fact you want is absent, say it is absent.
+2. Every price level you output must be a snapshot value (a support or resistance level, a moving average, a range boundary) or simple arithmetic on one — for example support - 0.5 * atr14. Name the derivation in the text so a reader can check it.
+3. A stop must sit beyond the level that invalidates the idea, and at least 1x ATR away from the trigger. Never place a stop at a round number chosen for looking tidy.
+4. Reward-to-risk, computed as abs(target - trigger) / abs(trigger - stop), must be at least 1.5. If a setup cannot clear that, it does not get an execution plan — say so instead of stretching the target.
+5. Score every instrument 1-10 on this rubric, and apply it literally:
+   - 1-3: no setup, or the setup fights the dominant trend.
+   - 4-5: worth watching, but the trigger is far away or the evidence conflicts.
+   - 6-7: a valid setup with a defined trigger; needs confirmation to act.
+   - 8-10: trend, momentum, participation (rvol) and proximity to a decision level all point the same way.
+6. Only instruments scoring 6 or higher may appear in execution_plans, and there may be at most 5 plans. Fewer is correct when the tape is thin — an empty plan list is a valid, respectable answer.
+7. Every instrument in instruments must appear exactly once in watchlist.
+8. avoid_today is for instruments with a concrete disqualifier: rvol under 0.7, price pinned inside a tight range with no edge nearby, or insufficient_history. Give the specific reason, not a generic one. Return an empty array if nothing qualifies.
+9. Do not use RSI in isolation. An extreme RSI in a strong trend is continuation, not a reversal signal — treat it as one only when price is also rejecting a named level.
+10. Write plainly. No hedging filler, no "consult a financial advisor" boilerplate, no restating the rules back at the reader. The disclaimer is added downstream. Every sentence should carry a fact or a decision.
+
+# Output
+Return only the JSON object matching the provided schema. All free-text fields must be written in __LANGUAGE__. Ticker symbols and numbers stay as-is.`;
+
+const SCHEMA = {
+  type: "object",
+  properties: {
+    macro: {
+      type: "object",
+      properties: {
+        regime: { type: "string", enum: ["risk_on", "neutral", "risk_off"] },
+        summary: { type: "string" },
+        key_risks: { type: "array", items: { type: "string" } },
+        rules_for_today: { type: "array", items: { type: "string" } }
+      },
+      required: ["regime", "summary", "key_risks", "rules_for_today"],
+      additionalProperties: false
+    },
+    watchlist: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          ticker: { type: "string" },
+          trend: { type: "string", enum: ["uptrend", "downtrend", "range", "unclear"] },
+          score: { type: "integer", enum: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+          bias: { type: "string", enum: ["long", "short", "none"] },
+          setup: { type: "string" },
+          rationale: { type: "string" }
+        },
+        required: ["ticker", "trend", "score", "bias", "setup", "rationale"],
+        additionalProperties: false
+      }
+    },
+    avoid_today: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { ticker: { type: "string" }, reason: { type: "string" } },
+        required: ["ticker", "reason"], additionalProperties: false
+      }
+    },
+    execution_plans: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          ticker: { type: "string" },
+          direction: { type: "string", enum: ["long", "short"] },
+          trigger: { type: "string" }, confirmation: { type: "string" },
+          stop_loss: { type: "string" }, target: { type: "string" },
+          reward_risk: { type: "string" }, invalidation: { type: "string" }
+        },
+        required: ["ticker", "direction", "trigger", "confirmation", "stop_loss",
+                   "target", "reward_risk", "invalidation"],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ["macro", "watchlist", "avoid_today", "execution_plans"],
+  additionalProperties: false
+};
+
+async function callClaude(payload, key, model, effort, lang) {
+  const body = {
+    model: model,
+    max_tokens: 32000,
+    stream: true,
+    thinking: { type: "adaptive" },
+    system: [{
+      type: "text",
+      text: SYSTEM_PROMPT.replace("__LANGUAGE__", lang === "ru" ? "Russian" : "English"),
+      cache_control: { type: "ephemeral" }
+    }],
+    output_config: { effort: effort, format: { type: "json_schema", schema: SCHEMA } },
+    messages: [{
+      role: "user",
+      content: "Market snapshot for today's session. Produce the trading plan.\n\n"
+             + JSON.stringify(payload)
+    }]
+  };
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      // Required for calls made straight from a browser rather than a server.
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    let detail = await res.text();
+    try { detail = JSON.parse(detail).error.message; } catch (e) { /* keep raw text */ }
+    if (res.status === 401) throw new Error("ключ не принят (401). Проверьте его в настройках.");
+    if (res.status === 429) throw new Error("превышен лимит запросов (429). Подождите минуту.");
+    throw new Error("API вернул " + res.status + ": " + detail);
+  }
+
+  // Parse the SSE stream: accumulate text deltas, watch for a refusal.
+  const reader = res.body.getReader(), decoder = new TextDecoder();
+  let buffer = "", text = "", stopReason = null, thinking = false;
+
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop();
+    for (const part of parts) {
+      const line = part.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      let ev;
+      try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+      if (ev.type === "content_block_start" && ev.content_block
+          && ev.content_block.type === "thinking" && !thinking) {
+        thinking = true;
+        log("   модель размышляет…");
+      }
+      if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") {
+        text += ev.delta.text;
+      }
+      if (ev.type === "message_delta" && ev.delta && ev.delta.stop_reason) {
+        stopReason = ev.delta.stop_reason;
+      }
+      if (ev.type === "error") {
+        throw new Error("поток прерван: " + JSON.stringify(ev.error));
+      }
+    }
+  }
+
+  if (stopReason === "refusal") throw new Error("запрос отклонён классификаторами безопасности");
+  if (stopReason === "max_tokens") throw new Error("ответ обрезан по лимиту токенов");
+  if (!text.trim()) throw new Error("модель вернула пустой ответ (stop_reason=" + stopReason + ")");
+  return JSON.parse(text);
+}
+
+/* =====================================================================
+   5. rendering
+   ===================================================================== */
+
+const REGIME = { risk_on: "🟢 RISK ON", neutral: "🟡 NEUTRAL", risk_off: "🔴 RISK OFF" };
+
+function renderPlan(plan, payload) {
+  const m = plan.macro, h = [];
+  h.push('<p class="meta">Сессия ' + esc(payload.session_date) + " · инструментов "
+       + payload.instruments.length + "</p>");
+  h.push('<div class="card ok"><h4>Макро-риск и правила дня</h4>');
+  h.push("<p><strong>" + (REGIME[m.regime] || esc(m.regime)) + "</strong></p>");
+  h.push("<p>" + esc(m.summary) + "</p>");
+  if (m.key_risks.length) {
+    h.push("<h3>Ключевые риски</h3><ul>"
+         + m.key_risks.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>");
+  }
+  if (m.rules_for_today.length) {
+    h.push("<h3>Правила на сегодня</h3><ol>"
+         + m.rules_for_today.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ol>");
+  }
+  h.push("</div>");
+
+  h.push('<h2>Watchlist</h2><div class="tw"><table><thead><tr><th>Тикер</th><th>Тренд</th>'
+       + "<th>Score</th><th>Bias</th><th>Сетап</th></tr></thead><tbody>");
+  plan.watchlist.slice().sort((a, b) => b.score - a.score).forEach((row) => {
+    h.push("<tr><td><code>" + esc(row.ticker) + "</code></td><td>" + esc(row.trend) + "</td>"
+         + '<td class="score">' + row.score + "/10</td>"
+         + '<td><span class="pill p-' + esc(row.bias) + '">' + esc(row.bias) + "</span></td>"
+         + "<td>" + esc(row.setup) + '<br><span class="meta">' + esc(row.rationale)
+         + "</span></td></tr>");
+  });
+  h.push("</tbody></table></div>");
+
+  h.push("<h2>Не торгуем сегодня</h2>");
+  if (plan.avoid_today.length) {
+    h.push('<div class="card warn"><ul>'
+         + plan.avoid_today.map((i) => "<li><strong>" + esc(i.ticker) + "</strong> — "
+             + esc(i.reason) + "</li>").join("") + "</ul></div>");
+  } else {
+    h.push('<p class="meta">Нет инструментов с явными противопоказаниями.</p>');
+  }
+
+  h.push("<h2>Планы исполнения</h2>");
+  if (!plan.execution_plans.length) {
+    h.push('<div class="card warn"><h4>Пусто</h4><p>Валидных сетапов сегодня нет — '
+         + "торговать нечего. Это нормальный и правильный результат.</p></div>");
+  }
+  const labels = [["Триггер", "trigger"], ["Подтверждение", "confirmation"],
+                  ["Стоп-лосс", "stop_loss"], ["Цель", "target"],
+                  ["Risk / Reward", "reward_risk"], ["Отмена идеи", "invalidation"]];
+  plan.execution_plans.forEach((p) => {
+    h.push('<div class="plan"><h4>' + (p.direction === "long" ? "🔼" : "🔽") + " "
+         + esc(p.ticker) + " — " + esc(p.direction.toUpperCase()) + "</h4><dl>"
+         + labels.map((l) => "<dt>" + l[0] + "</dt><dd>" + esc(p[l[1]]) + "</dd>").join("")
+         + "</dl></div>");
+  });
+
+  h.push('<details><summary>Снимок данных, который получила модель</summary><pre>'
+       + esc(JSON.stringify(payload, null, 2)) + "</pre></details>");
+  return h.join("\n");
+}
+
+/* =====================================================================
+   6. wiring
+   ===================================================================== */
+
+const STORE = "screener.settings";
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE) || "{}");
+    if (s.key) $("key").value = s.key;
+    if (s.effort) $("effort").value = s.effort;
+    if (s.lang) $("lang").value = s.lang;
+    if (s.model) $("model").value = s.model;
+    if (!s.key) $("setup").open = true;
+  } catch (e) { $("setup").open = true; }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify({
+      key: $("key").value.trim(), effort: $("effort").value,
+      lang: $("lang").value, model: $("model").value
+    }));
+    return true;
+  } catch (e) { return false; }
+}
+
+let activeTab = "cx";
+function selectTab(name) {
+  activeTab = name;
+  $("tab-cx").setAttribute("aria-selected", String(name === "cx"));
+  $("tab-csv").setAttribute("aria-selected", String(name === "csv"));
+  $("pane-cx").classList.toggle("hidden", name !== "cx");
+  $("pane-csv").classList.toggle("hidden", name !== "csv");
+}
+
+async function gatherData(windowLen, limit) {
+  const series = {};
+  if (activeTab === "cx") {
+    const pairs = $("symbols").value.split(/[\n,]/).map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    if (!pairs.length) throw new Error("Список пар пуст.");
+    for (const pair of pairs) {
+      try {
+        log("загружаю " + pair + " …");
+        series[pair] = { bars: await fetchBinance(pair, limit), cls: "crypto" };
+      } catch (e) {
+        log("   пропускаю " + pair + ": " + e.message, "e");
+      }
+    }
+  } else {
+    const parsed = parseCSV($("csv").value);
+    for (const t in parsed) {
+      if (parsed[t].length < 30) { log("   пропускаю " + t + ": меньше 30 баров", "e"); continue; }
+      series[t] = { bars: parsed[t], cls: "equity" };
+      log("разобрал " + t + ": " + parsed[t].length + " баров");
+    }
+  }
+  const tickers = Object.keys(series);
+  if (!tickers.length) throw new Error("Ни один инструмент не загрузился.");
+  return tickers.map((t) => buildSnapshot(t, series[t].bars, windowLen, series[t].cls));
+}
+
+async function run(dryRun) {
+  const out = $("out");
+  out.innerHTML = "";
+  LOG.innerHTML = "";
+  $("go").disabled = true;
+  $("dry").disabled = true;
+
+  try {
+    const windowLen = Math.max(30, parseInt($("window").value, 10) || 100);
+    const limit = Math.max(60, parseInt($("bars").value, 10) || 400);
+    const key = $("key").value.trim();
+
+    if (!dryRun && !key) {
+      $("setup").open = true;
+      throw new Error("Не задан ключ API — впишите его в настройках выше.");
+    }
+
+    const instruments = await gatherData(windowLen, limit);
+    log("посчитал индикаторы для " + instruments.length + " инструментов", "d");
+    const payload = buildPayload(instruments, windowLen);
+
+    if (dryRun) {
+      out.innerHTML = '<h2>Снимок данных</h2><p class="meta">Это ровно то, что получила бы '
+        + "модель. API не вызывался, токены не списаны.</p><pre>"
+        + esc(JSON.stringify(payload, null, 2)) + "</pre>";
+      log("готово — без вызова API", "d");
+      return;
+    }
+
+    log("отправляю снимок в " + $("model").value + " …");
+    const plan = await callClaude(payload, key, $("model").value,
+                                  $("effort").value, $("lang").value);
+    log("план получен", "d");
+    out.innerHTML = renderPlan(plan, payload);
+    out.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  } catch (err) {
+    log(err.message, "e");
+    let extra = "";
+    if (/Failed to fetch|NetworkError|network/i.test(err.message)) {
+      extra = "<p>Браузер не смог выполнить запрос. Чаще всего это значит одно из трёх: "
+            + "нет интернета, страница открыта не с диска, или расширение-блокировщик "
+            + "режет запросы. Откройте файл двойным кликом и попробуйте снова.</p>";
+    }
+    $("out").innerHTML = '<div class="card err"><h4>Не получилось</h4><p>'
+      + esc(err.message) + "</p>" + extra + "</div>";
+  } finally {
+    $("go").disabled = false;
+    $("dry").disabled = false;
+  }
+}
+
+$("tab-cx").addEventListener("click", () => selectTab("cx"));
+$("tab-csv").addEventListener("click", () => selectTab("csv"));
+$("savekey").addEventListener("click", () => {
+  const ok = saveSettings();
+  log(ok ? "настройки сохранены в этом браузере" : "не удалось сохранить настройки", ok ? "d" : "e");
+});
+$("go").addEventListener("click", () => { saveSettings(); run(false); });
+$("dry").addEventListener("click", () => { saveSettings(); run(true); });
+
+loadSettings();
+if (location.protocol !== "file:" && location.hostname !== "localhost"
+    && location.hostname !== "127.0.0.1") {
+  $("filewarn").classList.remove("hidden");
+}
+
+// Exposed so the indicator port can be diffed against the pandas original.
+window.__screener = { ema, sma, rsi, atr, rvol, swingPivots, clusterLevels, buildSnapshot };
+</script>
+</body>
+</html>
