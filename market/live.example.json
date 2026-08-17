@@ -1,0 +1,68 @@
+{
+  "_комментарий": [
+    "Скопируй в live.json и правь под свой список. live.json не коммитится —",
+    "в нём лежит твой ключ.",
+    "",
+    "refresh_ms — как часто перерисовывать строки. 1000 = раз в секунду.",
+    "finnhub_key — бесплатный ключ с finnhub.io/register. Нужен для всего,",
+    "  кроме крипты. Без него некриптовые строки останутся серыми.",
+    "",
+    "У каждого символа:",
+    "  label    — как показывать в таблице (любой текст)",
+    "  binance  — символ на Binance (BTCUSDT, ETHUSDT...). Без ключа,",
+    "             поток толкает цену раз в секунду. Лучший источник для крипты.",
+    "  finnhub  — символ у Finnhub. Акции — просто тикер (AAPL, NVDA).",
+    "             Форекс и металлы — OANDA:EUR_USD, OANDA:XAU_USD.",
+    "  decimals — сколько знаков после запятой (по умолчанию угадывается)",
+    "  note     — подпись под символом, если источника нет",
+    "",
+    "Индексы GER40 / SP500 / NAS100 в терминале — это CFD брокера.",
+    "У бесплатных источников их нет: можно взять сам индекс (^GSPC, ^NDX),",
+    "но цена будет отличаться от брокерской. Точные CFD-котировки даёт",
+    "только API самого брокера."
+  ],
+
+  "refresh_ms": 1000,
+  "finnhub_key": "",
+
+  "groups": [
+    {
+      "name": "Основные",
+      "symbols": [
+        { "label": "EURUSD", "finnhub": "OANDA:EUR_USD", "decimals": 5 },
+        { "label": "GBPUSD", "finnhub": "OANDA:GBP_USD", "decimals": 5 },
+        { "label": "XAGUSD", "finnhub": "OANDA:XAG_USD", "decimals": 3 },
+        { "label": "XAUUSD", "finnhub": "OANDA:XAU_USD", "decimals": 2 }
+      ]
+    },
+    {
+      "name": "Крипта",
+      "symbols": [
+        { "label": "BTCUSDT", "binance": "BTCUSDT", "decimals": 1 },
+        { "label": "ETHUSD", "binance": "ETHUSDT", "decimals": 1 },
+        { "label": "SOLUSDT", "binance": "SOLUSDT", "decimals": 2 },
+        { "label": "XRPUSD", "binance": "XRPUSDT", "decimals": 4 },
+        { "label": "DOGEUSDT", "binance": "DOGEUSDT", "decimals": 5 },
+        { "label": "BNBUSDT", "binance": "BNBUSDT", "decimals": 2 }
+      ]
+    },
+    {
+      "name": "Индексы",
+      "symbols": [
+        { "label": "GER40", "note": "CFD брокера — бесплатного источника нет" },
+        { "label": "SP500", "finnhub": "^GSPC", "decimals": 2,
+          "note": "сам индекс, не CFD — цена разойдётся с терминалом" },
+        { "label": "NAS100USD", "finnhub": "^NDX", "decimals": 1,
+          "note": "сам индекс, не CFD — цена разойдётся с терминалом" }
+      ]
+    },
+    {
+      "name": "Акции",
+      "symbols": [
+        { "label": "NVDA", "finnhub": "NVDA" },
+        { "label": "AAPL", "finnhub": "AAPL" },
+        { "label": "TSLA", "finnhub": "TSLA" }
+      ]
+    }
+  ]
+}

@@ -7,3 +7,6 @@ __pycache__/
 # Market Dashboard: личный календарь событий и сгенерированные брифы
 market/events.json
 market/briefs/
+
+# Настройки живых котировок — внутри лежит API-ключ
+market/live.json

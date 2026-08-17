@@ -92,6 +92,7 @@ CONFIG: dict[str, Any] = {
     "paths": {
         "watchlist": "watchlist.txt",
         "events": "events.json",
+        "live": "live.json",
         "cache": "data/cache",
         "briefs": "briefs",
     },
