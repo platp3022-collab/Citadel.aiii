@@ -713,7 +713,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                "Today's Watchlist &amp; Setup Quality</div>"
                '<h2>Вотчлист и качество сетапов</h2>'
                '<div class="table-scroll"><table><thead><tr>'
-               '<th>Тикер</th><th>Цена</th><th>1D</th><th>60 сессий</th>'
+               '<th>Тикер</th><th>Цена</th><th>1D</th><th>1 мес</th><th>60 сессий</th>'
                '<th>Тренд 1D / 1W</th><th>Качество</th>'
                '<th>Катализаторы и техническая картина</th>'
                '</tr></thead><tbody>')
@@ -721,6 +721,9 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
         s = a.snap
         side = {"long": "лонг", "short": "шорт"}.get(a.direction, "нет направления")
         chg_cls = "up" if s.change_pct > 0 else ("down" if s.change_pct < 0 else "")
+        mo = s.change_1m
+        mo_txt = fmt_pct(mo) if mo is not None else "n/a"
+        mo_cls = "" if mo is None else ("up" if mo > 0 else ("down" if mo < 0 else ""))
         levels = []
         if s.ema20 is not None:
             levels.append(f"20EMA {fmt_level(s.ema20)}")
@@ -744,7 +747,10 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
             f'<td class="ticker">{esc(s.symbol)}<span class="side">{esc(side)}</span></td>'
             f'<td class="num-cell">{esc(fmt_price(s.close))}</td>'
             f'<td class="num-cell {chg_cls}">{esc(fmt_pct(s.change_pct))}</td>'
-            f'<td>{sparkline(s.spark, s.change_pct >= 0)}</td>'
+            f'<td class="num-cell {mo_cls}">{esc(mo_txt)}</td>'
+            # Цвет — по самому окну, а не по сегодняшнему дню: иначе
+            # у падающей бумаги спарклайн зеленеет от одного зелёного дня.
+            f'<td>{sparkline(s.spark, bool(s.spark) and s.spark[-1] >= s.spark[0])}</td>'
             f'<td><div class="trend">'
             f'{trend_badge(s.trend_d, s.trend_d_score, "1D")}'
             f'{trend_badge(s.trend_w, s.trend_w_score, "1W")}</div></td>'

@@ -73,7 +73,9 @@ CONFIG: dict[str, Any] = {
         "plan_setups": 3,           # сколько сетапов расписывать поштучно
         "extended_atr": 2.5,        # отрыв от 20 EMA в ATR = перерастянут
         "chop_range_atr": 3.0,      # ширина диапазона в ATR ниже этой = пила
+        "parabolic_1m": 45.0,       # рост за месяц выше этого = парабола
         "min_rvol": 0.6,            # ниже — нет участия
+        "scan_keep": 12,            # сколько бумаг оставляет сканер рынка
         "earnings_blackout_days": 2,  # бинарное событие на горизонте
     },
     "execution": {
@@ -482,6 +484,8 @@ class Snapshot:
     close: float
     prev_close: float
     change_pct: float
+    change_1m: float | None      # 21 сессия — ловит параболу
+    change_3m: float | None
     day_high: float
     day_low: float
     ema20: float | None
@@ -605,6 +609,10 @@ def build_snapshot(bars: Bars) -> Snapshot:
         symbol=bars.symbol, as_of=bars.dates[-1], source=bars.source,
         close=closes[-1], prev_close=prev_close,
         change_pct=safe_div((closes[-1] - prev_close) * 100.0, prev_close),
+        change_1m=(safe_div((closes[-1] - closes[-22]) * 100.0, closes[-22])
+                   if n >= 22 else None),
+        change_3m=(safe_div((closes[-1] - closes[-64]) * 100.0, closes[-64])
+                   if n >= 64 else None),
         day_high=highs[-1], day_low=lows[-1],
         ema20=e20, sma50=s50, sma200=s200, rsi14=r14, atr14=a14, rvol=rvol,
         high_20d=high_20d, low_20d=low_20d,
@@ -706,46 +714,47 @@ def assess(snap: Snapshot, entry: dict, today: date) -> Assessment:
     score = 5.0
     bull = direction == "long"
 
+    # Слагаемые непрерывные, а не ступенчатые: на скане по всему рынку
+    # ступеньки сгоняют десятки бумаг в одну оценку и ранжировать нечего.
+
     # ── тренд ──────────────────────────────────────────────────────────────
     aligned = abs(snap.trend_d_score) + abs(snap.trend_w_score)
     if direction != "none":
-        score += clamp(aligned * 0.35, 0.0, 2.0)
+        score += clamp(aligned * 0.27, 0.0, 1.6)
         reasons.append(f"тренд {snap.trend_pair}")
     if snap.sma200 is not None:
         above = snap.close > snap.sma200
-        score += 0.5 if above == bull and direction != "none" else -0.5
+        score += 0.4 if above == bull and direction != "none" else -0.4
         reasons.append(("выше" if above else "ниже") + f" 200 SMA {fmt_level(snap.sma200)}")
 
-    # ── импульс ────────────────────────────────────────────────────────────
+    # ── импульс: чем ближе к рабочей зоне, тем выше вклад ──────────────────
     if snap.rsi14 is not None:
         r = snap.rsi14
-        healthy = (50 <= r <= 70) if bull else (30 <= r <= 50)
+        ideal = 58.0 if bull else 42.0
         stretched = (r > 78) if bull else (r < 22)
-        if healthy:
-            score += 1.0
-            reasons.append(f"RSI {r:.0f} в рабочей зоне")
-        elif stretched:
-            score -= 0.6
+        if stretched:
+            score -= 0.9
             warnings.append(f"RSI {r:.0f} — импульс перегрет, вход по рынку без edge")
         elif direction != "none":
-            score -= 0.4
-            reasons.append(f"RSI {r:.0f} против направления")
+            fit = clamp(0.9 * (1.0 - abs(r - ideal) / 18.0), -0.9, 0.9)
+            score += fit
+            if fit > 0.4:
+                reasons.append(f"RSI {r:.0f} в рабочей зоне")
+            elif fit < 0:
+                reasons.append(f"RSI {r:.0f} против направления")
 
     # ── участие (объём) ────────────────────────────────────────────────────
     if snap.rvol is not None:
         v = snap.rvol
-        if v >= 2.0:
-            score += 1.2
-            reasons.append(f"RVOL {v:.2f} — институциональное участие")
-        elif v >= 1.5:
-            score += 0.8
-            reasons.append(f"RVOL {v:.2f}")
-        elif v >= 1.0:
-            score += 0.3
-            reasons.append(f"RVOL {v:.2f}")
-        elif v < num(sc.get("min_rvol"), 0.6):
+        if v < num(sc.get("min_rvol"), 0.6):
             score -= 1.0
             warnings.append(f"RVOL {v:.2f} — участия нет, движение не подтверждается объёмом")
+        else:
+            score += clamp((v - 1.0) * 0.7, -0.5, 1.0)
+            if v >= 2.0:
+                reasons.append(f"RVOL {v:.2f} — институциональное участие")
+            elif v >= 1.2:
+                reasons.append(f"RVOL {v:.2f}")
 
     # ── растянутость от 20 EMA ─────────────────────────────────────────────
     limit = num(sc.get("extended_atr"), 2.5)
@@ -758,9 +767,25 @@ def assess(snap: Snapshot, entry: dict, today: date) -> Assessment:
         elif signed > limit * 0.7:
             score -= 0.8
             warnings.append(f"отрыв {abs(snap.ext_atr):.1f} ATR от 20 EMA — вход поздний")
-        elif 0 <= signed <= 1.0:
-            score += 0.8
-            reasons.append(f"цена в {abs(snap.ext_atr):.1f} ATR от 20 EMA — риск контролируем")
+        else:
+            near = clamp(0.8 * (1.0 - abs(signed) / 1.6), -0.3, 0.8)
+            score += near
+            if near > 0.35:
+                reasons.append(
+                    f"цена в {abs(snap.ext_atr):.1f} ATR от 20 EMA — риск контролируем")
+
+    # ── парабола: месяц вертикального роста — вход уже поздний ─────────────
+    para = num(sc.get("parabolic_1m"), 45.0)
+    if snap.change_1m is not None and direction != "none":
+        run = snap.change_1m if bull else -snap.change_1m
+        if run > para:
+            score -= 2.0
+            warnings.append(
+                f"{run:+.0f}% за месяц — парабола, вход по рынку без edge, "
+                "ждём откат или консолидацию")
+        elif run > para * 0.6:
+            score -= 0.7
+            warnings.append(f"{run:+.0f}% за месяц — движение зрелое, вход поздний")
 
     # ── пила ───────────────────────────────────────────────────────────────
     chop = num(sc.get("chop_range_atr"), 3.0)
@@ -770,17 +795,14 @@ def assess(snap: Snapshot, entry: dict, today: date) -> Assessment:
             f"20-дневный диапазон всего {snap.range_atr:.1f} ATR — сжатие/пила, ложные пробои")
 
     # ── близость к триггеру ────────────────────────────────────────────────
-    if snap.atr14:
-        if bull:
-            gap = safe_div(snap.high_20d - snap.close, snap.atr14)
-            if 0 <= gap <= 0.5:
-                score += 1.0
-                reasons.append(f"в {gap:.1f} ATR от 20-дневного максимума {fmt_level(snap.high_20d)}")
-        elif direction == "short":
-            gap = safe_div(snap.close - snap.low_20d, snap.atr14)
-            if 0 <= gap <= 0.5:
-                score += 1.0
-                reasons.append(f"в {gap:.1f} ATR от 20-дневного минимума {fmt_level(snap.low_20d)}")
+    if snap.atr14 and direction != "none":
+        edge = snap.high_20d if bull else snap.low_20d
+        gap = safe_div(abs(edge - snap.close), snap.atr14)
+        bonus = clamp(0.8 * (1.0 - gap / 1.2), 0.0, 0.8)
+        score += bonus
+        if bonus > 0.35:
+            kind = "максимума" if bull else "минимума"
+            reasons.append(f"в {gap:.1f} ATR от 20-дневного {kind} {fmt_level(edge)}")
 
     # ── катализаторы и бинарный риск ───────────────────────────────────────
     binary = ""
@@ -1064,13 +1086,14 @@ def render_brief(assessments: list[Assessment], snaps: dict[str, Snapshot],
     avoid.sort(key=lambda a: a.score, reverse=True)
 
     out.append("#### 2. TODAY'S WATCHLIST & SETUP QUALITY")
-    out.append("| Ticker | Last Price | 1D Change | Trend (1D/1W) | Setup Quality (TR 1-10) | "
-               "Catalysts & Technical Setup |")
-    out.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+    out.append("| Ticker | Last Price | 1D Change | 1-mo | Trend (1D/1W) | "
+               "Setup Quality (TR 1-10) | Catalysts & Technical Setup |")
+    out.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
     for a in sorted(assessments, key=lambda x: x.score, reverse=True):
         s = a.snap
+        mo = fmt_pct(s.change_1m) if s.change_1m is not None else "n/a"
         out.append(f"| {s.symbol} | {fmt_price(s.close)} | {fmt_pct(s.change_pct)} | "
-                   f"{s.trend_pair} | {a.score:.1f}/10 | {_setup_summary(a)} |")
+                   f"{mo} | {s.trend_pair} | {a.score:.1f}/10 | {_setup_summary(a)} |")
     out.append("")
 
     out.append("#### 3. AVOID TODAY (HIGH RISK / NO EDGE)")
@@ -1153,16 +1176,30 @@ def to_json(assessments: list[Assessment], as_of: date) -> str:
 #  ВОТЧЛИСТ
 # ════════════════════════════════════════════════════════════════════════════
 
-def load_watchlist(path: Path | None = None) -> list[str]:
-    path = path or (ROOT / str(cfg("paths.watchlist", "watchlist.txt")))
-    if not path.exists():
-        return []
-    tickers: list[str] = []
+def load_universe(name: str) -> list[str]:
+    """Вселенная сканера: имя из universe/ либо путь к своему файлу."""
+    candidates = [ROOT / "universe" / f"{name}.txt", ROOT / "universe" / name, Path(name)]
+    for path in candidates:
+        if path.exists() and path.is_file():
+            return _read_tickers(path)
+    available = sorted(p.stem for p in (ROOT / "universe").glob("*.txt"))
+    raise DataError(f"вселенная '{name}' не найдена. Доступны: "
+                    + (", ".join(available) or "нет файлов в universe/")
+                    + ", либо укажи путь к своему списку")
+
+
+def _read_tickers(path: Path) -> list[str]:
+    out: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
-            tickers.append(line.upper())
-    return list(dict.fromkeys(tickers))
+            out.append(line.upper())
+    return list(dict.fromkeys(out))
+
+
+def load_watchlist(path: Path | None = None) -> list[str]:
+    path = path or (ROOT / str(cfg("paths.watchlist", "watchlist.txt")))
+    return _read_tickers(path) if path.exists() else []
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1356,6 +1393,11 @@ def build_parser() -> argparse.ArgumentParser:
                "  python market_dashboard.py --json --out brief.json\n"
                "  python market_dashboard.py --offline\n")
     p.add_argument("tickers", nargs="*", help="тикеры (по умолчанию из watchlist.txt)")
+    p.add_argument("--scan", nargs="?", const="sp500", metavar="ВСЕЛЕННАЯ",
+                   help="искать сетапы по всему рынку, а не по вотчлисту "
+                        "(по умолчанию sp500; можно указать свой файл)")
+    p.add_argument("--keep", type=int, metavar="N",
+                   help="сколько бумаг оставить после скана (по умолчанию 12)")
     p.add_argument("--watchlist", type=Path, help="путь к файлу вотчлиста")
     p.add_argument("--events", type=Path, help="путь к events.json")
     p.add_argument("--offline", action="store_true", help="только кеш, без сети")
@@ -1381,7 +1423,17 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    tickers = [t.upper() for t in args.tickers] or load_watchlist(args.watchlist)
+    scanning = bool(args.scan)
+    if scanning:
+        try:
+            tickers = load_universe(args.scan)
+        except DataError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        log.info("Сканирую рынок: %d бумаг из «%s». Это надолго — при первом "
+                 "запуске минуты, потом из кеша быстро.", len(tickers), args.scan)
+    else:
+        tickers = [t.upper() for t in args.tickers] or load_watchlist(args.watchlist)
     if not tickers:
         wl = args.watchlist or (ROOT / str(cfg("paths.watchlist", "watchlist.txt")))
         print(f"Пустой вотчлист. Впиши тикеры в {wl} или передай их аргументами:\n"
@@ -1416,6 +1468,20 @@ def main() -> int:
     as_of = max(s.as_of for s in watch_snaps)
     assessments = [assess(s, events.for_ticker(s.symbol), as_of) for s in watch_snaps]
     watch_failed = {k: v for k, v in failed.items() if k in tickers}
+
+    if scanning:
+        scanned = len(assessments)
+        keep = args.keep or int(num(cfg("scoring.scan_keep"), 12))
+        # Оставляем лучшее по скору, но и худшее — чтобы секция AVOID была
+        # не пустой формальностью, а списком того, что реально мозолит глаза.
+        assessments.sort(key=lambda a: a.score, reverse=True)
+        top = assessments[:keep]
+        loud = sorted((a for a in assessments[keep:] if a.warnings),
+                      key=lambda a: abs(a.snap.change_1m or 0.0), reverse=True)[:3]
+        assessments = top + loud
+        watch_failed = {}                    # 500 тикеров в сноску не выводим
+        log.info("Просканировано %d бумаг, отобрано %d + %d в список «не трогаем». "
+                 "Данных нет по %d.", scanned, len(top), len(loud), len(failed))
 
     # Формат: явный флаг → расширение --out → HTML по умолчанию.
     want_json, want_md = args.json, args.md
