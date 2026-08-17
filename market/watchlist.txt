@@ -1,0 +1,18 @@
+# Вотчлист: по одному тикеру в строке. Всё после # — комментарий.
+# Тикеры в формате Yahoo Finance:
+#   акции США      AAPL, NVDA, TSLA
+#   крипта         BTC-USD, ETH-USD, SOL-USD
+#   ETF            SPY, QQQ, IWM, XLE
+#   индексы        ^GSPC, ^NDX, ^VIX
+#   форекс         EURUSD=X
+# Макро-тикеры (SPY/QQQ/VIX/DXY/10Y) грузятся автоматически, сюда их писать не нужно.
+
+NVDA
+AAPL
+MSFT
+TSLA
+AMD
+META
+
+BTC-USD
+ETH-USD
