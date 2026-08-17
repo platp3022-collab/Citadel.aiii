@@ -1357,6 +1357,24 @@ def self_test() -> int:
     if blocked.tradable or not blocked.binary_event:
         failures.append("отчётность завтра не заблокировала сетап")
 
+    # Символы TradingView: брокерские имена и крипта должны разрешаться
+    from tradingview import tv_symbol
+    for label, entry, want in (
+        ("SP500", {}, "OANDA:SPX500USD"),
+        ("GER40", {}, "OANDA:DE30EUR"),
+        ("NAS100USD", {}, "OANDA:NAS100USD"),
+        ("EURUSD", {}, "OANDA:EURUSD"),
+        ("XAUUSD", {}, "OANDA:XAUUSD"),
+        ("BTCUSDT", {}, "BINANCE:BTCUSDT"),
+        ("ETHUSD", {"binance": "ETHUSDT"}, "BINANCE:ETHUSDT"),
+        ("XRPUSD", {}, "BINANCE:XRPUSDT"),
+        ("NVDA", {}, "NVDA"),
+        ("GER40", {"tv": "XETR:DAX"}, "XETR:DAX"),      # явное поле сильнее карты
+    ):
+        got = tv_symbol(label, entry)
+        if got != want:
+            failures.append(f"tv_symbol({label}, {entry}): получено {got}, ждали {want}")
+
     # Деление на ноль и короткие ряды не роняют расчёт
     if _last(sma([1.0, 2.0], 50)) is not None:
         failures.append("SMA на коротком ряду вернула значение")

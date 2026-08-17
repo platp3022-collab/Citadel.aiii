@@ -602,6 +602,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                                  macro_lines, num)
     from charts import CHART_CSS, CHART_JS, color_tokens, performance_chart, price_chart
     from live_quotes import LIVE_CSS, LIVE_JS, load_live_config, render_live_panel
+    from tradingview import TV_CSS, TV_JS, advanced_chart, ticker_tape, tv_symbol
 
     tradables = sorted([a for a in assessments if a.tradable],
                        key=lambda a: a.score, reverse=True)
@@ -619,7 +620,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                'family=IBM+Plex+Mono:wght@400;500;600&'
                'family=IBM+Plex+Sans:wght@400;500;600&display=swap">')
     light_tokens, dark_tokens = color_tokens()
-    out.append(f"<style>{CSS}{CHART_CSS}{LIVE_CSS}\n"
+    out.append(f"<style>{CSS}{CHART_CSS}{LIVE_CSS}{TV_CSS}\n"
                f":root {{\n{light_tokens}\n}}\n"
                f"@media (prefers-color-scheme: dark) {{\n"
                f'  :root:not([data-theme="light"]) {{\n{dark_tokens}\n  }}\n}}\n'
@@ -642,8 +643,20 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
 
     # ── 0. живые котировки ─────────────────────────────────────────────────
     live_cfg = load_live_config(ROOT / str(cfg("paths.live", "live.json")))
-    live_html, _ = render_live_panel(live_cfg, esc)
-    out.append(live_html)
+    tv_on = bool((live_cfg.get("tradingview") or {}).get("enabled", True))
+    if tv_on:
+        # TradingView покрывает и индексные CFD, и форекс — то, чего нет
+        # у бесплатных источников собственной панели.
+        tape: list[tuple[str, str]] = []
+        for group in live_cfg.get("groups", []):
+            for entry in group.get("symbols") or []:
+                if isinstance(entry, dict) and entry.get("label"):
+                    tape.append((str(entry["label"]), tv_symbol(str(entry["label"]), entry)))
+        if tape:
+            out.append(ticker_tape(tape, esc))
+    else:
+        live_html, _ = render_live_panel(live_cfg, esc)
+        out.append(live_html)
 
     # ── 1. макро ───────────────────────────────────────────────────────────
     out.append('<section><div class="eyebrow"><span class="num">01</span>'
@@ -663,6 +676,9 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
     view = int(num(cfg("chart.view_bars"), 130))
     out.append('<section><div class="eyebrow"><span class="num">02</span>'
                'Charts</div><h2>Графики</h2>')
+    if featured is not None and tv_on:
+        out.append(advanced_chart(tv_symbol(featured.snap.symbol),
+                                  featured.snap.symbol, esc))
     if featured is not None:
         fplan = build_plan(featured) if featured.tradable else None
         s = featured.snap
@@ -831,7 +847,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                '20-дневные экстремумы, ATR. Все входы условные — нет триггера, нет сделки. '
                'Инструмент фильтрации информации, не финансовый совет.</footer>')
     out.append('</div>')
-    out.append(f"<script>{TOGGLE_JS}{CHART_JS}{LIVE_JS}</script>")
+    out.append(f"<script>{TOGGLE_JS}{CHART_JS}{LIVE_JS}{TV_JS}</script>")
     return "\n".join(out)
 
 
