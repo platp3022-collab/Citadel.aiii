@@ -84,6 +84,10 @@ CONFIG: dict[str, Any] = {
         "min_reward_risk": 1.5,     # ниже — сетап не проходит в план
         "confirm_rvol": 1.5,        # объём подтверждения пробоя
     },
+    "chart": {
+        "bars": 130,                # сессий на дневном графике (~полгода)
+        "compare_max": 6,           # линий на графике относительной динамики
+    },
     "paths": {
         "watchlist": "watchlist.txt",
         "events": "events.json",
@@ -496,6 +500,9 @@ class Snapshot:
     range_atr: float | None      # ширина 20-дневного диапазона в ATR
     bars: int
     spark: list[float] = field(default_factory=list)   # хвост закрытий для спарклайна
+    # Хвост истории для графиков: свечи и выровненные по ним ряды средних.
+    hist: list[tuple[date, float, float, float, float, float]] = field(default_factory=list)
+    ma_hist: dict[str, list[float | None]] = field(default_factory=dict)
 
     @property
     def trend_pair(self) -> str:
@@ -551,9 +558,10 @@ def build_snapshot(bars: Bars) -> Snapshot:
     if n < 2:
         raise DataError(f"{bars.symbol}: слишком короткий ряд ({n} свечей)")
 
-    e20 = _last(ema(closes, int(ind["ema_fast"])))
-    s50 = _last(sma(closes, int(ind["sma_mid"])))
-    s200 = _last(sma(closes, int(ind["sma_slow"])))
+    e20_s = ema(closes, int(ind["ema_fast"]))
+    s50_s = sma(closes, int(ind["sma_mid"]))
+    s200_s = sma(closes, int(ind["sma_slow"]))
+    e20, s50, s200 = _last(e20_s), _last(s50_s), _last(s200_s)
     r14 = _last(rsi(closes, int(ind["rsi_period"])))
     a14 = _last(atr(highs, lows, closes, int(ind["atr_period"])))
 
@@ -586,6 +594,7 @@ def build_snapshot(bars: Bars) -> Snapshot:
         w_score = max(-3, w_score - 1)
 
     d_score = _daily_trend_score(closes[-1], e20, s50, s200)
+    cb = int(cfg("chart.bars", 130))
     prev_close = closes[-2]
     ext = safe_div(closes[-1] - e20, a14) if (e20 is not None and a14) else None
     rng = safe_div(high_20d - low_20d, a14) if a14 else None
@@ -602,6 +611,9 @@ def build_snapshot(bars: Bars) -> Snapshot:
         trend_d_score=d_score, trend_w_score=w_score,
         ext_atr=ext, range_atr=rng, bars=n,
         spark=list(closes[-60:]),
+        hist=list(zip(bars.dates[-cb:], bars.opens[-cb:], highs[-cb:],
+                      lows[-cb:], closes[-cb:], bars.volumes[-cb:])),
+        ma_hist={"ema20": e20_s[-cb:], "sma50": s50_s[-cb:], "sma200": s200_s[-cb:]},
     )
 
 

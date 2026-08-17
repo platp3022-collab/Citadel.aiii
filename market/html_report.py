@@ -600,6 +600,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
     # Импорт внутри функции: модуль остаётся необязательным для CLI-логики.
     from market_dashboard import (build_plan, cfg, fmt_level, fmt_price, fmt_pct,
                                  macro_lines, num)
+    from charts import CHART_CSS, CHART_JS, color_tokens, performance_chart, price_chart
 
     tradables = sorted([a for a in assessments if a.tradable],
                        key=lambda a: a.score, reverse=True)
@@ -616,7 +617,13 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                'family=Archivo:wght@600;700&'
                'family=IBM+Plex+Mono:wght@400;500;600&'
                'family=IBM+Plex+Sans:wght@400;500;600&display=swap">')
-    out.append(f"<style>{CSS}</style>")
+    light_tokens, dark_tokens = color_tokens()
+    out.append(f"<style>{CSS}{CHART_CSS}\n"
+               f":root {{\n{light_tokens}\n}}\n"
+               f"@media (prefers-color-scheme: dark) {{\n"
+               f'  :root:not([data-theme="light"]) {{\n{dark_tokens}\n  }}\n}}\n'
+               f':root[data-theme="dark"] {{\n{dark_tokens.replace("    ", "  ")}\n}}\n'
+               "</style>")
     out.append('<div class="wrap">')
 
     # ── шапка ──────────────────────────────────────────────────────────────
@@ -645,8 +652,48 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                    f'<span class="body">{body}</span></div>')
     out.append('</div></section>')
 
-    # ── 2. вотчлист ────────────────────────────────────────────────────────
+    # ── 2. графики ─────────────────────────────────────────────────────────
+    featured = next((a for a in tradables if build_plan(a)), ordered[0] if ordered else None)
     out.append('<section><div class="eyebrow"><span class="num">02</span>'
+               'Charts</div><h2>Графики</h2>')
+    if featured is not None:
+        fplan = build_plan(featured) if featured.tradable else None
+        s = featured.snap
+        sub = ("сетап дня — уровни плана нанесены на график"
+               if fplan else "лучший по скору тикер вотчлиста")
+        chg_cls = "up" if s.change_pct > 0 else ("down" if s.change_pct < 0 else "")
+        out.append(
+            '<div class="chart-card"><div class="chart-head">'
+            f'<span class="t">{esc(s.symbol)}</span>'
+            f'<span class="sub">дневной график · {esc(sub)}</span>'
+            f'<span class="right">{esc(fmt_price(s.close))} '
+            f'<span class="{chg_cls}">{esc(fmt_pct(s.change_pct))}</span></span></div>'
+            '<div class="legend">'
+            '<span class="key"><i style="background:var(--ma-fast)"></i>20 EMA</span>'
+            '<span class="key"><i style="background:var(--ma-mid)"></i>50 SMA</span>'
+            '<span class="key"><i style="background:var(--ma-slow)"></i>200 SMA</span>'
+            + ('<span class="key" style="color:var(--short)"><i class="dash"></i>стоп</span>'
+               '<span class="key" style="color:var(--brass)"><i class="dash"></i>триггер</span>'
+               '<span class="key" style="color:var(--long)"><i class="dash"></i>цели</span>'
+               if fplan else "")
+            + '</div>')
+        out.append(price_chart(s, fplan, fmt_level))
+        out.append('</div>')
+
+    compare = [a.snap for a in ordered][:int(num(cfg("chart.compare_max"), 6))]
+    if len(compare) >= 2:
+        window = len(compare[0].hist)
+        out.append(
+            '<div class="chart-card"><div class="chart-head">'
+            '<span class="t">Относительная динамика</span>'
+            f'<span class="sub">вотчлист от общей базы · {window} сессий</span>'
+            '<span class="right">кто ведёт, кто отстаёт</span></div>')
+        out.append(performance_chart(compare, int(num(cfg("chart.compare_max"), 6))))
+        out.append('</div>')
+    out.append('</section>')
+
+    # ── 3. вотчлист ────────────────────────────────────────────────────────
+    out.append('<section><div class="eyebrow"><span class="num">03</span>'
                "Today's Watchlist &amp; Setup Quality</div>"
                '<h2>Вотчлист и качество сетапов</h2>'
                '<div class="table-scroll"><table><thead><tr>'
@@ -692,7 +739,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
     out.append('</tbody></table></div></section>')
 
     # ── 3. избегаем ────────────────────────────────────────────────────────
-    out.append('<section><div class="eyebrow"><span class="num">03</span>'
+    out.append('<section><div class="eyebrow"><span class="num">04</span>'
                'Avoid Today — High Risk / No Edge</div>'
                '<h2>Сегодня не трогаем</h2>')
     if avoid:
@@ -712,7 +759,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
     out.append('</section>')
 
     # ── 4. план исполнения ─────────────────────────────────────────────────
-    out.append('<section><div class="eyebrow"><span class="num">04</span>'
+    out.append('<section><div class="eyebrow"><span class="num">05</span>'
                'Actionable Execution Plan</div>'
                '<h2>План исполнения — «если это действительно случится»</h2>'
                '<div class="plans">')
@@ -762,7 +809,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                '20-дневные экстремумы, ATR. Все входы условные — нет триггера, нет сделки. '
                'Инструмент фильтрации информации, не финансовый совет.</footer>')
     out.append('</div>')
-    out.append(f"<script>{TOGGLE_JS}</script>")
+    out.append(f"<script>{TOGGLE_JS}{CHART_JS}</script>")
     return "\n".join(out)
 
 
