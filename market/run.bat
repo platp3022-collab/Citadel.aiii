@@ -14,5 +14,5 @@ echo Собираю бриф...
 python market_dashboard.py %*
 
 echo.
-echo Готово. Бриф сохранён в briefs\.
+echo Готово. Страница открылась в браузере и лежит в briefs\.
 pause

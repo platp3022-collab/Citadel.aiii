@@ -12,5 +12,6 @@ echo "Собираю бриф..."
 python3 market_dashboard.py "$@"
 
 echo
-echo "Готово. Бриф сохранён в briefs/. Нажми Enter, чтобы закрыть."
+echo "Готово. Страница открылась в браузере и лежит в briefs/."
+echo "Нажми Enter, чтобы закрыть это окно."
 read -r _

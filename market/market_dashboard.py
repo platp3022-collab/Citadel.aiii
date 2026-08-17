@@ -495,6 +495,7 @@ class Snapshot:
     ext_atr: float | None        # отрыв от 20 EMA в ATR (знаковый)
     range_atr: float | None      # ширина 20-дневного диапазона в ATR
     bars: int
+    spark: list[float] = field(default_factory=list)   # хвост закрытий для спарклайна
 
     @property
     def trend_pair(self) -> str:
@@ -600,6 +601,7 @@ def build_snapshot(bars: Bars) -> Snapshot:
         trend_d=_trend_label(d_score), trend_w=_trend_label(w_score),
         trend_d_score=d_score, trend_w_score=w_score,
         ext_atr=ext, range_atr=rng, bars=n,
+        spark=list(closes[-60:]),
     )
 
 
@@ -803,11 +805,20 @@ def assess(snap: Snapshot, entry: dict, today: date) -> Assessment:
 class Plan:
     symbol: str
     name: str
+    direction: str
     trigger: str
     confirmation: str
     stop: str
     targets: str
     reward_risk: float
+    # Числовые уровни — для графики и JSON. Текст выше повторяет их словами.
+    last: float = 0.0
+    trigger_level: float = 0.0
+    stop_level: float = 0.0
+    t1: float = 0.0
+    t2: float = 0.0
+    t1_name: str = ""
+    t2_name: str = ""
 
 
 def _target_levels(trigger: float, atr_v: float, structure: Sequence[tuple[float, str]],
@@ -906,9 +917,11 @@ def build_plan(a: Assessment) -> Plan | None:
                     f"без объёма пробой считаем ложным и ждём ретест "
                     f"{fmt_level(trigger)} как сопротивления")
     return Plan(
-        symbol=s.symbol, name=name, trigger=trigger_txt,
+        symbol=s.symbol, name=name, direction=a.direction, trigger=trigger_txt,
         confirmation=confirmation,
         stop=stop_txt,
+        last=s.close, trigger_level=trigger, stop_level=stop,
+        t1=t1, t2=t2, t1_name=t1_name, t2_name=t2_name,
         targets=(f"T1 {fmt_level(t1)} ({t1_name}) — фиксируем половину, стоп в безубыток; "
                  f"T2 {fmt_level(t2)} ({t2_name}). Риск на сделку {fmt_level(abs(risk))} "
                  f"({safe_div(abs(risk) * 100, s.close):.1f}% от цены)"),
@@ -1334,8 +1347,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--offline", action="store_true", help="только кеш, без сети")
     p.add_argument("--no-cache", action="store_true", help="игнорировать кеш, тянуть заново")
     p.add_argument("--no-benchmarks", action="store_true", help="без макро-тикеров")
-    p.add_argument("--json", action="store_true", help="вывод в JSON вместо markdown")
-    p.add_argument("--out", type=Path, help="записать в файл (иначе в briefs/ и в консоль)")
+    fmt = p.add_mutually_exclusive_group()
+    fmt.add_argument("--md", action="store_true", help="markdown вместо HTML")
+    fmt.add_argument("--json", action="store_true", help="JSON вместо HTML")
+    p.add_argument("--no-open", action="store_true",
+                   help="не открывать HTML в браузере автоматически")
+    p.add_argument("--out", type=Path, help="записать в файл (иначе в briefs/)")
     p.add_argument("--no-save", action="store_true", help="не сохранять бриф в briefs/")
     p.add_argument("--self-test", action="store_true", help="проверка математики, без сети")
     p.add_argument("-v", "--verbose", action="store_true", help="подробный лог")
@@ -1386,24 +1403,49 @@ def main() -> int:
     assessments = [assess(s, events.for_ticker(s.symbol), as_of) for s in watch_snaps]
     watch_failed = {k: v for k, v in failed.items() if k in tickers}
 
-    if args.json:
-        text = to_json(assessments, as_of)
-        default_name = f"{as_of.isoformat()}.json"
-    else:
-        text = render_brief(assessments, snaps, events, watch_failed, as_of)
-        default_name = f"{as_of.isoformat()}.md"
+    # Формат: явный флаг → расширение --out → HTML по умолчанию.
+    want_json, want_md = args.json, args.md
+    if not (want_json or want_md) and args.out:
+        suffix = args.out.suffix.lower()
+        want_json, want_md = suffix == ".json", suffix in (".md", ".markdown")
 
+    if want_json:
+        text, ext = to_json(assessments, as_of), "json"
+    elif want_md:
+        text, ext = render_brief(assessments, snaps, events, watch_failed, as_of), "md"
+    else:
+        from html_report import render_html          # тянем только когда нужен HTML
+        text, ext = render_html(assessments, snaps, events, watch_failed, as_of), "html"
+
+    target: Path | None = None
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text, encoding="utf-8")
-        log.info("Записано: %s", args.out)
+        target = args.out
+    elif not args.no_save:
+        briefs = ROOT / str(cfg("paths.briefs", "briefs"))
+        briefs.mkdir(parents=True, exist_ok=True)
+        target = briefs / f"{as_of.isoformat()}.{ext}"
+        target.write_text(text, encoding="utf-8")
+
+    if ext == "html":
+        # HTML в консоль не печатаем — его читают в браузере.
+        planned = sum(1 for a in assessments if a.tradable)
+        print(f"Бриф на {as_of.isoformat()}: {len(assessments)} тикеров, "
+              f"{planned} с рабочим сетапом.")
+        if target:
+            print(f"Страница: {target}")
+            if not args.no_open:
+                import webbrowser
+                if webbrowser.open(target.resolve().as_uri()):
+                    print("Открываю в браузере...")
+                else:
+                    print("Браузер не открылся автоматически — открой файл вручную.")
+        else:
+            print(text)
     else:
         print(text)
-        if not args.no_save:
-            briefs = ROOT / str(cfg("paths.briefs", "briefs"))
-            briefs.mkdir(parents=True, exist_ok=True)
-            target = briefs / default_name
-            target.write_text(text, encoding="utf-8")
+        if target:
             log.info("Бриф сохранён: %s", target)
     return 0
 
