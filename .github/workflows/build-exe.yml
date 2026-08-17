@@ -1,0 +1,129 @@
+name: Build Market Screener executables
+
+# Собирает готовые к запуску бинарники скринера — .exe для Windows и его
+# аналоги для macOS и Linux. Запуск: вкладка Actions -> этот workflow ->
+# Run workflow. Либо запушить тег вида v1.0, тогда файлы приложатся к релизу.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "onefile = один файл, стартует медленнее | onedir = папка, стартует мгновенно"
+        type: choice
+        options: [onefile, onedir]
+        default: onefile
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  SCREENER_NO_BROWSER: "1"   # на раннере нет браузера, открывать нечего
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+            binary: MarketScreener.exe
+          - os: macos-latest
+            label: macos
+            binary: MarketScreener
+          - os: ubuntu-latest
+            label: linux
+            binary: MarketScreener
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ai-market-screener
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build
+        run: >
+          pyinstaller --${{ inputs.mode || 'onefile' }} --clean --noconfirm
+          --name MarketScreener
+          --collect-all yfinance
+          --collect-all ccxt
+          --collect-submodules anthropic
+          --exclude-module matplotlib
+          --exclude-module tkinter
+          --exclude-module PyQt5
+          --exclude-module PySide6
+          --exclude-module scipy
+          --exclude-module IPython
+          --exclude-module pytest
+          webapp.py
+
+      - name: Locate the binary
+        id: bin
+        run: |
+          if [ -f "dist/${{ matrix.binary }}" ]; then
+            echo "dir=dist"                  >> "$GITHUB_OUTPUT"   # onefile
+          else
+            echo "dir=dist/MarketScreener"   >> "$GITHUB_OUTPUT"   # onedir
+          fi
+
+      - name: Smoke test — binary must start and serve its page
+        run: |
+          cd "${{ steps.bin.outputs.dir }}"
+          ./${{ matrix.binary }} &
+          PID=$!
+          ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8765/ -o page.html 2>/dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          kill $PID 2>/dev/null || true
+          if [ "$ok" != "1" ]; then echo "::error::бинарник не поднял сервер"; exit 1; fi
+          grep -q "AI Market Screener" page.html || { echo "::error::отдал не ту страницу"; exit 1; }
+          grep -q 'action="/run"' page.html || { echo "::error::на странице нет формы"; exit 1; }
+          rm page.html
+          echo "smoke test passed"
+
+      - name: Package
+        run: |
+          SRC="$GITHUB_WORKSPACE/ai-market-screener"
+          cd "${{ steps.bin.outputs.dir }}"
+          cp "$SRC/watchlist.txt" "$SRC/.env.example" "$SRC/README.md" .
+          {
+            echo "### ${{ matrix.label }}"
+            echo "Режим сборки: \`${{ inputs.mode || 'onefile' }}\`"
+            echo "Размер: $(du -sh ${{ matrix.binary }} | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MarketScreener-${{ matrix.label }}
+          path: ai-market-screener/${{ steps.bin.outputs.dir }}/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Zip for release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python -c "import shutil,sys; shutil.make_archive(sys.argv[1],'zip',sys.argv[2])" \
+            "MarketScreener-${{ matrix.label }}" "${{ steps.bin.outputs.dir }}"
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ai-market-screener/MarketScreener-${{ matrix.label }}.zip
