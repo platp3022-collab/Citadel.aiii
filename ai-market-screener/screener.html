@@ -133,9 +133,11 @@ font-family:var(--fu);font-size:12px;color:var(--ink-3)}
       <select id="lang"><option value="ru" selected>Русский</option><option value="en">English</option></select></div>
     <div><label class="lab" for="model">Модель</label>
       <select id="model">
-        <option value="claude-opus-5" selected>claude-opus-5</option>
-        <option value="claude-sonnet-5">claude-sonnet-5 — дешевле</option>
-      </select></div>
+        <option value="claude-opus-5" selected>claude-opus-5 — лучшая</option>
+        <option value="claude-sonnet-5">claude-sonnet-5 — вдвое дешевле</option>
+        <option value="claude-haiku-4-5">claude-haiku-4-5 — самая дешёвая</option>
+      </select>
+      <p class="hint" id="modelnote"></p></div>
   </div>
   <button class="ghost" id="savekey" type="button">Сохранить настройки</button>
 </details>
@@ -176,10 +178,14 @@ AAPL,2026-01-03,186.8,188.0,185.5,187.2,48930000"></textarea>
     <input type="number" id="bars" value="400" min="60" max="1000"></div>
 </div>
 
-<div style="display:flex;gap:12px;flex-wrap:wrap;margin:22px 0 18px">
-  <button id="go" type="button">Собрать план</button>
-  <button class="ghost" id="dry" type="button">Только данные, без вызова API</button>
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin:22px 0 10px">
+  <button id="dry" type="button">Бесплатно — промпт для чата</button>
+  <button class="ghost" id="go" type="button">Через API — сразу готовый план</button>
 </div>
+<p class="hint" style="margin-bottom:18px"><strong>Бесплатно</strong> — считает индикаторы
+здесь и готовит текст для вставки в обычный чат claude.ai. Ключ не нужен, денег не стоит.
+<strong>Через API</strong> — то же самое в один шаг, но расходует токены и требует ключ
+с оплаченным балансом.</p>
 
 <div id="log"></div>
 <div id="out"></div>
@@ -579,24 +585,71 @@ const SCHEMA = {
   additionalProperties: false
 };
 
+// Haiku 4.5 predates adaptive thinking and the effort parameter — sending either
+// is a 400 on that model. Structured outputs it does support.
+const LEGACY_MODELS = ["claude-haiku-4-5"];
+
+// Free path: the same rules, but asking for Markdown instead of schema-bound JSON,
+// so the text can be pasted straight into a normal claude.ai chat.
+function chatPrompt(payload, lang) {
+  const rules = SYSTEM_PROMPT.split("# Output")[0].trim();
+  const langName = lang === "ru" ? "Russian" : "English";
+  return rules + "\n\n# Output\n"
+    + "Answer in Markdown with exactly these four sections, in this order:\n"
+    + "1. **Macro Risk & Rules** — regime (risk_on / neutral / risk_off), a short summary, "
+    + "key risks, and the rules for today.\n"
+    + "2. **Watchlist** — a table with the columns: Ticker, Trend, Score 1-10, Bias, Setup. "
+    + "Add one line of rationale per ticker under the table.\n"
+    + "3. **Avoid Today** — ticker and the specific disqualifying reason, or state that "
+    + "nothing qualifies.\n"
+    + "4. **Execution Plans** — for each plan give Trigger, Confirmation, Stop-loss, Target, "
+    + "Reward:Risk and Invalidation.\n"
+    + "Write all prose in " + langName + ". Ticker symbols and numbers stay as-is.\n\n"
+    + "# Market snapshot\n```json\n" + JSON.stringify(payload, null, 2) + "\n```";
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    // Clipboard API can be blocked; fall back to a hidden textarea.
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e2) { return false; }
+  }
+}
+
 async function callClaude(payload, key, model, effort, lang) {
+  const legacy = LEGACY_MODELS.indexOf(model) >= 0;
   const body = {
     model: model,
-    max_tokens: 32000,
+    max_tokens: legacy ? 8000 : 32000,
     stream: true,
-    thinking: { type: "adaptive" },
     system: [{
       type: "text",
       text: SYSTEM_PROMPT.replace("__LANGUAGE__", lang === "ru" ? "Russian" : "English"),
       cache_control: { type: "ephemeral" }
     }],
-    output_config: { effort: effort, format: { type: "json_schema", schema: SCHEMA } },
+    output_config: { format: { type: "json_schema", schema: SCHEMA } },
     messages: [{
       role: "user",
       content: "Market snapshot for today's session. Produce the trading plan.\n\n"
              + JSON.stringify(payload)
     }]
   };
+  if (!legacy) {
+    body.thinking = { type: "adaptive" };
+    body.output_config.effort = effort;
+  }
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -804,10 +857,29 @@ async function run(dryRun) {
     const payload = buildPayload(instruments, windowLen);
 
     if (dryRun) {
-      out.innerHTML = '<h2>Снимок данных</h2><p class="meta">Это ровно то, что получила бы '
-        + "модель. API не вызывался, токены не списаны.</p><pre>"
-        + esc(JSON.stringify(payload, null, 2)) + "</pre>";
-      log("готово — без вызова API", "d");
+      const prompt = chatPrompt(payload, $("lang").value);
+      out.innerHTML =
+        '<div class="card ok"><h4>Готово — бесплатно</h4>'
+        + "<p>Индикаторы по " + instruments.length + " инструментам посчитаны прямо "
+        + "здесь, в браузере. Денег это не стоило и ключ не потребовался.</p>"
+        + "<p>Дальше нажмите кнопку ниже, откройте "
+        + '<a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a> '
+        + "и вставьте в чат — придёт тот же торговый план, только текстом.</p>"
+        + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
+        + '<button id="copyprompt" type="button">Скопировать промпт для чата</button>'
+        + '<span class="meta" id="copystate"></span></div></div>'
+        + '<details><summary>Промпт целиком, если копировать вручную</summary><pre>'
+        + esc(prompt) + "</pre></details>"
+        + '<details><summary>Только снимок данных (JSON)</summary><pre>'
+        + esc(JSON.stringify(payload, null, 2)) + "</pre></details>";
+
+      $("copyprompt").addEventListener("click", async () => {
+        const ok = await copyText(prompt);
+        $("copystate").textContent = ok
+          ? "Скопировано — вставляйте в чат"
+          : "Скопировать не вышло: раскройте блок ниже и выделите текст вручную";
+      });
+      log("готово — без вызова API, ничего не потрачено", "d");
       return;
     }
 
@@ -834,6 +906,18 @@ async function run(dryRun) {
   }
 }
 
+const MODEL_NOTES = {
+  "claude-opus-5": "ориентировочно $0.10–0.30 за прогон",
+  "claude-sonnet-5": "ориентировочно $0.05–0.15 за прогон",
+  "claude-haiku-4-5": "ориентировочно $0.02 за прогон · глубина не настраивается"
+};
+function updateModelNote() {
+  const m = $("model").value;
+  $("modelnote").textContent = MODEL_NOTES[m] || "";
+  $("effort").disabled = LEGACY_MODELS.indexOf(m) >= 0;
+}
+$("model").addEventListener("change", updateModelNote);
+
 $("tab-cx").addEventListener("click", () => selectTab("cx"));
 $("tab-csv").addEventListener("click", () => selectTab("csv"));
 $("savekey").addEventListener("click", () => {
@@ -844,6 +928,7 @@ $("go").addEventListener("click", () => { saveSettings(); run(false); });
 $("dry").addEventListener("click", () => { saveSettings(); run(true); });
 
 loadSettings();
+updateModelNote();          // after loadSettings, so it reflects the restored model
 if (location.protocol !== "file:" && location.hostname !== "localhost"
     && location.hostname !== "127.0.0.1") {
   $("filewarn").classList.remove("hidden");
