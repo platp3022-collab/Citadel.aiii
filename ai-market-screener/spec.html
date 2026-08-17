@@ -1,0 +1,1582 @@
+<title>AI Market Screener</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  --bg:#F1F3F2; --surface:#FBFCFB; --surface-2:#E7ECEA; --rule:#D2DAD7;
+  --ink:#14211F; --ink-2:#4B5E5B; --ink-3:#7A8B88;
+  --accent:#0B6B63; --accent-ink:#075049; --accent-wash:#DCEAE7;
+  --amber:#8A5715; --amber-wash:#F3E8D4;
+  --code-bg:#EAEFED; --code-rule:#D2DAD7; --gutter:#9BABA7;
+  --t-key:#9A2E63; --t-str:#7A5210; --t-com:#7C8D8A; --t-num:#1F5FA8; --t-def:#0B6B63;
+  --font-body:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --font-ui:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --font-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0E1615; --surface:#141F1D; --surface-2:#1B2726; --rule:#2A3937;
+    --ink:#E2E9E7; --ink-2:#A0B3AF; --ink-3:#758884;
+    --accent:#4FC0B2; --accent-ink:#7FD6CA; --accent-wash:#12312D;
+    --amber:#D8A650; --amber-wash:#33280F;
+    --code-bg:#0B1413; --code-rule:#243230; --gutter:#4A5E5A;
+    --t-key:#E88BB4; --t-str:#D6B26A; --t-com:#6C7F7B; --t-num:#88BAF2; --t-def:#5DC8BB;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#0E1615; --surface:#141F1D; --surface-2:#1B2726; --rule:#2A3937;
+  --ink:#E2E9E7; --ink-2:#A0B3AF; --ink-3:#758884;
+  --accent:#4FC0B2; --accent-ink:#7FD6CA; --accent-wash:#12312D;
+  --amber:#D8A650; --amber-wash:#33280F;
+  --code-bg:#0B1413; --code-rule:#243230; --gutter:#4A5E5A;
+  --t-key:#E88BB4; --t-str:#D6B26A; --t-com:#6C7F7B; --t-num:#88BAF2; --t-def:#5DC8BB;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--font-body); font-size:17px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap { max-width:1220px; margin:0 auto; padding:0 24px 96px; }
+.layout { display:block; }
+@media (min-width:1180px) {
+  .layout { display:grid; grid-template-columns:190px minmax(0,1fr); gap:56px; align-items:start; }
+}
+
+/* ---- nav rail ---- */
+nav.toc { display:none; }
+@media (min-width:1180px) {
+  nav.toc {
+    display:block; position:sticky; top:32px; font-family:var(--font-ui);
+    font-size:13px; padding-top:8px;
+  }
+  nav.toc ol { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+  nav.toc a {
+    display:block; padding:5px 10px; color:var(--ink-3); text-decoration:none;
+    border-left:2px solid var(--rule); transition:color .15s, border-color .15s;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color:var(--accent); border-left-color:var(--accent); }
+  nav.toc a.on { color:var(--ink); border-left-color:var(--accent); font-weight:600; }
+}
+
+/* ---- header ---- */
+header { padding:64px 0 40px; border-bottom:1px solid var(--rule); margin-bottom:48px; }
+.eyebrow {
+  font-family:var(--font-ui); font-size:11px; font-weight:600; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 18px;
+}
+h1 {
+  font-size:clamp(2.4rem,6vw,3.9rem); line-height:1.03; margin:0 0 20px;
+  letter-spacing:-.022em; font-weight:600; text-wrap:balance;
+}
+.lede { font-size:1.18rem; color:var(--ink-2); max-width:64ch; margin:0 0 30px; }
+.chips { display:flex; flex-wrap:wrap; gap:8px; font-family:var(--font-ui); font-size:12px; }
+.chip {
+  padding:5px 11px; border:1px solid var(--rule); border-radius:2px;
+  color:var(--ink-2); background:var(--surface);
+}
+.chip b { color:var(--ink); font-weight:600; }
+
+/* ---- sections ---- */
+section { padding-top:16px; margin-bottom:72px; scroll-margin-top:24px; }
+h2 {
+  font-size:1.85rem; line-height:1.2; margin:0 0 8px; font-weight:600;
+  letter-spacing:-.015em; text-wrap:balance;
+}
+.h2-num {
+  font-family:var(--font-ui); font-size:12px; font-weight:700; letter-spacing:.14em;
+  color:var(--accent); display:block; margin-bottom:10px; text-transform:uppercase;
+}
+h3 {
+  font-family:var(--font-ui); font-size:.95rem; font-weight:700; letter-spacing:.01em;
+  margin:40px 0 14px; color:var(--ink);
+}
+p { max-width:68ch; margin:0 0 18px; }
+.sub { color:var(--ink-2); max-width:68ch; margin:0 0 28px; font-size:1.05rem; }
+a { color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px; }
+strong { font-weight:700; }
+ul, ol { max-width:68ch; padding-left:1.3em; }
+li { margin-bottom:7px; }
+
+/* ---- pipeline ---- */
+.pipe { display:flex; flex-wrap:wrap; align-items:stretch; gap:0; margin:8px 0 40px; }
+.stage {
+  flex:1 1 190px; background:var(--surface); border:1px solid var(--rule);
+  padding:18px 18px 20px; display:flex; flex-direction:column; gap:6px;
+}
+.stage + .stage { border-left:none; }
+@media (max-width:720px) {
+  .stage + .stage { border-left:1px solid var(--rule); border-top:none; }
+}
+.stage-k {
+  font-family:var(--font-ui); font-size:10px; font-weight:700; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--accent);
+}
+.stage-t { font-weight:700; font-size:1.02rem; line-height:1.25; }
+.stage-d { font-family:var(--font-ui); font-size:12.5px; color:var(--ink-2); line-height:1.5; }
+
+/* ---- seam ---- */
+.seam {
+  display:grid; grid-template-columns:1fr; gap:0; border:1px solid var(--rule);
+  background:var(--surface); margin:8px 0 12px;
+}
+@media (min-width:760px) { .seam { grid-template-columns:1fr auto 1fr; } }
+.seam-col { padding:22px 24px; }
+.seam-div {
+  display:flex; align-items:center; justify-content:center; padding:14px 18px;
+  background:var(--accent-wash); border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
+}
+@media (min-width:760px) {
+  .seam-div { border:none; border-left:1px solid var(--rule); border-right:1px solid var(--rule); }
+  .seam-div span { writing-mode:vertical-rl; transform:rotate(180deg); }
+}
+.seam-div span {
+  font-family:var(--font-ui); font-size:11px; font-weight:700; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--accent-ink); text-align:center;
+}
+.seam-h {
+  font-family:var(--font-ui); font-size:11px; font-weight:700; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--ink-3); margin:0 0 12px;
+}
+.seam-col ul { list-style:none; padding:0; margin:0; font-family:var(--font-ui); font-size:13.5px; }
+.seam-col li { margin-bottom:6px; color:var(--ink-2); }
+.seam-col li::before { content:"▸"; color:var(--accent); margin-right:8px; }
+
+/* ---- tables ---- */
+.tw { overflow-x:auto; margin:0 0 28px; border:1px solid var(--rule); background:var(--surface); }
+table { border-collapse:collapse; width:100%; font-family:var(--font-ui); font-size:13.5px; }
+th {
+  text-align:left; padding:11px 16px; background:var(--surface-2);
+  font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink-2); border-bottom:1px solid var(--rule); white-space:nowrap;
+}
+td { padding:11px 16px; border-bottom:1px solid var(--rule); vertical-align:top; color:var(--ink-2); }
+tr:last-child td { border-bottom:none; }
+td code, p code, li code { font-family:var(--font-mono); font-size:.88em; color:var(--ink); }
+td:first-child code { font-weight:600; }
+.pill {
+  display:inline-block; padding:2px 9px; border-radius:2px; font-size:11px;
+  font-weight:700; letter-spacing:.04em; white-space:nowrap;
+}
+.pill-ok { background:var(--accent-wash); color:var(--accent-ink); }
+.pill-no { background:var(--amber-wash); color:var(--amber); }
+
+/* ---- callouts ---- */
+.note, .warn {
+  border-left:3px solid var(--accent); background:var(--surface);
+  padding:16px 20px; margin:0 0 26px; max-width:72ch;
+}
+.warn { border-left-color:var(--amber); }
+.note p:last-child, .warn p:last-child { margin-bottom:0; }
+.note-h, .warn-h {
+  font-family:var(--font-ui); font-size:11px; font-weight:700; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 7px;
+}
+.warn-h { color:var(--amber); }
+
+/* ---- rules list ---- */
+.rules { list-style:none; padding:0; margin:0 0 28px; max-width:74ch; }
+.rules li { display:flex; gap:16px; padding:14px 0; border-bottom:1px solid var(--rule); margin:0; }
+.rules li:last-child { border-bottom:none; }
+.rule-n {
+  flex:none; width:26px; height:26px; border-radius:50%; background:var(--accent-wash);
+  color:var(--accent-ink); font-family:var(--font-ui); font-size:12px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; margin-top:2px;
+}
+.rules strong { font-family:var(--font-ui); font-size:14px; }
+.rules p { margin:3px 0 0; font-size:.95rem; color:var(--ink-2); }
+
+/* ---- status grid ---- */
+.status { display:grid; grid-template-columns:1fr; gap:20px; margin-bottom:28px; }
+@media (min-width:760px) { .status { grid-template-columns:1fr 1fr; } }
+.status-card { border:1px solid var(--rule); background:var(--surface); padding:20px 22px; }
+.status-card.ok { border-top:3px solid var(--accent); }
+.status-card.no { border-top:3px solid var(--amber); }
+.status-card h4 {
+  font-family:var(--font-ui); font-size:12px; font-weight:700; letter-spacing:.1em;
+  text-transform:uppercase; margin:0 0 14px;
+}
+.status-card.ok h4 { color:var(--accent); }
+.status-card.no h4 { color:var(--amber); }
+.status-card ul { list-style:none; padding:0; margin:0; font-size:.95rem; }
+.status-card li { color:var(--ink-2); padding-left:20px; position:relative; margin-bottom:9px; }
+.status-card.ok li::before { content:"✓"; position:absolute; left:0; color:var(--accent); font-weight:700; }
+.status-card.no li::before { content:"—"; position:absolute; left:0; color:var(--amber); font-weight:700; }
+
+/* ---- code ---- */
+pre.code {
+  background:var(--code-bg); border:1px solid var(--code-rule);
+  padding:18px 20px; overflow-x:auto; margin:0 0 26px;
+  font-family:var(--font-mono); font-size:13px; line-height:1.62; tab-size:4;
+  position:relative;
+}
+pre.code code { font-family:inherit; white-space:pre; display:block; color:var(--ink); }
+pre.code::before {
+  content:attr(data-lang); position:absolute; top:0; right:0;
+  font-family:var(--font-ui); font-size:9.5px; font-weight:700; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--gutter);
+  padding:5px 9px; pointer-events:none;
+}
+pre.numbered { counter-reset:ln; padding-left:0; }
+pre.numbered .line { display:block; padding-left:66px; text-indent:0; position:relative; }
+pre.numbered .line::before {
+  counter-increment:ln; content:counter(ln);
+  position:absolute; left:0; width:50px; text-align:right;
+  color:var(--gutter); font-size:11.5px; user-select:none;
+}
+pre.numbered .line:hover { background:color-mix(in srgb, var(--accent) 7%, transparent); }
+.t-key { color:var(--t-key); }
+.t-str { color:var(--t-str); }
+.t-com { color:var(--t-com); font-style:italic; }
+.t-num { color:var(--t-num); }
+.t-def { color:var(--t-def); font-weight:600; }
+.t-dec { color:var(--t-key); }
+
+.srcbar {
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:14px;
+  font-family:var(--font-ui); font-size:12px; color:var(--ink-3);
+  padding:10px 14px; border:1px solid var(--rule); border-bottom:none; background:var(--surface-2);
+}
+.srcbar b { color:var(--ink); font-family:var(--font-mono); font-size:12.5px; }
+
+footer {
+  border-top:1px solid var(--rule); padding-top:26px; margin-top:16px;
+  font-family:var(--font-ui); font-size:12.5px; color:var(--ink-3); max-width:72ch;
+}
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Техническая спецификация · Python</p>
+  <h1>AI Market Screener</h1>
+  <p class="lede">Скринер тянет дневные свечи, считает индикаторы локально в pandas
+  и отдаёт сжатый JSON-снимок в Claude API под жёсткой схемой — на выходе готовый
+  торговый план в Markdown.</p>
+  <div class="chips">
+    <span class="chip">Python <b>3.11+</b></span>
+    <span class="chip">Модель <b>claude-opus-5</b></span>
+    <span class="chip">pandas <b>3.0</b> / numpy <b>2.4</b></span>
+    <span class="chip"><b>839</b> строк в одном файле</span>
+    <span class="chip">Ветка <b>claude/instagram-video-explanation-fdvfil</b></span>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="Разделы"><ol><li><a href="#overview">Обзор</a></li>
+<li><a href="#stage1">1 · Архитектура</a></li>
+<li><a href="#stage2">2 · Данные и ТА</a></li>
+<li><a href="#stage3">3 · Claude API</a></li>
+<li><a href="#stage4">4 · Запуск</a></li>
+<li><a href="#status">Что проверено</a></li>
+<li><a href="#source">Полный код</a></li>
+<li><a href="#files">Файлы проекта</a></li></ol></nav>
+<main>
+
+<section id="overview">
+  <h2>Как это работает</h2>
+  <p class="sub">Четыре ступени. Каждая отдаёт следующей строго определённый формат,
+  поэтому любую можно менять или тестировать отдельно.</p>
+
+  <div class="pipe">
+    <div class="stage"><span class="stage-k">Ступень 1</span><span class="stage-t">Data Ingestion</span>
+      <span class="stage-d">yfinance для акций и ETF, ccxt для крипты. Дневные OHLCV, 2 года истории, параллельная загрузка.</span></div>
+    <div class="stage"><span class="stage-k">Ступень 2</span><span class="stage-t">Technical Processing</span>
+      <span class="stage-d">pandas: EMA20, SMA50/200, RSI14, ATR14, RVOL, кластеризованные уровни, breadth по корзине.</span></div>
+    <div class="stage"><span class="stage-k">Ступень 3</span><span class="stage-t">LLM Analysis</span>
+      <span class="stage-d">Claude API под системным промптом и JSON-схемой. Структура ответа гарантирована на уровне API.</span></div>
+    <div class="stage"><span class="stage-k">Ступень 4</span><span class="stage-t">Output</span>
+      <span class="stage-d">Markdown-отчёт рендерится локально из JSON. Снимок и ответ сохраняются для аудита.</span></div>
+  </div>
+
+  <h3>Главное архитектурное решение</h3>
+  <p>Вся арифметика в pandas, только суждение — в модели. Claude не видит сырых
+  свечей и ничего не вычисляет: он получает готовый снимок примерно из 30 полей на
+  инструмент. Это даёт три вещи сразу — цифры в отчёте воспроизводимы и проверяемы,
+  токенов уходит в разы меньше, а модель не может «ошибиться в расчёте RSI».</p>
+
+  <div class="seam">
+    <div class="seam-col">
+      <p class="seam-h">Детерминированно · pandas</p>
+      <ul>
+        <li>EMA 20, SMA 50, SMA 200</li>
+        <li>RSI 14, ATR 14, RVOL</li>
+        <li>Свинг-уровни и их кластеризация</li>
+        <li>Изменения за 1 / 5 / 20 дней, гэп</li>
+        <li>Breadth и бенчмарки по корзине</li>
+      </ul>
+    </div>
+    <div class="seam-div"><span>JSON-снимок</span></div>
+    <div class="seam-col">
+      <p class="seam-h">Суждение · Claude</p>
+      <ul>
+        <li>Режим рынка и правила дня</li>
+        <li>Оценка 1–10 по явной рубрике</li>
+        <li>Выбор сетапа и направления</li>
+        <li>Триггер, стоп, цель, отмена идеи</li>
+        <li>Что сегодня не трогать и почему</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-family:var(--font-ui);font-size:12.5px;color:var(--ink-3);max-width:72ch;">
+  Граница между колонками — это и есть контракт. Слева всё проверяется запуском
+  теста, справа всё проверяется чтением.</p>
+</section>
+
+<section id="stage1">
+  <span class="h2-num">Этап 1</span>
+  <h2>Архитектура и инструменты</h2>
+  <p class="sub">Две замены против исходного ТЗ — обе вынужденные, обе объясняются ниже.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Библиотека</th><th>Решение</th><th>Почему</th></tr></thead>
+    <tbody><tr><td><code>yfinance / ccxt</code></td><td><span class="pill pill-ok">оба</span></td><td>Автовыбор по формату тикера: <code>AAPL</code> → yfinance, <code>BTC/USDT</code> → ccxt</td></tr>
+<tr><td><code>pandas</code></td><td><span class="pill pill-ok">оставлен</span></td><td>Ядро расчётов. Проверено на pandas 3.0</td></tr>
+<tr><td><code>pandas_ta</code></td><td><span class="pill pill-no">заменён</span></td><td>0.3.14b0 делает <code>from numpy import NaN</code>, а <code>numpy.NaN</code> убрали в numpy 2.0 — падает на импорте. Индикаторы переписаны на нативный pandas: 40 строк вместо целого класса поломок</td></tr>
+<tr><td><code>requests</code></td><td><span class="pill pill-no">убран</span></td><td>yfinance и ccxt сами ходят по HTTP — лишняя зависимость</td></tr>
+<tr><td><code>anthropic</code></td><td><span class="pill pill-ok">оставлен</span></td><td>Официальный SDK, версия 0.122</td></tr>
+<tr><td><code>claude-3-5-sonnet</code></td><td><span class="pill pill-no">claude-opus-5</span></td><td>claude-3-5-sonnet выведен из эксплуатации 28.10.2025 — запрос вернёт 404</td></tr></tbody>
+  </table></div>
+
+  <div class="warn">
+    <p class="warn-h">Расхождение с ТЗ, которое надо назвать</p>
+    <p>В задании было «свечи за последние 100 дней», но SMA200 по определению
+    требует 200 баров — на 100 днях она всегда была бы <code>null</code>. Решение:
+    загружается 2 года истории, индикаторы считаются на полном ряду, а окно в 100
+    баров используется только для диапазонов и уровней поддержки/сопротивления.</p>
+  </div>
+</section>
+
+<section id="stage2">
+  <span class="h2-num">Этап 2</span>
+  <h2>Сбор данных и технический анализ</h2>
+  <p class="sub">Семь индикаторов, все на нативном pandas. Ни одной сторонней
+  TA-библиотеки — значит, нечему ломаться при обновлении numpy.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Индикатор</th><th>Реализация</th></tr></thead>
+    <tbody><tr><td><strong>EMA 20</strong></td><td><code>ewm(span=20, adjust=False)</code></td></tr>
+<tr><td><strong>SMA 50 / SMA 200</strong></td><td><code>rolling(n).mean()</code></td></tr>
+<tr><td><strong>RSI 14</strong></td><td><code>сглаживание Уайлдера, ewm(alpha=1/14)</code></td></tr>
+<tr><td><strong>ATR 14</strong></td><td><code>True Range + сглаживание Уайлдера</code></td></tr>
+<tr><td><strong>RVOL</strong></td><td><code>объём / среднее за предыдущие 20 сессий</code></td></tr>
+<tr><td><strong>Поддержка / сопротивление</strong></td><td><code>свинг-пивоты 3+1+3, кластеризация с допуском 0.75×ATR</code></td></tr>
+<tr><td><strong>Тренд (ma_stack)</strong></td><td><code>bullish / bearish / mixed / insufficient_history</code></td></tr></tbody>
+  </table></div>
+
+  <h3>RSI и RVOL</h3>
+  <pre class="code" data-lang="py"><code>def rsi(close: pd.Series, period: int = 14) -&gt; pd.Series:
+    """Wilder's RSI (EWM с alpha = 1/period — это сглаживание Уайлдера)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss              # avg_loss == 0 -&gt; inf -&gt; RSI 100
+    out = 100.0 - (100.0 / (1.0 + rs))
+    return out.mask((avg_gain == 0) &amp; (avg_loss == 0), 50.0)
+
+
+def rvol(volume: pd.Series, period: int = 20) -&gt; pd.Series:
+    """Объём сегодня / среднее за ПРЕДЫДУЩИЕ 20 сессий."""
+    baseline = volume.shift(1).rolling(period, min_periods=period).mean()
+    return volume / baseline.replace(0.0, np.nan)</code></pre>
+  <div class="note">
+    <p class="note-h">Две детали, которые часто делают неправильно</p>
+    <p><strong>RVOL со <code>shift(1)</code>.</strong> Если включить сегодняшний
+    объём в знаменатель, всплеск сам себя размывает и RVOL занижается. Сравнивать
+    надо с прошлым, а не с настоящим.</p>
+    <p><strong>ATR14 в ТЗ не было</strong>, но без него стоп-лоссы в этапе 3 не на
+    чем строить. Промпт требует стоп не ближе 1×ATR от входа — иначе он стоит
+    внутри дневного шума и выбьется на ровном месте.</p>
+  </div>
+
+  <h3>Уровни поддержки и сопротивления</h3>
+  <p>Свинг-пивот — бар, который является экстремумом центрированного окна из семи
+  баров. Дальше пивоты кластеризуются с допуском 0.75×ATR, чтобы три отметки на
+  226.5 / 226.9 / 227.1 превратились в один уровень 226.8, а не в три ложных.</p>
+  <pre class="code" data-lang="py"><code>def swing_pivots(df, left: int = 3, right: int = 3):
+    """Локальный экстремум = бар, который является максимумом центрированного окна."""
+    window = left + right + 1
+    high, low = df["high"], df["low"]
+    highs = high[high == high.rolling(window, center=True).max()].dropna()
+    lows = low[low == low.rolling(window, center=True).min()].dropna()
+    return [float(x) for x in highs], [float(x) for x in lows]
+
+
+def cluster_levels(levels, tolerance: float):
+    """Пивоты ближе tolerance друг к другу сливаются в один уровень."""
+    clean = sorted(x for x in levels if np.isfinite(x))
+    groups = [[clean[0]]]
+    for value in clean[1:]:
+        if value - groups[-1][-1] &lt;= tolerance:
+            groups[-1].append(value)
+        else:
+            groups.append([value])
+    return [round(sum(g) / len(g), 4) for g in groups]</code></pre>
+
+  <h3>Что уходит в модель</h3>
+  <p>Один JSON на прогон. На инструмент — около 30 полей; <code>null</code>
+  означает «не хватило истории», и промпт запрещает достраивать такие значения
+  догадкой.</p>
+  <pre class="code" data-lang="json"><code>{
+  "ticker": "AAPL", "asset_class": "equity", "last_bar": "2026-08-15",
+  "price": 231.4, "change_1d_pct": 0.82, "change_20d_pct": -3.4,
+  "ema20": 228.1, "sma50": 224.0, "sma200": 210.5,
+  "price_vs_ema20_pct": 1.45, "ma_stack": "bullish",
+  "rsi14": 58.2, "rsi14_5d_ago": 49.0,
+  "atr14": 4.2, "atr14_pct_of_price": 1.81, "rvol": 1.35,
+  "range_20d": {"high": 236.0, "low": 221.4},
+  "support_levels": [226.8, 219.5], "resistance_levels": [234.1, 240.0],
+  "pct_to_resistance": 1.17, "pct_to_support": -1.99,
+  "news": [{"title": "...", "published": "2026-08-15T13:20"}]
+}</code></pre>
+</section>
+
+<section id="stage3">
+  <span class="h2-num">Этап 3</span>
+  <h2>Интеграция с Claude API</h2>
+  <p class="sub">Структура ответа гарантируется схемой, а не просьбой в промпте.</p>
+
+  <h3>Запрос</h3>
+  <pre class="code" data-lang="py"><code>kwargs = {
+    "model": "claude-opus-5",
+    "max_tokens": 32_000,
+    "thinking": {"type": "adaptive"},
+    "system": [{
+        "type": "text",
+        "text": build_system_prompt(language),
+        # промпт байт-в-байт стабилен между прогонами -&gt; кешируется
+        "cache_control": {"type": "ephemeral"},
+    }],
+    "output_config": {
+        "effort": effort,                                         # low .. max
+        "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA},
+    },
+    "messages": [{"role": "user", "content": user_content}],
+}
+
+# Стриминг обязателен при max_tokens 32k — иначе HTTP-таймаут SDK.
+with client.beta.messages.stream(
+    betas=[FALLBACK_BETA], fallbacks="default", **kwargs
+) as active:
+    message = active.get_final_message()
+
+if message.stop_reason == "refusal":
+    raise RuntimeError("Запрос отклонён классификаторами безопасности")</code></pre>
+  <div class="note">
+    <p class="note-h">Три неочевидные вещи</p>
+    <p><strong>Стриминг обязателен</strong> при <code>max_tokens</code> 32k —
+    иначе запрос упирается в HTTP-таймаут SDK.</p>
+    <p><strong><code>cache_control</code> на системном промпте:</strong> он
+    байт-в-байт стабилен между прогонами, поэтому со второго запуска подряд
+    читается из кеша примерно по 10% цены.</p>
+    <p><strong><code>fallbacks: "default"</code></strong> — если классификаторы
+    безопасности отклонят запрос, API сам переисполнит его на резервной модели
+    вместо пустого ответа. Если SDK старый и параметра не знает, код ловит
+    <code>TypeError</code> и повторяет запрос без него.</p>
+  </div>
+
+  <h3>Схема ответа</h3>
+  <p>Вместо «верни, пожалуйста, JSON» используется <code>output_config.format</code>.
+  API физически не может вернуть другую структуру — парсинг никогда не падает.</p>
+  <pre class="code" data-lang="py"><code>"execution_plans": {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "ticker":       {"type": "string"},
+            "direction":    {"type": "string", "enum": ["long", "short"]},
+            "trigger":      {"type": "string"},
+            "confirmation": {"type": "string"},
+            "stop_loss":    {"type": "string"},
+            "target":       {"type": "string"},
+            "reward_risk":  {"type": "string"},
+            "invalidation": {"type": "string"},
+        },
+        "required": ["ticker", "direction", "trigger", "confirmation",
+                     "stop_loss", "target", "reward_risk", "invalidation"],
+        "additionalProperties": False,
+    },
+},
+
+# score задан через enum, а не minimum/maximum —
+# числовые ограничения структурированный вывод не поддерживает
+"score": {"type": "integer", "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}</code></pre>
+
+  <h3>Правила, зашитые в системный промпт</h3>
+  <p>Это то, что превращает ответ языковой модели в проверяемый документ. Каждое
+  правило можно проконтролировать, читая готовый план.</p>
+  <ol class="rules"><li><span class="rule-n">1</span><div><strong>Только числа из снимка</strong><p>Выдумать цену, уровень, дату отчётности или новость нельзя. Если факта нет — модель обязана сказать, что его нет.</p></div></li>
+<li><span class="rule-n">2</span><div><strong>Каждый уровень выводим</strong><p>Значение из снимка или простая арифметика от него (<code>support - 0.5 * atr14</code>), с указанием вывода прямо в тексте плана.</p></div></li>
+<li><span class="rule-n">3</span><div><strong>Стоп за уровнем инвалидации</strong><p>И не ближе 1×ATR от входа. Никаких круглых чисел «для красоты» — внутри ATR стоп стоит в дневном шуме.</p></div></li>
+<li><span class="rule-n">4</span><div><strong>R:R не ниже 1.5</strong><p>Считается как <code>|target − trigger| / |trigger − stop|</code>. Не проходит — плана нет, вместо натягивания цели.</p></div></li>
+<li><span class="rule-n">5</span><div><strong>Явная рубрика score 1–10</strong><p>1–3 нет сетапа · 4–5 наблюдение · 6–7 валидный сетап с триггером · 8–10 тренд, импульс, объём и близость к уровню смотрят в одну сторону.</p></div></li>
+<li><span class="rule-n">6</span><div><strong>В планы только score ≥ 6, максимум 5</strong><p>Пустой список объявлен допустимым и правильным ответом — это лечит склонность LLM всегда что-нибудь предлагать.</p></div></li>
+<li><span class="rule-n">7</span><div><strong>RSI не изолированно</strong><p>Экстремум RSI в сильном тренде — это продолжение, а не разворот. Сигналом он становится только вместе с отбоем от названного уровня.</p></div></li></ol>
+</section>
+
+<section id="stage4">
+  <span class="h2-num">Этап 4</span>
+  <h2>Запуск</h2>
+  <p class="sub">Ключ берётся на console.anthropic.com → Settings → API Keys.
+  <code>.env</code> в <code>.gitignore</code> — в репозиторий он не попадёт.</p>
+  <pre class="code" data-lang="bash"><code>pip install -r requirements.txt
+cp .env.example .env                                  # вписать ANTHROPIC_API_KEY
+
+python main.py --tickers AAPL,MSFT,NVDA --dry-run     # сначала так: API не вызывается
+python main.py --tickers-file watchlist.txt           # боевой запуск
+python main.py --tickers BTC/USDT,ETH/USDT            # крипта через ccxt
+python main.py --tickers AAPL --effort medium --lang en</code></pre>
+
+  <div class="note">
+    <p class="note-h">Начните с dry-run</p>
+    <p>Флаг <code>--dry-run</code> собирает и печатает ровно тот payload, который
+    получит модель, и не вызывает API. Это ничего не стоит и сразу показывает,
+    корректны ли данные.</p>
+  </div>
+
+  <h3>Флаги</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Флаг</th><th>По умолчанию</th><th>Что делает</th></tr></thead>
+    <tbody><tr><td><code>--tickers / --tickers-file</code></td><td><code>—</code></td><td>Источник списка, обязателен один из двух</td></tr>
+<tr><td><code>--benchmarks</code></td><td><code>SPY,QQQ,^VIX</code></td><td>Контекстные инструменты, в watchlist не попадают</td></tr>
+<tr><td><code>--exchange</code></td><td><code>binance</code></td><td>Биржа ccxt для крипто-пар</td></tr>
+<tr><td><code>--days</code></td><td><code>100</code></td><td>Окно анализа в барах</td></tr>
+<tr><td><code>--effort</code></td><td><code>high</code></td><td>low / medium / high / xhigh / max — глубина рассуждения</td></tr>
+<tr><td><code>--model</code></td><td><code>claude-opus-5</code></td><td>ID модели</td></tr>
+<tr><td><code>--lang</code></td><td><code>ru</code></td><td>Язык текста в отчёте (ru / en)</td></tr>
+<tr><td><code>--out</code></td><td><code>reports/</code></td><td>Куда складывать отчёты</td></tr>
+<tr><td><code>--no-news</code></td><td><code>выкл.</code></td><td>Не тянуть заголовки новостей</td></tr>
+<tr><td><code>--dry-run</code></td><td><code>выкл.</code></td><td>Собрать payload, вывести и выйти — API не вызывается</td></tr></tbody>
+  </table></div>
+
+  <h3>Как выглядит результат</h3>
+  <p>Отчёт печатается в консоль и сохраняется в <code>reports/</code> двумя
+  файлами: <code>plan_*.md</code> для чтения и <code>plan_*.json</code> со снимком
+  и ответом — для аудита и будущего бэктеста.</p>
+  <pre class="code" data-lang="markdown"><code># Торговый план — 2026-08-15
+&gt; Модель: claude-opus-5 · Инструментов: 8
+
+## Макро-риск и правила дня
+**Режим:** 🟡 NEUTRAL
+
+## Watchlist
+| Тикер | Тренд    | Score  | Bias | Сетап                     |
+|-------|----------|--------|------|---------------------------|
+| AAPL  | uptrend  | 7/10   | long | Ретест EMA20 после пробоя |
+| TSLA  | range    | 5/10   | none | Диапазон 96-104           |
+
+## Планы исполнения
+### 🔼 AAPL — LONG
+- Триггер: пробой nearest_resistance 234.10 внутри дня
+- Подтверждение: rvol &gt; 1.5 и закрытие часа выше 234.10
+- Стоп-лосс: 222.60 = support 226.80 - 1.0x atr14 (4.20)
+- Цель: 248.00 = верх range_100d
+- Risk / Reward: 1.72:1</code></pre>
+
+  <h3>Стоимость</h3>
+  <p>Снимок на 10 инструментов — примерно 4–6 тысяч входных токенов, ответ 1–3
+  тысячи. Рычаги, если нужно дешевле: <code>--effort medium</code> или
+  <code>low</code> (на Opus 5 низкие уровни работают неожиданно хорошо),
+  <code>--model claude-sonnet-5</code> — примерно вдвое дешевле при близком
+  качестве на такой структурированной задаче, и <code>--no-news</code>.</p>
+</section>
+
+<section id="status">
+  <h2>Что проверено, а что нет</h2>
+  <p class="sub">Тесты гонялись на pandas 3.0 / numpy 2.4 / anthropic 0.122 —
+  то есть ровно на тех версиях, где pandas_ta бы не запустился.</p>
+
+  <div class="status">
+    <div class="status-card ok">
+      <h4>Проверено</h4>
+      <ul>
+        <li>Индикаторы и краевые случаи RSI: растущий ряд даёт ровно 100, падающий 0, плоский 50</li>
+        <li>SMA сверена с эталонным <code>mean()</code></li>
+        <li>Сборка снимка: сопротивления всегда выше цены, поддержки ниже</li>
+        <li>JSON без <code>NaN</code> и <code>Infinity</code>; короткая история корректно вырождается в <code>null</code></li>
+        <li>Схема: все объекты строгие, все поля в <code>required</code></li>
+        <li>Полный путь запроса через локальный мок-эндпоинт — SDK принял <code>output_config</code> с <code>effort</code> и <code>format</code> одновременно, <code>thinking: adaptive</code>, <code>cache_control</code> и <code>fallbacks</code></li>
+        <li>Стриминговый ответ распарсился, Markdown отрендерился на ru и en</li>
+      </ul>
+    </div>
+    <div class="status-card no">
+      <h4>Не проверено — ограничения среды, не кода</h4>
+      <ul>
+        <li>Живая загрузка котировок: Yahoo Finance заблокирован egress-политикой контейнера сборки (403 на CONNECT). Обработка ошибок при этом сработала как задумано — тикеры пропускаются с внятным сообщением, а не роняют прогон</li>
+        <li>Реальный вызов Claude API: в среде нет ключа. Форма запроса провалидирована на моке, но ответ живой модели не наблюдался</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="warn">
+    <p class="warn-h">Ограничения самого инструмента</p>
+    <p>Только дневной таймфрейм — внутридневные сетапы отсюда не увидеть. Данные
+    Yahoo бесплатные и иногда с пропусками. Новости приходят только заголовками, и
+    модели явно сказано использовать их как флаг событийного риска, а не как факты.
+    Бэктеста нет — JSON в <code>reports/</code> сохраняется именно для того, чтобы
+    его можно было добавить позже. Модель не знает вашего размера позиции, налогов
+    и доступности шорта.</p>
+  </div>
+</section>
+
+<section id="source">
+  <h2>Полный исходник</h2>
+  <p class="sub">Весь пайплайн в одном файле, разбитом на семь секций: конфиг,
+  загрузка данных, индикаторы, сборка снимка, интеграция с Claude, рендер Markdown,
+  CLI.</p>
+  <div class="srcbar"><b>main.py</b><span>839 строк</span><span>Python 3.11+</span></div>
+  <pre class="code numbered" data-lang="py"><code>#!/usr/bin/env python3
+"""
+AI Market Screener &amp; Analyst Bot
+================================
+
+Pipeline:  Data Ingestion -&gt; Technical Processing -&gt; LLM Analysis -&gt; Output
+
+  1. Pulls daily OHLCV for a list of tickers (yfinance for equities/ETFs/indices,
+     ccxt for crypto pairs).
+  2. Computes indicators locally in pandas (EMA20 / SMA50 / SMA200 / RSI14 /
+     ATR14 / RVOL / clustered swing support &amp; resistance).
+  3. Serialises everything into one compact JSON snapshot.
+  4. Sends the snapshot to the Claude API under a strict system prompt and a
+     JSON schema, so the model can only answer in the exact structure we want.
+  5. Renders a Markdown trading plan from that JSON and writes it to disk.
+
+The model never sees raw candles and never computes numbers: arithmetic happens
+in pandas, judgement happens in the LLM. That split is what keeps the output
+reproducible and auditable.
+
+Usage:
+    python main.py --tickers AAPL,MSFT,NVDA,TSLA
+    python main.py --tickers BTC/USDT,ETH/USDT --exchange binance
+    python main.py --tickers-file watchlist.txt --out reports/
+    python main.py --tickers AAPL --dry-run      # no API call, prints the payload
+
+NOT FINANCIAL ADVICE. This is an information-filtering tool.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+import numpy as np
+import pandas as pd
+
+# ---------------------------------------------------------------------------
+# SECTION 0 — configuration
+# ---------------------------------------------------------------------------
+
+ROOT = Path(__file__).resolve().parent
+
+MODEL = "claude-opus-5"
+MAX_TOKENS = 32_000
+DEFAULT_EFFORT = "high"          # low | medium | high | xhigh | max
+
+# Server-side refusal fallback: if Claude's safety classifiers decline the
+# request, the API silently re-runs it on a fallback model instead of handing
+# us back an empty response. Costs nothing when it never fires.
+ENABLE_REFUSAL_FALLBACK = True
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+ANALYSIS_WINDOW = 100            # trading days summarised for the model
+HISTORY_BARS = 420               # bars actually fetched — SMA200 needs 200+
+MAX_EXECUTION_PLANS = 5
+NEWS_PER_TICKER = 4
+
+DEFAULT_BENCHMARKS = ["SPY", "QQQ", "^VIX"]
+
+log = logging.getLogger("screener")
+
+
+def load_env(path: Path = ROOT / ".env") -&gt; None:
+    """Minimal .env loader — avoids a python-dotenv dependency."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+# ---------------------------------------------------------------------------
+# SECTION 1 — data ingestion
+# ---------------------------------------------------------------------------
+
+def is_crypto(symbol: str) -&gt; bool:
+    """Crypto pairs are written exchange-style: BTC/USDT, ETH/USDC."""
+    return "/" in symbol
+
+
+def fetch_equity(symbol: str) -&gt; pd.DataFrame:
+    import yfinance as yf
+
+    raw = yf.Ticker(symbol).history(period="2y", interval="1d", auto_adjust=True)
+    if raw.empty:
+        raise ValueError(f"yfinance returned no rows for {symbol!r}")
+    df = raw.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]]
+    return df.dropna(subset=["close"]).tail(HISTORY_BARS)
+
+
+def fetch_crypto(symbol: str, exchange_id: str) -&gt; pd.DataFrame:
+    import ccxt
+
+    exchange = getattr(ccxt, exchange_id)({"enableRateLimit": True})
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe="1d", limit=min(HISTORY_BARS, 1000))
+    if not ohlcv:
+        raise ValueError(f"{exchange_id} returned no candles for {symbol!r}")
+    df = pd.DataFrame(ohlcv, columns=["ts", "open", "high", "low", "close", "volume"])
+    df.index = pd.to_datetime(df.pop("ts"), unit="ms", utc=True)
+    return df.dropna(subset=["close"]).tail(HISTORY_BARS)
+
+
+def fetch_bars(symbol: str, exchange_id: str) -&gt; pd.DataFrame:
+    return fetch_crypto(symbol, exchange_id) if is_crypto(symbol) else fetch_equity(symbol)
+
+
+def fetch_all(symbols: Iterable[str], exchange_id: str, workers: int = 4) -&gt; dict[str, pd.DataFrame]:
+    """Fetch in parallel; a failed symbol is logged and dropped, not fatal."""
+    symbols = list(symbols)
+    out: dict[str, pd.DataFrame] = {}
+
+    def one(sym: str) -&gt; tuple[str, pd.DataFrame | None]:
+        try:
+            return sym, fetch_bars(sym, exchange_id)
+        except Exception as exc:  # noqa: BLE001 - one bad ticker must not kill the run
+            log.warning("skip %s: %s", sym, exc)
+            return sym, None
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for sym, df in pool.map(one, symbols):
+            if df is not None and len(df) &gt;= 30:
+                out[sym] = df
+            elif df is not None:
+                log.warning("skip %s: only %d bars, need &gt;= 30", sym, len(df))
+    return out
+
+
+def fetch_news(symbol: str, limit: int = NEWS_PER_TICKER) -&gt; list[dict[str, str]]:
+    """Headlines only. yfinance has changed this payload shape twice, so be defensive."""
+    if is_crypto(symbol):
+        return []
+    try:
+        import yfinance as yf
+
+        items = yf.Ticker(symbol).news or []
+    except Exception as exc:  # noqa: BLE001
+        log.debug("news unavailable for %s: %s", symbol, exc)
+        return []
+
+    out: list[dict[str, str]] = []
+    for item in items[:limit]:
+        body = item.get("content") if isinstance(item.get("content"), dict) else item
+        title = body.get("title") or item.get("title")
+        if not title:
+            continue
+        stamp = body.get("pubDate") or item.get("providerPublishTime")
+        if isinstance(stamp, (int, float)):
+            stamp = datetime.fromtimestamp(stamp, tz=timezone.utc).isoformat(timespec="minutes")
+        out.append({"title": str(title)[:200], "published": str(stamp)[:19] if stamp else None})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# SECTION 2 — technical indicators (pure pandas, no pandas_ta)
+# ---------------------------------------------------------------------------
+# pandas_ta 0.3.14b0 still does `from numpy import NaN`, which was removed in
+# numpy 2.0 — it fails at import time on any modern install. These are ~40 lines
+# of pandas and remove that whole class of dependency breakage.
+
+def ema(series: pd.Series, span: int) -&gt; pd.Series:
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def sma(series: pd.Series, window: int) -&gt; pd.Series:
+    return series.rolling(window, min_periods=window).mean()
+
+
+def rsi(close: pd.Series, period: int = 14) -&gt; pd.Series:
+    """Wilder's RSI (EWM with alpha = 1/period is Wilder smoothing)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rs = avg_gain / avg_loss          # avg_loss == 0 -&gt; inf -&gt; RSI 100
+        out = 100.0 - (100.0 / (1.0 + rs))
+    flat = (avg_gain == 0) &amp; (avg_loss == 0)
+    return out.mask(flat, 50.0)
+
+
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -&gt; pd.Series:
+    """Average True Range, Wilder-smoothed. Used for ATR-based stops."""
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+    return true_range.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+
+
+def rvol(volume: pd.Series, period: int = 20) -&gt; pd.Series:
+    """Relative volume: today vs the average of the *prior* N sessions."""
+    baseline = volume.shift(1).rolling(period, min_periods=period).mean()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return volume / baseline.replace(0.0, np.nan)
+
+
+def swing_pivots(df: pd.DataFrame, left: int = 3, right: int = 3) -&gt; tuple[list[float], list[float]]:
+    """Local highs/lows: a bar that is the extreme of its centred window."""
+    window = left + right + 1
+    high, low = df["high"], df["low"]
+    highs = high[high == high.rolling(window, center=True).max()].dropna()
+    lows = low[low == low.rolling(window, center=True).min()].dropna()
+    return [float(x) for x in highs], [float(x) for x in lows]
+
+
+def cluster_levels(levels: list[float], tolerance: float) -&gt; list[float]:
+    """Merge pivots that sit within `tolerance` of each other into one level."""
+    clean = sorted(x for x in levels if np.isfinite(x))
+    if not clean:
+        return []
+    groups: list[list[float]] = [[clean[0]]]
+    for value in clean[1:]:
+        if value - groups[-1][-1] &lt;= tolerance:
+            groups[-1].append(value)
+        else:
+            groups.append([value])
+    return [round(sum(g) / len(g), 4) for g in groups]
+
+
+# ---------------------------------------------------------------------------
+# SECTION 3 — snapshot builder (the JSON handed to the model)
+# ---------------------------------------------------------------------------
+
+def _round(value: Any, digits: int = 2) -&gt; float | None:
+    """Round for the payload; NaN/inf become null so the model sees 'unknown'."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if not np.isfinite(number) else round(number, digits)
+
+
+def _pct_change(series: pd.Series, bars: int) -&gt; float | None:
+    if len(series) &lt;= bars:
+        return None
+    past = series.iloc[-1 - bars]
+    return None if past == 0 else _round((series.iloc[-1] / past - 1) * 100)
+
+
+def _ma_stack(price: float, e20: float | None, s50: float | None, s200: float | None) -&gt; str:
+    values = [e20, s50, s200]
+    if any(v is None for v in values):
+        return "insufficient_history"
+    if price &gt; e20 &gt; s50 &gt; s200:
+        return "bullish"
+    if price &lt; e20 &lt; s50 &lt; s200:
+        return "bearish"
+    return "mixed"
+
+
+def build_snapshot(symbol: str, df: pd.DataFrame, window: int = ANALYSIS_WINDOW) -&gt; dict[str, Any]:
+    close, high, low, volume = df["close"], df["high"], df["low"], df["volume"]
+
+    e20 = ema(close, 20)
+    s50 = sma(close, 50)
+    s200 = sma(close, 200)
+    rsi14 = rsi(close, 14)
+    atr14 = atr(high, low, close, 14)
+    rv = rvol(volume, 20)
+
+    price = float(close.iloc[-1])
+    atr_now = _round(atr14.iloc[-1], 4)
+    e20_now, s50_now, s200_now = (_round(x.iloc[-1], 4) for x in (e20, s50, s200))
+
+    # Support / resistance from the analysis window only — older pivots are noise.
+    recent = df.tail(window)
+    pivot_highs, pivot_lows = swing_pivots(recent)
+    tolerance = (atr_now or price * 0.01) * 0.75
+    resistances = [lv for lv in cluster_levels(pivot_highs, tolerance) if lv &gt; price]
+    supports = [lv for lv in cluster_levels(pivot_lows, tolerance) if lv &lt; price]
+
+    nearest_res = min(resistances) if resistances else None
+    nearest_sup = max(supports) if supports else None
+
+    def _distance(level: float | None) -&gt; float | None:
+        return None if level is None else _round((level / price - 1) * 100)
+
+    w20, w100 = df.tail(20), df.tail(window)
+
+    return {
+        "ticker": symbol,
+        "asset_class": "crypto" if is_crypto(symbol) else "equity",
+        "last_bar": df.index[-1].date().isoformat(),
+        "bars_available": int(len(df)),
+        "price": _round(price, 4),
+        "change_1d_pct": _pct_change(close, 1),
+        "change_5d_pct": _pct_change(close, 5),
+        "change_20d_pct": _pct_change(close, 20),
+        "ema20": e20_now,
+        "sma50": s50_now,
+        "sma200": s200_now,
+        "price_vs_ema20_pct": _distance(e20_now),
+        "price_vs_sma50_pct": _distance(s50_now),
+        "price_vs_sma200_pct": _distance(s200_now),
+        "ma_stack": _ma_stack(price, e20_now, s50_now, s200_now),
+        "rsi14": _round(rsi14.iloc[-1]),
+        "rsi14_5d_ago": _round(rsi14.iloc[-6]) if len(rsi14) &gt; 6 else None,
+        "atr14": atr_now,
+        "atr14_pct_of_price": _round((atr_now / price) * 100) if atr_now else None,
+        "rvol": _round(rv.iloc[-1]),
+        "avg_volume_20d": _round(volume.tail(20).mean(), 0),
+        "gap_pct": _round((df["open"].iloc[-1] / close.iloc[-2] - 1) * 100) if len(df) &gt; 1 else None,
+        "range_20d": {"high": _round(w20["high"].max(), 4), "low": _round(w20["low"].min(), 4)},
+        f"range_{window}d": {"high": _round(w100["high"].max(), 4), "low": _round(w100["low"].min(), 4)},
+        "resistance_levels": sorted(resistances)[:4],
+        "support_levels": sorted(supports, reverse=True)[:4],
+        "nearest_resistance": nearest_res,
+        "nearest_support": nearest_sup,
+        "pct_to_resistance": _distance(nearest_res),
+        "pct_to_support": _distance(nearest_sup),
+        "news": [],
+    }
+
+
+def build_breadth(snapshots: list[dict[str, Any]]) -&gt; dict[str, Any]:
+    total = len(snapshots)
+    if not total:
+        return {}
+
+    def share(predicate) -&gt; float | None:
+        eligible = [s for s in snapshots if predicate(s) is not None]
+        if not eligible:
+            return None
+        return _round(100 * sum(1 for s in eligible if predicate(s)) / len(eligible))
+
+    rsi_values = [s["rsi14"] for s in snapshots if s["rsi14"] is not None]
+    return {
+        "instruments": total,
+        "above_sma50_pct": share(lambda s: None if s["sma50"] is None else s["price"] &gt; s["sma50"]),
+        "above_sma200_pct": share(lambda s: None if s["sma200"] is None else s["price"] &gt; s["sma200"]),
+        "advancers_1d_pct": share(lambda s: None if s["change_1d_pct"] is None else s["change_1d_pct"] &gt; 0),
+        "avg_rsi14": _round(sum(rsi_values) / len(rsi_values)) if rsi_values else None,
+    }
+
+
+def build_payload(
+    instruments: list[dict[str, Any]],
+    benchmarks: list[dict[str, Any]],
+    window: int,
+) -&gt; dict[str, Any]:
+    return {
+        "as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "session_date": max(s["last_bar"] for s in instruments),
+        "analysis_window_days": window,
+        "data_notes": (
+            "All indicators are pre-computed from daily bars. A null value means "
+            "there was not enough history to compute it. Support/resistance are "
+            "clustered swing pivots from the analysis window. rvol compares today's "
+            "volume to the mean of the prior 20 sessions."
+        ),
+        "market_context": {"benchmarks": benchmarks, "breadth": build_breadth(instruments)},
+        "instruments": instruments,
+    }
+
+
+# ---------------------------------------------------------------------------
+# SECTION 4 — Claude integration: system prompt + output schema
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT = """\
+You are a disciplined technical strategist writing one pre-market trading plan \
+for a single self-directed trader. You are the judgement layer of an automated \
+screener: the arithmetic is already done and handed to you as JSON.
+
+# Input contract
+You receive one JSON snapshot per run. Read it as ground truth and as your only \
+source of market data — you have no live feed, no chart, and no knowledge of \
+anything that happened after the snapshot's `session_date`.
+
+- Every indicator is pre-computed from daily bars. Do not recompute them.
+- `null` means "not enough history to compute". Treat it as unknown. Never \
+substitute a guess, and never treat a null as zero or as neutral.
+- `ma_stack` is `bullish` (price &gt; EMA20 &gt; SMA50 &gt; SMA200), `bearish` (the exact \
+inverse), `mixed`, or `insufficient_history`.
+- `rvol` is today's volume divided by the mean of the prior 20 sessions. Below \
+0.7 is dead participation; above 1.5 is a genuine crowd.
+- `support_levels` / `resistance_levels` are clustered swing pivots taken from \
+the analysis window, sorted by distance from the current price.
+- `atr14` is the daily true range in price units — this is your unit of noise. \
+Any stop closer than 1x ATR from the entry is inside the noise band.
+- `market_context.breadth` describes the supplied basket only, not the whole \
+market. Do not generalise it into a claim about the broad market.
+- `news` holds headlines only, with no body text. Use a headline as a flag for \
+event risk, never as a fact you can reason from in detail.
+
+# Hard rules
+1. Use only numbers present in the snapshot. Never invent a price, level, \
+indicator reading, earnings date, analyst target, or news item. If a fact you \
+want is absent, say it is absent.
+2. Every price level you output must be a snapshot value (a support or \
+resistance level, a moving average, a range boundary) or simple arithmetic on \
+one — for example `support - 0.5 * atr14`. Name the derivation in the text so a \
+reader can check it.
+3. A stop must sit beyond the level that invalidates the idea, and at least \
+1x ATR away from the trigger. Never place a stop at a round number chosen for \
+looking tidy.
+4. Reward-to-risk, computed as `abs(target - trigger) / abs(trigger - stop)`, \
+must be at least 1.5. If a setup cannot clear that, it does not get an \
+execution plan — say so instead of stretching the target.
+5. Score every instrument 1-10 on this rubric, and apply it literally:
+   - 1-3: no setup, or the setup fights the dominant trend.
+   - 4-5: worth watching, but the trigger is far away or the evidence conflicts.
+   - 6-7: a valid setup with a defined trigger; needs confirmation to act.
+   - 8-10: trend, momentum, participation (rvol) and proximity to a decision \
+level all point the same way.
+6. Only instruments scoring 6 or higher may appear in `execution_plans`, and \
+there may be at most {MAX_PLANS} plans. Fewer is correct when the tape is thin — \
+an empty plan list is a valid, respectable answer.
+7. Every instrument in `instruments` must appear exactly once in `watchlist`. \
+Instruments in `market_context.benchmarks` must not appear there at all.
+8. `avoid_today` is for instruments with a concrete disqualifier: rvol under \
+0.7, price pinned inside a tight range with no edge nearby, a headline implying \
+binary event risk, or `insufficient_history`. Give the specific reason, not a \
+generic one. Return an empty array if nothing qualifies.
+9. Do not use RSI in isolation. An extreme RSI in a strong trend is continuation, \
+not a reversal signal — treat it as one only when price is also rejecting a \
+named level.
+10. Write plainly. No hedging filler, no "consult a financial advisor" \
+boilerplate, no restating the rules back at the reader. The disclaimer is added \
+downstream. Every sentence should carry a fact or a decision.
+
+# Output
+Return only the JSON object matching the provided schema. All free-text fields \
+must be written in {LANGUAGE}. Ticker symbols and numbers stay as-is.
+"""
+
+LANGUAGE_NAMES = {"ru": "Russian", "en": "English"}
+
+SCORE_ENUM = list(range(1, 11))
+
+OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "macro": {
+            "type": "object",
+            "properties": {
+                "regime": {"type": "string", "enum": ["risk_on", "neutral", "risk_off"]},
+                "summary": {"type": "string"},
+                "key_risks": {"type": "array", "items": {"type": "string"}},
+                "rules_for_today": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["regime", "summary", "key_risks", "rules_for_today"],
+            "additionalProperties": False,
+        },
+        "watchlist": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "ticker": {"type": "string"},
+                    "trend": {
+                        "type": "string",
+                        "enum": ["uptrend", "downtrend", "range", "unclear"],
+                    },
+                    "score": {"type": "integer", "enum": SCORE_ENUM},
+                    "bias": {"type": "string", "enum": ["long", "short", "none"]},
+                    "setup": {"type": "string"},
+                    "rationale": {"type": "string"},
+                },
+                "required": ["ticker", "trend", "score", "bias", "setup", "rationale"],
+                "additionalProperties": False,
+            },
+        },
+        "avoid_today": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "ticker": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["ticker", "reason"],
+                "additionalProperties": False,
+            },
+        },
+        "execution_plans": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "ticker": {"type": "string"},
+                    "direction": {"type": "string", "enum": ["long", "short"]},
+                    "trigger": {"type": "string"},
+                    "confirmation": {"type": "string"},
+                    "stop_loss": {"type": "string"},
+                    "target": {"type": "string"},
+                    "reward_risk": {"type": "string"},
+                    "invalidation": {"type": "string"},
+                },
+                "required": [
+                    "ticker",
+                    "direction",
+                    "trigger",
+                    "confirmation",
+                    "stop_loss",
+                    "target",
+                    "reward_risk",
+                    "invalidation",
+                ],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["macro", "watchlist", "avoid_today", "execution_plans"],
+    "additionalProperties": False,
+}
+
+
+def build_system_prompt(language: str) -&gt; str:
+    return SYSTEM_PROMPT.replace("{MAX_PLANS}", str(MAX_EXECUTION_PLANS)).replace(
+        "{LANGUAGE}", LANGUAGE_NAMES.get(language, "English")
+    )
+
+
+def _stream_final(client, use_fallback: bool, **kwargs):
+    """One request. Streaming keeps a long, high-effort turn under the HTTP timeout."""
+    if use_fallback:
+        stream = client.beta.messages.stream(
+            betas=[FALLBACK_BETA], fallbacks="default", **kwargs
+        )
+    else:
+        stream = client.messages.stream(**kwargs)
+    with stream as active:
+        return active.get_final_message()
+
+
+def analyse_with_claude(
+    payload: dict[str, Any],
+    language: str,
+    effort: str,
+    model: str = MODEL,
+) -&gt; dict[str, Any]:
+    import anthropic
+
+    client = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY from the environment
+
+    user_content = (
+        "Market snapshot for today's session. Produce the trading plan.\n\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": MAX_TOKENS,
+        "thinking": {"type": "adaptive"},
+        "system": [
+            {
+                "type": "text",
+                "text": build_system_prompt(language),
+                # The system prompt is byte-identical between runs, so it caches.
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        "output_config": {
+            "effort": effort,
+            "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA},
+        },
+        "messages": [{"role": "user", "content": user_content}],
+    }
+
+    try:
+        message = _stream_final(client, ENABLE_REFUSAL_FALLBACK, **kwargs)
+    except TypeError as exc:
+        # Installed SDK predates the fallbacks parameter — retry without it.
+        log.warning("refusal fallback unavailable (%s); retrying without it", exc)
+        message = _stream_final(client, False, **kwargs)
+
+    if message.stop_reason == "refusal":
+        category = getattr(getattr(message, "stop_details", None), "category", None)
+        raise RuntimeError(f"Request declined by safety classifiers (category={category})")
+    if message.stop_reason == "max_tokens":
+        raise RuntimeError("Response hit max_tokens and is truncated — raise MAX_TOKENS")
+
+    text = next((b.text for b in message.content if b.type == "text"), None)
+    if not text:
+        raise RuntimeError(f"No text block in response (stop_reason={message.stop_reason})")
+
+    usage = message.usage
+    log.info(
+        "tokens in=%s cached=%s out=%s",
+        usage.input_tokens,
+        getattr(usage, "cache_read_input_tokens", 0),
+        usage.output_tokens,
+    )
+    return json.loads(text)
+
+
+# ---------------------------------------------------------------------------
+# SECTION 5 — Markdown renderer
+# ---------------------------------------------------------------------------
+
+LABELS = {
+    "ru": {
+        "title": "Торговый план",
+        "generated": "Сгенерировано",
+        "model": "Модель",
+        "instruments": "Инструментов",
+        "macro": "Макро-риск и правила дня",
+        "regime": "Режим",
+        "risks": "Ключевые риски",
+        "rules": "Правила на сегодня",
+        "watchlist": "Watchlist",
+        "avoid": "Не торгуем сегодня",
+        "plans": "Планы исполнения",
+        "trigger": "Триггер",
+        "confirmation": "Подтверждение",
+        "stop": "Стоп-лосс",
+        "target": "Цель",
+        "rr": "Risk / Reward",
+        "invalidation": "Отмена идеи",
+        "cols": ["Тикер", "Тренд", "Score", "Bias", "Сетап"],
+        "none_avoid": "Нет инструментов с явными противопоказаниями.",
+        "none_plans": "Валидных сетапов на сегодня нет — торговать нечего.",
+        "disclaimer": (
+            "Не является инвестиционной рекомендацией. Инструмент фильтрации "
+            "информации: все уровни и сценарии — гипотезы, а не сигналы."
+        ),
+    },
+    "en": {
+        "title": "Trading Plan",
+        "generated": "Generated",
+        "model": "Model",
+        "instruments": "Instruments",
+        "macro": "Macro Risk &amp; Rules",
+        "regime": "Regime",
+        "risks": "Key risks",
+        "rules": "Rules for today",
+        "watchlist": "Watchlist",
+        "avoid": "Avoid Today",
+        "plans": "Execution Plans",
+        "trigger": "Trigger",
+        "confirmation": "Confirmation",
+        "stop": "Stop-loss",
+        "target": "Target",
+        "rr": "Risk / Reward",
+        "invalidation": "Invalidation",
+        "cols": ["Ticker", "Trend", "Score", "Bias", "Setup"],
+        "none_avoid": "Nothing disqualified today.",
+        "none_plans": "No valid setups today — nothing to trade.",
+        "disclaimer": (
+            "Not investment advice. This is an information-filtering tool: every "
+            "level and scenario is a hypothesis, not a signal."
+        ),
+    },
+}
+
+REGIME_ICON = {"risk_on": "🟢", "neutral": "🟡", "risk_off": "🔴"}
+
+
+def render_markdown(plan: dict[str, Any], payload: dict[str, Any], language: str, model: str) -&gt; str:
+    label = LABELS.get(language, LABELS["en"])
+    macro = plan["macro"]
+    lines: list[str] = []
+
+    lines.append(f"# {label['title']} — {payload['session_date']}")
+    lines.append(
+        f"&gt; {label['generated']}: {payload['as_of_utc']} UTC · "
+        f"{label['model']}: `{model}` · "
+        f"{label['instruments']}: {len(payload['instruments'])}"
+    )
+    lines.append("")
+
+    lines.append(f"## {label['macro']}")
+    lines.append(
+        f"**{label['regime']}:** {REGIME_ICON.get(macro['regime'], '')} "
+        f"`{macro['regime'].upper()}`"
+    )
+    lines.append("")
+    lines.append(macro["summary"])
+    if macro["key_risks"]:
+        lines.append("")
+        lines.append(f"**{label['risks']}:**")
+        lines.extend(f"- {risk}" for risk in macro["key_risks"])
+    if macro["rules_for_today"]:
+        lines.append("")
+        lines.append(f"**{label['rules']}:**")
+        lines.extend(f"{i}. {rule}" for i, rule in enumerate(macro["rules_for_today"], 1))
+    lines.append("")
+
+    lines.append(f"## {label['watchlist']}")
+    lines.append("| " + " | ".join(label["cols"]) + " |")
+    lines.append("|" + "---|" * len(label["cols"]))
+    for row in sorted(plan["watchlist"], key=lambda r: -r["score"]):
+        lines.append(
+            f"| `{row['ticker']}` | {row['trend']} | **{row['score']}/10** | "
+            f"{row['bias']} | {row['setup']} |"
+        )
+    lines.append("")
+    for row in sorted(plan["watchlist"], key=lambda r: -r["score"]):
+        lines.append(f"- **{row['ticker']}** ({row['score']}/10) — {row['rationale']}")
+    lines.append("")
+
+    lines.append(f"## {label['avoid']}")
+    if plan["avoid_today"]:
+        lines.extend(f"- **{item['ticker']}** — {item['reason']}" for item in plan["avoid_today"])
+    else:
+        lines.append(f"_{label['none_avoid']}_")
+    lines.append("")
+
+    lines.append(f"## {label['plans']}")
+    if not plan["execution_plans"]:
+        lines.append(f"_{label['none_plans']}_")
+    for item in plan["execution_plans"]:
+        arrow = "🔼" if item["direction"] == "long" else "🔽"
+        lines.append("")
+        lines.append(f"### {arrow} {item['ticker']} — {item['direction'].upper()}")
+        lines.append(f"- **{label['trigger']}:** {item['trigger']}")
+        lines.append(f"- **{label['confirmation']}:** {item['confirmation']}")
+        lines.append(f"- **{label['stop']}:** {item['stop_loss']}")
+        lines.append(f"- **{label['target']}:** {item['target']}")
+        lines.append(f"- **{label['rr']}:** {item['reward_risk']}")
+        lines.append(f"- **{label['invalidation']}:** {item['invalidation']}")
+    lines.append("")
+
+    lines.append("---")
+    lines.append(f"_{label['disclaimer']}_")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# SECTION 6 — CLI
+# ---------------------------------------------------------------------------
+
+def parse_args(argv: list[str] | None = None) -&gt; argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="AI Market Screener &amp; Analyst Bot",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--tickers", help="Comma-separated: AAPL,MSFT or BTC/USDT,ETH/USDT")
+    source.add_argument("--tickers-file", type=Path, help="One ticker per line; # for comments")
+
+    parser.add_argument("--benchmarks", default=",".join(DEFAULT_BENCHMARKS),
+                        help="Context instruments, not scored. Empty string disables.")
+    parser.add_argument("--exchange", default="binance", help="ccxt exchange id for crypto pairs")
+    parser.add_argument("--days", type=int, default=ANALYSIS_WINDOW, help="Analysis window in bars")
+    parser.add_argument("--effort", default=DEFAULT_EFFORT,
+                        choices=["low", "medium", "high", "xhigh", "max"])
+    parser.add_argument("--model", default=MODEL)
+    parser.add_argument("--lang", default="ru", choices=sorted(LANGUAGE_NAMES))
+    parser.add_argument("--out", type=Path, default=ROOT / "reports")
+    parser.add_argument("--no-news", action="store_true", help="Skip headline fetching")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Build and print the payload, make no API call")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    return parser.parse_args(argv)
+
+
+def resolve_tickers(args: argparse.Namespace) -&gt; list[str]:
+    if args.tickers:
+        raw = args.tickers.split(",")
+    else:
+        raw = args.tickers_file.read_text(encoding="utf-8").splitlines()
+    seen: dict[str, None] = {}
+    for item in raw:
+        item = item.split("#")[0].strip().upper()
+        if item:
+            seen[item] = None
+    return list(seen)
+
+
+def main(argv: list[str] | None = None) -&gt; int:
+    args = parse_args(argv)
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(message)s",
+        stream=sys.stderr,
+    )
+    load_env()
+
+    tickers = resolve_tickers(args)
+    benchmarks = [b.strip().upper() for b in args.benchmarks.split(",") if b.strip()]
+    if not tickers:
+        log.error("no tickers resolved")
+        return 2
+
+    log.info("fetching %d instruments (+%d benchmarks)", len(tickers), len(benchmarks))
+    bars = fetch_all(tickers + benchmarks, args.exchange)
+    if not bars:
+        log.error("no data fetched for any symbol")
+        return 1
+
+    instrument_snaps = [build_snapshot(t, bars[t], args.days) for t in tickers if t in bars]
+    benchmark_snaps = [build_snapshot(b, bars[b], args.days) for b in benchmarks if b in bars]
+    if not instrument_snaps:
+        log.error("no tradable instrument survived data fetching")
+        return 1
+
+    if not args.no_news:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for snap, headlines in zip(
+                instrument_snaps, pool.map(lambda s: fetch_news(s["ticker"]), instrument_snaps)
+            ):
+                snap["news"] = headlines
+
+    payload = build_payload(instrument_snaps, benchmark_snaps, args.days)
+
+    if args.dry_run:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        log.info("dry run: no API call made")
+        return 0
+
+    if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
+        log.error("ANTHROPIC_API_KEY is not set — put it in .env or export it")
+        return 2
+
+    log.info("calling %s (effort=%s)", args.model, args.effort)
+    plan = analyse_with_claude(payload, args.lang, args.effort, args.model)
+    report = render_markdown(plan, payload, args.lang, args.model)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+    md_path = args.out / f"plan_{stamp}.md"
+    json_path = args.out / f"plan_{stamp}.json"
+    md_path.write_text(report, encoding="utf-8")
+    json_path.write_text(
+        json.dumps({"payload": payload, "plan": plan}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    print(report)
+    log.info("saved %s and %s", md_path, json_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+</section>
+
+<section id="files">
+  <h2>Файлы проекта</h2>
+  <p class="sub">Папка самодостаточна: переносится в отдельный репозиторий
+  копированием или одним <code>git subtree</code>.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Файл</th><th>Назначение</th></tr></thead>
+    <tbody>
+      <tr><td><code>main.py</code></td><td>Весь пайплайн, 7 секций</td></tr>
+      <tr><td><code>requirements.txt</code></td><td>Зависимости</td></tr>
+      <tr><td><code>watchlist.txt</code></td><td>Пример списка тикеров, по одному в строке</td></tr>
+      <tr><td><code>.env.example</code></td><td>Шаблон для ключа API</td></tr>
+      <tr><td><code>.gitignore</code></td><td>Исключает <code>.env</code> и <code>reports/</code></td></tr>
+      <tr><td><code>README.md</code></td><td>Та же документация в Markdown</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>requirements.txt</h3>
+  <pre class="code" data-lang="text"><code>anthropic&gt;=0.70
+pandas&gt;=2.0
+numpy&gt;=1.26
+yfinance&gt;=0.2.40
+
+# Only needed for crypto pairs (BTC/USDT style tickers). Safe to remove if you
+# only screen equities — main.py imports it lazily.
+ccxt&gt;=4.3</code></pre>
+  <h3>.env.example</h3>
+  <pre class="code" data-lang="text"><code># Copy to .env and fill in. .env is gitignored — never commit the real key.
+
+# Get one at https://console.anthropic.com -&gt; Settings -&gt; API Keys
+ANTHROPIC_API_KEY=sk-ant-...</code></pre>
+</section>
+
+<footer>
+  <p>Не является инвестиционной рекомендацией. Инструмент фильтрации информации:
+  все уровни и сценарии в отчётах — гипотезы, а не сигналы.</p>
+</footer>
+
+</main>
+</div>
+</div>
+
+<script>
+(function () {
+  var KW = "def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|"
+         + "raise|not|and|or|in|is|None|True|False|lambda|yield|pass|break|continue|global|"
+         + "nonlocal|assert|del|async|await";
+  // \x22 is a double quote — written escaped so this file can be embedded anywhere.
+  var RE = new RegExp(
+      '(\x22\x22\x22[\\s\\S]*?\x22\x22\x22|\'\'\'[\\s\\S]*?\'\'\'|\x22(?:[^\x22\\\\\\n]|\\\\.)*\x22|\'(?:[^\'\\\\\\n]|\\\\.)*\'|#[^\\n]*)'
+    + '|\\b(def|class)(\\s+)([A-Za-z_]\\w*)'
+    + '|(@[A-Za-z_][\\w.]*)'
+    + '|\\b(' + KW + ')\\b'
+    + '|\\b(\\d[\\d_]*(?:\\.\\d+)?)\\b', 'g');
+
+  function escHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  // Close the span on every newline so the block can be split into lines safely.
+  function wrap(cls, text) {
+    return text.split("\n").map(function (part) {
+      return part ? '<span class="' + cls + '">' + part + "</span>" : "";
+    }).join("\n");
+  }
+
+  function highlight(src) {
+    var out = escHtml(src);
+    return out.replace(RE, function (m, lit, dk, sp, name, dec, kw, num) {
+      if (lit)  { return wrap(lit.charAt(0) === "#" ? "t-com" : "t-str", lit); }
+      if (dk)   { return wrap("t-key", dk) + sp + wrap("t-def", name); }
+      if (dec)  { return wrap("t-dec", dec); }
+      if (kw)   { return wrap("t-key", kw); }
+      if (num)  { return wrap("t-num", num); }
+      return m;
+    });
+  }
+
+  document.querySelectorAll("pre.code > code").forEach(function (el) {
+    var lang = el.parentNode.getAttribute("data-lang");
+    var html = (lang === "py" || lang === "json")
+      ? highlight(el.textContent)
+      : escHtml(el.textContent);
+    if (el.parentNode.classList.contains("numbered")) {
+      html = html.split("\n").map(function (line) {
+        return '<span class="line">' + (line || "​") + "</span>";
+      }).join("");
+    }
+    el.innerHTML = html;
+  });
+
+  // Highlight the nav entry for whichever section is currently on screen.
+  var links = {};
+  document.querySelectorAll("nav.toc a").forEach(function (a) {
+    links[a.getAttribute("href").slice(1)] = a;
+  });
+  if (window.IntersectionObserver) {
+    var seen = {};
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { seen[e.target.id] = e.isIntersecting; });
+      var current = null;
+      document.querySelectorAll("section").forEach(function (s) {
+        if (seen[s.id] && !current) { current = s.id; }
+      });
+      Object.keys(links).forEach(function (id) {
+        links[id].classList.toggle("on", id === current);
+      });
+    }, { rootMargin: "-10% 0px -70% 0px" });
+    document.querySelectorAll("section").forEach(function (s) { obs.observe(s); });
+  }
+})();
+</script>
