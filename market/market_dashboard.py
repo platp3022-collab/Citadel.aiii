@@ -85,7 +85,8 @@ CONFIG: dict[str, Any] = {
         "confirm_rvol": 1.5,        # объём подтверждения пробоя
     },
     "chart": {
-        "bars": 130,                # сессий на дневном графике (~полгода)
+        "history": 760,             # сессий отдаётся в браузер (можно отлистать назад)
+        "view_bars": 130,           # сессий видно при открытии (~полгода)
         "compare_max": 6,           # линий на графике относительной динамики
     },
     "paths": {
@@ -594,7 +595,7 @@ def build_snapshot(bars: Bars) -> Snapshot:
         w_score = max(-3, w_score - 1)
 
     d_score = _daily_trend_score(closes[-1], e20, s50, s200)
-    cb = int(cfg("chart.bars", 130))
+    cb = int(cfg("chart.history", 760))
     prev_close = closes[-2]
     ext = safe_div(closes[-1] - e20, a14) if (e20 is not None and a14) else None
     rng = safe_div(high_20d - low_20d, a14) if a14 else None

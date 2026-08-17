@@ -654,6 +654,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
 
     # ── 2. графики ─────────────────────────────────────────────────────────
     featured = next((a for a in tradables if build_plan(a)), ordered[0] if ordered else None)
+    view = int(num(cfg("chart.view_bars"), 130))
     out.append('<section><div class="eyebrow"><span class="num">02</span>'
                'Charts</div><h2>Графики</h2>')
     if featured is not None:
@@ -666,8 +667,12 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
             '<div class="chart-card"><div class="chart-head">'
             f'<span class="t">{esc(s.symbol)}</span>'
             f'<span class="sub">дневной график · {esc(sub)}</span>'
-            f'<span class="right">{esc(fmt_price(s.close))} '
-            f'<span class="{chg_cls}">{esc(fmt_pct(s.change_pct))}</span></span></div>'
+            '<span class="right">'
+            f'<span>{esc(fmt_price(s.close))} '
+            f'<span class="{chg_cls}">{esc(fmt_pct(s.change_pct))}</span></span>'
+            '<button class="reset-zoom" type="button">сбросить зум</button>'
+            '</span></div>'
+            '<div class="readout"></div>'
             '<div class="legend">'
             '<span class="key"><i style="background:var(--ma-fast)"></i>20 EMA</span>'
             '<span class="key"><i style="background:var(--ma-mid)"></i>50 SMA</span>'
@@ -677,18 +682,23 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                '<span class="key" style="color:var(--long)"><i class="dash"></i>цели</span>'
                if fplan else "")
             + '</div>')
-        out.append(price_chart(s, fplan, fmt_level))
+        out.append(price_chart(s, fplan, view))
+        out.append('<div class="chart-hint">колесо или щипок — зум · тянуть — листать '
+                   'историю · двойной клик — вернуться к исходному виду</div>')
         out.append('</div>')
 
     compare = [a.snap for a in ordered][:int(num(cfg("chart.compare_max"), 6))]
     if len(compare) >= 2:
-        window = len(compare[0].hist)
         out.append(
             '<div class="chart-card"><div class="chart-head">'
             '<span class="t">Относительная динамика</span>'
-            f'<span class="sub">вотчлист от общей базы · {window} сессий</span>'
-            '<span class="right">кто ведёт, кто отстаёт</span></div>')
-        out.append(performance_chart(compare, int(num(cfg("chart.compare_max"), 6))))
+            '<span class="sub">от левого края окна · база едет за зумом</span>'
+            '<span class="right"><span>кто ведёт, кто отстаёт</span>'
+            '<button class="reset-zoom" type="button">сбросить зум</button></span></div>'
+            '<div class="readout"></div>')
+        out.append(performance_chart(compare, int(num(cfg("chart.compare_max"), 6)), view))
+        out.append('<div class="chart-hint">проценты пересчитываются от начала видимого '
+                   'окна — отлистай назад, и сравнение перестроится</div>')
         out.append('</div>')
     out.append('</section>')
 
