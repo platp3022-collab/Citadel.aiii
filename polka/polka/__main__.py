@@ -57,8 +57,14 @@ async def amain(args: argparse.Namespace) -> int:
         await runner.setup()
         site = web.TCPSite(runner, cfg.host, cfg.port)
         await site.start()
-        log.info("Веб-сервер на http://%s:%d%s", cfg.host, cfg.port,
-                 f"  (публично: {cfg.public_url})" if cfg.public_url else "")
+        log.info("Веб-сервер на http://%s:%d", cfg.host, cfg.port)
+        if cfg.public_url:
+            print(f"\nМини-приложение в Telegram: {cfg.public_url}")
+        # Без публичного адреса интерфейс всё равно можно открыть у себя.
+        if cfg.capture_token:
+            print(f"\nПосмотреть полки в браузере:\n"
+                  f"  http://localhost:{cfg.port}/?token={cfg.capture_token}\n")
+        print("Полка слушает. Пиши боту в Telegram, окно не закрывай.\n")
 
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -176,6 +177,9 @@ async def amain() -> int:
     if good:
         ok("ключ рабочий, кредиты на месте" if not trouble else trouble)
         collected["ANTHROPIC_API_KEY"] = key
+
+    if not os.environ.get("POLKA_CAPTURE_TOKEN") and not cfg.capture_token:
+        collected["POLKA_CAPTURE_TOKEN"] = secrets.token_urlsafe(24)
 
     write_env(collected)
     print(f"\nЗаписано в {ENV}")

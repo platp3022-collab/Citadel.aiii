@@ -202,6 +202,8 @@ def explain(tail: "deque[str]") -> str:
     return out
 
 
+BLOCKED_EXIT = 2
+
 BLOCKED_MESSAGE = """твоя сеть не пускает к api.trycloudflare.com.
 
 Это не поломка Полки: бот, разбор мыслей и напоминания работают, а вот
@@ -272,7 +274,9 @@ async def amain(args: argparse.Namespace) -> int:
         return 0
     except SetupError as exc:
         print(f"\nНе вышло: {exc}\n", file=sys.stderr)
-        return 1
+        # Отдельный код: сеть не пускает к туннелю, но Полка при этом рабочая,
+        # и вызывающий скрипт может просто запустить её без мини-приложения.
+        return BLOCKED_EXIT if str(exc) == BLOCKED_MESSAGE else 1
     finally:
         if tunnel and tunnel.returncode is None:
             tunnel.terminate()

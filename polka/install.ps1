@@ -119,11 +119,18 @@ $polka = Start-Process -FilePath $Py -ArgumentList '-m', 'polka' -WorkingDirecto
 Start-Sleep -Seconds 4
 if ($polka.HasExited) { Fail 'Полка не поднялась. Запусти вручную: python -m polka' }
 
-try {
-    Step 'Поднимаю адрес и вешаю кнопку боту'
-    & $Py -m polka.setup --tunnel
-} finally {
-    if (-not $polka.HasExited) { Stop-Process -Id $polka.Id -Force -ErrorAction SilentlyContinue }
+Step 'Поднимаю адрес и вешаю кнопку боту'
+& $Py -m polka.setup --tunnel
+$tunnelResult = $LASTEXITCODE
+
+if (-not $polka.HasExited) { Stop-Process -Id $polka.Id -Force -ErrorAction SilentlyContinue }
+
+if ($tunnelResult -eq 2) {
+    # Сеть не пускает к сервису туннелей. Кнопки в Telegram не будет, но всё
+    # остальное работает, поэтому просто запускаем Полку и показываем адрес.
+    Write-Host "`nЗапускаю Полку без мини-приложения. Бот и напоминания работают." -ForegroundColor Yellow
+    Write-Host "Интерфейс открой в браузере по ссылке ниже.`n" -ForegroundColor Yellow
+    & $Py -m polka
 }
 
 Read-Host 'Enter чтобы закрыть'
