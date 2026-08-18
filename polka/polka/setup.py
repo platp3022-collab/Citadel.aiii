@@ -133,6 +133,32 @@ async def tunnel_service_reachable(timeout: float = 12.0) -> bool:
         return False
 
 
+async def tunnel_reaches_polka(url: str, attempts: int = 8,
+                               pause: float = 2.0) -> bool:
+    """Проверить, что через туннель действительно отвечает Полка.
+
+    Адрес выдаётся раньше, чем маршрут поднимется, поэтому пробуем несколько раз.
+    Без этой проверки кнопка вешается на туннель, за которым никого нет, и
+    человек видит в приложении страницу ошибки Cloudflare.
+    """
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(attempts):
+            try:
+                async with session.get(
+                    f"{url.rstrip('/')}/health",
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json(content_type=None)
+                        if isinstance(data, dict) and data.get("ok"):
+                            return True
+            except Exception:  # noqa: BLE001 — важен только факт недоступности
+                pass
+            if attempt < attempts - 1:
+                await asyncio.sleep(pause)
+    return False
+
+
 async def open_tunnel(port: int, binary: str = "cloudflared",
                       extra: list[str] | None = None
                       ) -> tuple[str, asyncio.subprocess.Process]:
@@ -202,6 +228,16 @@ def explain(tail: "deque[str]") -> str:
     return out
 
 
+UNREACHABLE_MESSAGE = """туннель поднялся, но за ним никто не отвечает.
+
+Адрес {url} работает, а сама Полка на порту {port} молчит. Обычно это значит,
+что окно с Полкой закрылось или она не запустилась.
+
+Проверь в другом окне:
+    python -m polka
+и посмотри, не ругается ли она на занятый порт. Если ругается, значит осталась
+висеть прошлая копия: закрой все окна с Полкой и запусти заново."""
+
 BLOCKED_EXIT = 2
 
 BLOCKED_MESSAGE = """твоя сеть не пускает к api.trycloudflare.com.
@@ -260,6 +296,10 @@ async def amain(args: argparse.Namespace) -> int:
                 print(f"  первый заход не удался, пробую поверх http2\n{first}\n")
                 url, tunnel = await open_tunnel(port, extra=["--protocol", "http2"])
             print(f"  туннель: {url}")
+            print("  проверяю, что через него отвечает Полка...")
+            if not await tunnel_reaches_polka(url):
+                raise SetupError(UNREACHABLE_MESSAGE.format(url=url, port=port))
+            print("  Полка отвечает через туннель")
         if not url:
             raise SetupError(
                 "нет адреса. Запусти с --tunnel, чтобы поднять временный, "

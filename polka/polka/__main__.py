@@ -56,7 +56,16 @@ async def amain(args: argparse.Namespace) -> int:
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, cfg.host, cfg.port)
-        await site.start()
+        try:
+            await site.start()
+        except OSError as exc:
+            # Чаще всего это вторая копия Полки, оставшаяся с прошлого запуска.
+            print(f"\nПорт {cfg.port} занят: {exc}\n\n"
+                  "Скорее всего, Полка уже запущена в другом окне. Закрой его\n"
+                  "и запусти заново. Либо задай другой порт в polka/.env:\n"
+                  f"    POLKA_PORT={cfg.port + 1}\n", file=sys.stderr)
+            store.close()
+            return 3
         log.info("Веб-сервер на http://%s:%d", cfg.host, cfg.port)
         if cfg.public_url:
             print(f"\nМини-приложение в Telegram: {cfg.public_url}")

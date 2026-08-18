@@ -175,6 +175,48 @@ class ReachabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await original(timeout=0.001))
 
 
+class TunnelReachesPolkaTests(unittest.IsolatedAsyncioTestCase):
+    """Адрес выдаётся раньше, чем маршрут заработает, поэтому нужна проверка."""
+
+    async def asyncSetUp(self):
+        self.answer = {"ok": True}
+        self.status = 200
+        app = web.Application()
+        app.router.add_get("/health", self.handle)
+        self.runner = web.AppRunner(app)
+        await self.runner.setup()
+        site = web.TCPSite(self.runner, "127.0.0.1", 0)
+        await site.start()
+        self.url = f"http://127.0.0.1:{self.runner.addresses[0][1]}"
+
+    async def asyncTearDown(self):
+        await self.runner.cleanup()
+
+    async def handle(self, _):
+        return web.json_response(self.answer, status=self.status)
+
+    async def test_healthy_polka_is_accepted(self):
+        self.assertTrue(await polka_setup.tunnel_reaches_polka(self.url, attempts=1))
+
+    async def test_trailing_slash_in_address_is_fine(self):
+        self.assertTrue(
+            await polka_setup.tunnel_reaches_polka(self.url + "/", attempts=1))
+
+    async def test_error_page_instead_of_polka_is_rejected(self):
+        self.status = 530
+        self.assertFalse(
+            await polka_setup.tunnel_reaches_polka(self.url, attempts=2, pause=0.01))
+
+    async def test_someone_else_answering_is_rejected(self):
+        self.answer = {"hello": "не полка"}
+        self.assertFalse(
+            await polka_setup.tunnel_reaches_polka(self.url, attempts=2, pause=0.01))
+
+    async def test_nothing_listening_is_rejected(self):
+        self.assertFalse(await polka_setup.tunnel_reaches_polka(
+            "http://127.0.0.1:1", attempts=2, pause=0.01))
+
+
 class UrlComparisonTests(unittest.TestCase):
     """Telegram нормализует адрес и дописывает косую черту, сравнение это учитывает."""
 

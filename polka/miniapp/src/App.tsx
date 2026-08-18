@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { api } from "./api";
+import { PolkaError, api } from "./api";
 import { CaptureSheet } from "./components/CaptureSheet";
 import { Shelves } from "./screens/Shelves";
 import { ShelfView } from "./screens/ShelfView";
@@ -15,16 +15,20 @@ type View =
 
 export default function App() {
   const [state, setState] = useState<State | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<{ title: string; hint: string } | null>(null);
   const [view, setView] = useState<View>({ name: "shelves" });
   const [capturing, setCapturing] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       setState(await api.state());
-      setError("");
+      setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "не читается");
+      setError(
+        cause instanceof PolkaError
+          ? { title: cause.message, hint: cause.hint }
+          : { title: "Не дотянулся до полок", hint: "Попробуй ещё раз." },
+      );
     }
   }, []);
 
@@ -70,10 +74,14 @@ export default function App() {
       )}
 
       {error && (
-        <div className="mx-5 mb-4 rounded-2xl border border-edge bg-white/[0.03] px-4 py-3">
-          <p className="text-[13px] text-ink">Не дотянулся до полок</p>
-          <p className="mt-1 font-mono text-[11px] text-faint">{error}</p>
-          <button onClick={() => void refresh()} className="mt-2.5 text-[13px] underline">
+        <div className="mx-5 mb-4 rounded-2xl border border-edge bg-white/[0.03] px-4 py-4">
+          <p className="text-[14px] font-medium text-ink">{error.title}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">{error.hint}</p>
+          <button
+            onClick={() => void refresh()}
+            className="mt-3 rounded-xl border border-edge px-3.5 py-2 text-[13px] text-ink
+                       transition-transform duration-200 ease-slab active:scale-[0.97]"
+          >
             попробовать снова
           </button>
         </div>
