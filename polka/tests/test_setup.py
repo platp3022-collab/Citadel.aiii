@@ -166,6 +166,15 @@ class SaveUrlTests(unittest.TestCase):
         self.assertIn("B=2", text)
 
 
+class ReachabilityTests(unittest.IsolatedAsyncioTestCase):
+    """Если до сервиса туннелей нет доступа, это должно выясняться сразу."""
+
+    async def test_unreachable_service_is_detected(self):
+        # Адрес, на котором заведомо никто не слушает.
+        original = polka_setup.tunnel_service_reachable
+        self.assertFalse(await original(timeout=0.001))
+
+
 class UrlComparisonTests(unittest.TestCase):
     """Telegram нормализует адрес и дописывает косую черту, сравнение это учитывает."""
 
@@ -215,13 +224,35 @@ class TunnelTests(unittest.IsolatedAsyncioTestCase):
     async def test_failure_reports_what_cloudflared_said(self):
         """Без вывода процесса сообщение «закрылся» ничего не объясняет."""
         script = ("import sys\n"
-                  "print('ERR failed to connect: quic handshake timeout')\n"
+                  "print('ERR quic handshake failed')\n"
                   "sys.stdout.flush()\n")
         with self.assertRaises(SetupError) as caught:
             await self.run_fake(script)
         message = str(caught.exception)
-        self.assertIn("quic handshake timeout", message)
+        self.assertIn("quic handshake failed", message)
         self.assertIn("QUIC", message)
+
+    async def test_blocked_tunnel_service_is_named_as_the_cause(self):
+        """Настоящий отказ у пользователя: до api.trycloudflare.com нет доступа."""
+        script = ("import sys\n"
+                  "print('INF Requesting new quick Tunnel on trycloudflare.com...')\n"
+                  "print('failed to request quick Tunnel: Post \"https://api.trycloudflare.com/tunnel\": "
+                  "context deadline exceeded')\n"
+                  "sys.stdout.flush()\n")
+        with self.assertRaises(SetupError) as caught:
+            await self.run_fake(script)
+        message = str(caught.exception)
+        self.assertIn("api.trycloudflare.com", message)
+        self.assertIn("VPN", message)
+
+    async def test_the_word_quick_does_not_trigger_the_quic_hint(self):
+        """«quick Tunnel» содержит «quic», и раньше это уводило диагностику в сторону."""
+        script = ("import sys\n"
+                  "print('INF Requesting new quick Tunnel on trycloudflare.com...')\n"
+                  "sys.stdout.flush()\n")
+        with self.assertRaises(SetupError) as caught:
+            await self.run_fake(script)
+        self.assertNotIn("Режется QUIC", str(caught.exception))
 
     async def test_extra_arguments_reach_cloudflared(self):
         script = ("import sys\n"

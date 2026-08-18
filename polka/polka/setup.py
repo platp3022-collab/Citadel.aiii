@@ -119,6 +119,20 @@ def save_url(url: str) -> None:
     os.environ["POLKA_PUBLIC_URL"] = url
 
 
+async def tunnel_service_reachable(timeout: float = 12.0) -> bool:
+    """Быстрая проверка: пускает ли сеть к сервису туннелей.
+
+    Без неё cloudflared молча ждёт таймаута и падает с невнятной ошибкой.
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.trycloudflare.com",
+                                   timeout=aiohttp.ClientTimeout(total=timeout)):
+                return True
+    except Exception:  # noqa: BLE001 — интересен только сам факт недоступности
+        return False
+
+
 async def open_tunnel(port: int, binary: str = "cloudflared",
                       extra: list[str] | None = None
                       ) -> tuple[str, asyncio.subprocess.Process]:
@@ -155,25 +169,53 @@ async def open_tunnel(port: int, binary: str = "cloudflared",
         raise SetupError("cloudflared не выдал адрес за полторы минуты." + explain(tail)) from None
 
 
+# Подсказки ищем по точным формулировкам cloudflared. Раньше здесь стояла
+# проверка на подстроку "quic", и она срабатывала на слове "quick Tunnel",
+# уводя диагностику в сторону.
+TUNNEL_HINTS: tuple[tuple[str, str], ...] = (
+    ("failed to request quick tunnel",
+     "Твоя сеть не пускает к api.trycloudflare.com. Это не про Полку и не про бота:\n"
+     "     до сервиса туннелей просто нет доступа. Обычно помогает включить VPN\n"
+     "     либо раздать интернет с телефона и повторить."),
+    ("context deadline exceeded",
+     "Запрос ушёл в никуда и истёк по времени: адрес закрыт провайдером,\n"
+     "     брандмауэром или антивирусом."),
+    ("no such host",
+     "Адрес не разрешается в DNS. Попробуй сменить DNS на 1.1.1.1 или 8.8.8.8."),
+    ("quic handshake",
+     "Режется QUIC. Повторный заход поверх http2 должен помочь."),
+    ("not in allowlist",
+     "Сеть пропускает только разрешённые адреса. Нужен другой канал связи."),
+)
+
+
 def explain(tail: "deque[str]") -> str:
     """Собрать понятную подсказку из того, что успел напечатать cloudflared."""
     text = "\n".join(tail)
-    hints = []
     lowered = text.lower()
-    if "quic" in lowered or "udp" in lowered:
-        hints.append("Похоже, провайдер или брандмауэр режет QUIC. "
-                     "Попробуй ещё раз, я перезапущу туннель поверх http2.")
-    if "403" in text or "not in allowlist" in lowered:
-        hints.append("Сеть не пускает к Cloudflare. Проверь VPN и брандмауэр.")
-    if "failed to connect" in lowered or "timeout" in lowered:
-        hints.append("Нет связи с серверами Cloudflare. Проверь интернет.")
+    hints = [hint for marker, hint in TUNNEL_HINTS if marker in lowered]
     out = ""
     if hints:
-        out += "\n" + "\n".join(f"  {h}" for h in hints)
+        out += "\n" + "\n".join(f"  {hint}" for hint in hints)
     if text:
         out += "\n\nЧто сказал cloudflared:\n" + "\n".join(f"  {line}" for line in tail)
     return out
 
+
+BLOCKED_MESSAGE = """твоя сеть не пускает к api.trycloudflare.com.
+
+Это не поломка Полки: бот, разбор мыслей и напоминания работают, а вот
+временный адрес для мини-приложения выдать неоткуда. Три выхода:
+
+  1. Включить VPN и повторить. Самый быстрый способ проверить.
+  2. Раздать интернет с телефона и повторить: у мобильного оператора
+     этот адрес обычно открыт.
+  3. Поставить Полку на сервер со своим доменом. Тогда адрес постоянный,
+     туннель не нужен вообще, и всё работает без открытого окна:
+         python3 -m polka.setup --url https://твой-домен
+
+Пока адреса нет, запусти без мини-приложения: python -m polka
+Бот будет ловить мысли и напоминать, только без кнопки с интерфейсом."""
 
 BOTFATHER_STEPS = """
 Кнопка мини-приложения уже в чате: открой бота, нажми «Полка» слева от поля ввода.
@@ -202,6 +244,8 @@ async def amain(args: argparse.Namespace) -> int:
         if not url and args.tunnel:
             port = args.port or load_config().port
             print("  поднимаю туннель...")
+            if not await tunnel_service_reachable():
+                raise SetupError(BLOCKED_MESSAGE)
             try:
                 url, tunnel = await open_tunnel(port)
             except SetupError as first:
