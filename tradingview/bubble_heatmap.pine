@@ -58,8 +58,12 @@ gHm = "Тепловая карта уровней"
 showHm = input.bool(true, "Показывать карту уровней", group = gHm)
 hmLen  = input.int(200, "Глубина карты (баров)", minval = 20, maxval = 1000, group = gHm)
 hmRows = input.int(24, "Число уровней", minval = 5, maxval = 60, group = gHm)
-hmExt  = input.int(10, "Вынос вправо (баров)", minval = 0, maxval = 100, group = gHm)
-hmTr   = input.int(82, "Прозрачность холодных уровней", minval = 0, maxval = 100, group = gHm)
+hmMode = input.string("Полоса справа", "Как рисовать карту", options = ["Полоса справа", "По всему окну"], group = gHm)
+hmWidth = input.int(30, "Ширина полосы (баров)", minval = 5, maxval = 200, group = gHm)
+hmMin  = input.float(0.15, "Не рисовать уровни ниже доли от максимума", minval = 0.0, maxval = 0.9, step = 0.05, group = gHm)
+hmExt  = input.int(10, "Вынос вправо в режиме окна (баров)", minval = 0, maxval = 100, group = gHm)
+hmTr   = input.int(90, "Прозрачность холодных уровней", minval = 0, maxval = 100, group = gHm)
+hmTrH  = input.int(45, "Прозрачность горячих уровней", minval = 0, maxval = 100, group = gHm)
 hmPoc  = input.bool(true, "Линия POC (главный уровень)", group = gHm)
 
 // ---------- цвета ----------
@@ -164,6 +168,7 @@ plot(p5, "Пузырь 5", cHeat, 5, plot.style_circles)
 var array<box> hmBoxes = array.new_box()
 var array<line> hmLines = array.new_line()
 
+stripMode = hmMode == "Полоса справа"
 hmDepth = math.max(1, math.min(hmLen, bar_index))
 hmTop = ta.highest(high, hmDepth)
 hmBot = ta.lowest(low, hmDepth)
@@ -203,13 +208,20 @@ if showHm and barstate.islast
                     pocIdx := j
                 vShare = v / maxV
                 dShare = v > 0 ? math.min(math.abs(array.get(binDlt, j)) / v / imbSat, 1.0) : 0.0
-                hLvl = math.min(math.max(vShare * (0.5 + 0.5 * dShare), 0), 1)
+                // степень 1.5 гасит середину: подсвечиваются только реально тяжёлые уровни
+                vCurve = math.pow(vShare, 1.5)
+                hLvl = math.min(math.max(vCurve * (0.5 + 0.5 * dShare), 0), 1)
                 rowLo = hmBot + rowStep * j
-                rowTr = int(math.max(10, math.min(100, hmTr - (hmTr - 20) * hLvl)))
-                array.push(hmBoxes, box.new(left = bar_index - hmDepth + 1, top = rowLo + rowStep, right = bar_index + hmExt, bottom = rowLo, border_color = color.new(color.gray, 100), bgcolor = color.new(heatCol(hLvl), rowTr)))
+                rowTr = int(math.max(0, math.min(100, hmTr - (hmTr - hmTrH) * hLvl)))
+                barsLen = int(math.max(1, math.round(vShare * hmWidth)))
+                boxL = stripMode ? bar_index + 2 : bar_index - hmDepth + 1
+                boxR = stripMode ? bar_index + 2 + barsLen : bar_index + hmExt
+                if vShare >= hmMin
+                    array.push(hmBoxes, box.new(left = boxL, top = rowLo + rowStep, right = boxR, bottom = rowLo, border_color = color.new(color.gray, 100), bgcolor = color.new(heatCol(hLvl), rowTr)))
             if hmPoc
                 pocPrice = hmBot + rowStep * (pocIdx + 0.5)
-                array.push(hmLines, line.new(x1 = bar_index - hmDepth + 1, y1 = pocPrice, x2 = bar_index + hmExt, y2 = pocPrice, color = cRed, style = line.style_dashed, width = 2))
+                pocR = stripMode ? bar_index + 2 + hmWidth : bar_index + hmExt
+                array.push(hmLines, line.new(x1 = bar_index - hmDepth + 1, y1 = pocPrice, x2 = pocR, y2 = pocPrice, color = cRed, style = line.style_dashed, width = 2))
 
 // ---------- сигналы ----------
 isEntry = heat >= redThr and imb >= imbEntry
