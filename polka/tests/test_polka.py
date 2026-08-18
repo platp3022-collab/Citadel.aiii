@@ -25,9 +25,9 @@ TOKEN = "123456:TEST-TOKEN-NOT-REAL"
 def make_config(**overrides) -> Config:
     base = dict(
         bot_token=TOKEN, chat_id="42", anthropic_key="", model="claude-opus-5",
-        openai_key="", capture_token="secret", public_url="", host="127.0.0.1",
+        openai_key="", groq_key="", capture_token="secret", public_url="", host="127.0.0.1",
         port=0, quiet_from=0, quiet_to=0, timezone_offset=3,
-        telegram_api="https://api.telegram.org",
+        telegram_api="https://api.telegram.org", voice_api="",
     )
     base.update(overrides)
     return Config(**base)

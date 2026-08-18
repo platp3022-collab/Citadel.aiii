@@ -35,15 +35,30 @@ class Config:
     chat_id: str
     anthropic_key: str
     model: str
-    openai_key: str            # опционально: расшифровка голосовых через Whisper
+    openai_key: str            # расшифровка голосовых через Whisper
+    groq_key: str              # то же самое, но бесплатно
     capture_token: str         # секрет для iOS-команды (Back Tap)
     public_url: str            # https-адрес мини-приложения
     host: str
     port: int
     telegram_api: str          # подменяется в тестах на локальный макет
+    voice_api: str             # то же для распознавания речи
     quiet_from: int            # час начала тишины (не будим ночью)
     quiet_to: int
     timezone_offset: int       # смещение от UTC в часах, для тихих часов
+
+    @property
+    def voice(self) -> tuple[str, str, str] | None:
+        """Чем расшифровывать голос: (адрес, ключ, модель). None - нечем."""
+        if self.groq_key:
+            return (self.voice_api or
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    self.groq_key, "whisper-large-v3-turbo")
+        if self.openai_key:
+            return (self.voice_api or
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    self.openai_key, "whisper-1")
+        return None
 
     @property
     def has_brain(self) -> bool:
@@ -69,11 +84,13 @@ def load_config() -> Config:
         anthropic_key=os.environ.get("ANTHROPIC_API_KEY", "").strip(),
         model=os.environ.get("POLKA_MODEL", "claude-opus-5").strip(),
         openai_key=os.environ.get("OPENAI_API_KEY", "").strip(),
+        groq_key=os.environ.get("GROQ_API_KEY", "").strip(),
         capture_token=os.environ.get("POLKA_CAPTURE_TOKEN", "").strip(),
         public_url=os.environ.get("POLKA_PUBLIC_URL", "").strip().rstrip("/"),
         host=os.environ.get("POLKA_HOST", "0.0.0.0").strip(),
         telegram_api=os.environ.get("POLKA_TELEGRAM_API",
                                     "https://api.telegram.org").strip().rstrip("/"),
+        voice_api=os.environ.get("POLKA_VOICE_API", "").strip(),
         port=_int("POLKA_PORT", 8443),
         quiet_from=_int("POLKA_QUIET_FROM", 23),
         quiet_to=_int("POLKA_QUIET_TO", 8),

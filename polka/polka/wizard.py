@@ -74,6 +74,24 @@ async def find_chat_id(session: aiohttp.ClientSession, api: str,
     return None
 
 
+async def check_voice_key(key: str) -> tuple[bool, str]:
+    """Проверить ключ распознавания речи. Groq и OpenAI отвечают одинаково."""
+    host = "https://api.groq.com/openai/v1" if key.startswith("gsk_") \
+        else "https://api.openai.com/v1"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{host}/models",
+                                   headers={"Authorization": f"Bearer {key}"},
+                                   timeout=aiohttp.ClientTimeout(total=20)) as response:
+                if response.status == 200:
+                    return True, "GROQ_API_KEY" if key.startswith("gsk_") else "OPENAI_API_KEY"
+                if response.status in (401, 403):
+                    return False, "ключ не принят"
+                return False, f"сервис ответил {response.status}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"не достучался: {exc}"
+
+
 async def check_key(key: str) -> tuple[bool, str]:
     """Проверить ключ Anthropic самым дешёвым запросом. Возвращает (годен, что не так)."""
     try:
@@ -177,6 +195,26 @@ async def amain() -> int:
     if good:
         ok("ключ рабочий, кредиты на месте" if not trouble else trouble)
         collected["ANTHROPIC_API_KEY"] = key
+
+    # ── голосовые в Telegram ──────────────────────────────────────────────
+    if not (cfg.groq_key or cfg.openai_key):
+        print("\nГолосовые сообщения боту требуют распознавания речи.")
+        print("У Groq оно бесплатное: console.groq.com/keys, ключ вида gsk_...")
+        voice_key = ask("Ключ распознавания речи:",
+                        "пустая строка - пропустить, голосом можно будет"
+                        " диктовать через двойное касание крышки")
+        while voice_key:
+            good_voice, where = await check_voice_key(voice_key)
+            if good_voice:
+                ok("голосовые будут расшифровываться")
+                collected[where] = voice_key
+                break
+            bad(where)
+            voice_key = ask("Ключ распознавания речи:", "пустая строка - пропустить")
+        if not voice_key:
+            print("  ладно, без голосовых в чате")
+    else:
+        ok("ключ распознавания речи уже записан")
 
     if not os.environ.get("POLKA_CAPTURE_TOKEN") and not cfg.capture_token:
         collected["POLKA_CAPTURE_TOKEN"] = secrets.token_urlsafe(24)

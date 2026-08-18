@@ -75,9 +75,11 @@ class Bot:
             text = await self.transcribe(voice.get("file_id", "")) or ""
             if not text:
                 await self.tg.send(
-                    "Голос я пока не расшифровываю: нет ключа для транскрипции.\n"
-                    "Пришли текстом, либо надиктуй через команду быстрого доступа "
-                    "на айфоне - там диктует сам телефон."
+                    "Голос пока не разбираю: не задан ключ распознавания.\n\n"
+                    "Бесплатный ключ берётся тут: console.groq.com/keys\n"
+                    "Потом впиши в polka/.env строку GROQ_API_KEY=ключ и перезапусти.\n\n"
+                    "Либо надиктуй через двойное касание крышки: там речь "
+                    "распознаёт сам айфон."
                 )
                 return
 
@@ -181,28 +183,32 @@ class Bot:
 
     # ── голос ─────────────────────────────────────────────────────────────
     async def transcribe(self, file_id: str) -> str | None:
-        """Расшифровка через Whisper. Claude аудио на вход не принимает."""
-        if not (file_id and self.cfg.openai_key):
+        """Расшифровка голосового. Claude аудио на вход не принимает,
+        поэтому речь переводит в текст Whisper: у Groq он бесплатный."""
+        voice = self.cfg.voice
+        if not (file_id and voice):
             return None
+        url, key, model = voice
+
         audio = await self.tg.download_file(file_id)
         if not audio:
             return None
+
         form = aiohttp.FormData()
-        form.add_field("file", audio, filename="voice.ogg",
-                       content_type="audio/ogg")
-        form.add_field("model", "whisper-1")
+        form.add_field("file", audio, filename="voice.ogg", content_type="audio/ogg")
+        form.add_field("model", model)
+        form.add_field("language", "ru")
         try:
             async with self.session.post(
-                "https://api.openai.com/v1/audio/transcriptions",
-                data=form,
-                headers={"Authorization": f"Bearer {self.cfg.openai_key}"},
+                url, data=form,
+                headers={"Authorization": f"Bearer {key}"},
                 timeout=aiohttp.ClientTimeout(total=120),
             ) as r:
                 if r.status != 200:
-                    log.warning("Whisper %s: %s", r.status, (await r.text())[:200])
+                    log.warning("Расшифровка %s: %s", r.status, (await r.text())[:200])
                     return None
                 data = await r.json(content_type=None)
         except Exception as exc:  # noqa: BLE001
-            log.warning("Whisper: %s", exc)
+            log.warning("Расшифровка: %s", exc)
             return None
         return (data.get("text") or "").strip() or None
