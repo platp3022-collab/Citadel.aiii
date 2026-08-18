@@ -135,16 +135,22 @@ async def raise_tunnel(cfg, stop: asyncio.Event):
                 cfg.port, extra=["--protocol", "http2"])
         print(f"  адрес: {url}")
 
+        print("  проверяю, что через него отвечает Полка...")
         if not await setup_module.tunnel_reaches_polka(url):
             process.terminate()
             raise setup_module.SetupError(
                 setup_module.UNREACHABLE_MESSAGE.format(url=url, port=cfg.port))
 
+        print("  вешаю кнопку боту...")
         await setup_module.wire(url)
         setup_module.save_url(url)
         print("  кнопка в Telegram обновлена\n")
         return process
-    except setup_module.SetupError as exc:
+    except Exception as exc:  # noqa: BLE001
+        # Что бы ни случилось с туннелем, Полка обязана продолжать работать:
+        # бот, разбор и напоминания от адреса не зависят.
+        if not isinstance(exc, setup_module.SetupError):
+            log.exception("Туннель не поднялся из-за неожиданной ошибки")
         print(f"\nБез мини-приложения: {exc}\n")
         # Кнопка от прошлого запуска ведёт в никуда, лучше её убрать.
         if cfg.public_url:

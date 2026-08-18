@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 import re
 import sys
@@ -19,6 +20,8 @@ from typing import Any
 import aiohttp
 
 from .config import ROOT, load_config
+
+log = logging.getLogger("polka.setup")
 
 TUNNEL_PATTERN = re.compile(r"https://([a-z0-9-]+)\.trycloudflare\.com")
 
@@ -154,7 +157,7 @@ async def tunnel_service_reachable(timeout: float = 12.0) -> bool:
         return False
 
 
-async def tunnel_reaches_polka(url: str, attempts: int = 8,
+async def tunnel_reaches_polka(url: str, attempts: int = 6,
                                pause: float = 2.0) -> bool:
     """Проверить, что через туннель действительно отвечает Полка.
 
@@ -167,7 +170,7 @@ async def tunnel_reaches_polka(url: str, attempts: int = 8,
             try:
                 async with session.get(
                     f"{url.rstrip('/')}/health",
-                    timeout=aiohttp.ClientTimeout(total=15),
+                    timeout=aiohttp.ClientTimeout(total=8),
                 ) as response:
                     if response.status == 200:
                         data = await response.json(content_type=None)
@@ -213,6 +216,9 @@ async def open_tunnel(port: int, binary: str = "cloudflared",
                 tail.append(line)
             for found in TUNNEL_PATTERN.finditer(line):
                 if found.group(1) not in TUNNEL_SERVICE_HOSTS:
+                    # cloudflared продолжает писать в трубу. Если её не читать,
+                    # буфер операционной системы заполнится и туннель встанет.
+                    asyncio.create_task(drain(process))
                     return found.group(0), process
     except asyncio.TimeoutError:
         process.terminate()
@@ -237,6 +243,19 @@ TUNNEL_HINTS: tuple[tuple[str, str], ...] = (
     ("not in allowlist",
      "Сеть пропускает только разрешённые адреса. Нужен другой канал связи."),
 )
+
+
+async def drain(process: asyncio.subprocess.Process) -> None:
+    """Дочитывать вывод туннеля до конца, чтобы он не упёрся в полную трубу."""
+    if process.stdout is None:
+        return
+    try:
+        async for raw in process.stdout:
+            line = raw.decode("utf-8", "replace").rstrip()
+            if line and ("ERR" in line or "WRN" in line):
+                log.warning("туннель: %s", line[:200])
+    except Exception:  # noqa: BLE001 — поток закрылся, это нормально
+        pass
 
 
 def explain(tail: "deque[str]") -> str:
