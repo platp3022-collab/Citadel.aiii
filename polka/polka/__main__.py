@@ -40,7 +40,8 @@ async def amain(args: argparse.Namespace) -> int:
     stop = asyncio.Event()
 
     async with aiohttp.ClientSession() as session:
-        tg = Telegram(session, cfg.bot_token, cfg.chat_id, dry=args.dry)
+        tg = Telegram(session, cfg.bot_token, cfg.chat_id, dry=args.dry,
+                      api_base=cfg.telegram_api)
         brain = Brain(cfg.anthropic_key, cfg.model)
         flow = Flow(cfg, store, brain, tg)
 

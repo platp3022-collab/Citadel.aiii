@@ -20,13 +20,13 @@ def esc(text: str) -> str:
 
 class Telegram:
     def __init__(self, session: aiohttp.ClientSession, token: str, chat_id: str,
-                 dry: bool = False):
+                 dry: bool = False, api_base: str = API):
         self.session = session
         self.token = token
         self.chat_id = str(chat_id)
         self.dry = dry or not token
-        self.api = f"{API}/bot{token}"
-        self.file_api = f"{API}/file/bot{token}"
+        self.api = f"{api_base}/bot{token}"
+        self.file_api = f"{api_base}/file/bot{token}"
         self.offset = 0
 
     async def call(self, method: str, payload: dict[str, Any] | None = None,

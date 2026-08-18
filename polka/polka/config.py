@@ -40,6 +40,7 @@ class Config:
     public_url: str            # https-адрес мини-приложения
     host: str
     port: int
+    telegram_api: str          # подменяется в тестах на локальный макет
     quiet_from: int            # час начала тишины (не будим ночью)
     quiet_to: int
     timezone_offset: int       # смещение от UTC в часах, для тихих часов
@@ -71,6 +72,8 @@ def load_config() -> Config:
         capture_token=os.environ.get("POLKA_CAPTURE_TOKEN", "").strip(),
         public_url=os.environ.get("POLKA_PUBLIC_URL", "").strip().rstrip("/"),
         host=os.environ.get("POLKA_HOST", "0.0.0.0").strip(),
+        telegram_api=os.environ.get("POLKA_TELEGRAM_API",
+                                    "https://api.telegram.org").strip().rstrip("/"),
         port=_int("POLKA_PORT", 8443),
         quiet_from=_int("POLKA_QUIET_FROM", 23),
         quiet_to=_int("POLKA_QUIET_TO", 8),
