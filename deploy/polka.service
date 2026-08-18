@@ -1,0 +1,19 @@
+# Полка как служба. Скопировать в /etc/systemd/system/polka.service,
+# затем: systemctl daemon-reload && systemctl enable --now polka
+[Unit]
+Description=Polka - мысли по полкам
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/citadel/polka
+EnvironmentFile=/opt/citadel/polka/.env
+ExecStart=/usr/bin/python3 -m polka
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -6,3 +6,7 @@ __pycache__/
 
 # Claude skills bundle ships its own data files
 !.claude/skills/**/data/
+
+# Зависимости мини-приложения Полки
+node_modules/
+*.tsbuildinfo

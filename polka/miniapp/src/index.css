@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/* Полка держит одну тему: графит. Приложение живёт в кармане и открывается ночью,
+   светлый режим ломал бы ощущение физических блоков в темноте. */
+@theme {
+  --color-void: #0b0b0c;
+  --color-slab-0: #141416;
+  --color-slab-1: #1b1b1e;
+  --color-slab-2: #232327;
+  --color-slab-3: #2c2c31;
+  --color-edge: rgba(255, 255, 255, 0.07);
+  --color-edge-lit: rgba(255, 255, 255, 0.14);
+  --color-ink: #edede9;
+  --color-muted: #8d8d92;
+  --color-faint: #5c5c62;
+  --color-ember: #c2703f;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+
+  --ease-slab: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root {
+  color-scheme: dark;
+  --depth: 12px;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--color-void);
+}
+
+body {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: contain;
+  /* Телеграм отдаёт свои отступы под чёлку и домашний индикатор. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Зерно на фиксированном слое: на скроллящихся контейнерах оно съедает кадры. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Физический блок ────────────────────────────────────────────────────
+   Лицевая грань со светом сверху слева плюс боковая стенка из ступенчатых
+   теней. Наклон следует за пальцем и доворачивает блок как предмет в руке. */
+.scene {
+  perspective: 620px;
+  perspective-origin: 50% 30%;
+}
+
+.slab {
+  position: relative;
+  will-change: transform;
+}
+
+.slab__front {
+  position: relative;
+  background: linear-gradient(152deg, var(--color-slab-2) 0%, var(--color-slab-0) 74%);
+}
+
+/* Важность читается светом: чем важнее мысль, тем ярче её лицевая грань. */
+.lit-1 { --lit: 0.00; }
+.lit-2 { --lit: 0.05; }
+.lit-3 { --lit: 0.11; }
+.lit-4 { --lit: 0.18; }
+.lit-5 { --lit: 0.26; }
+
+.slab__front::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 90% at 12% 0%,
+    rgba(255, 255, 255, var(--lit, 0)),
+    transparent 62%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slab,
+  .slab * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
