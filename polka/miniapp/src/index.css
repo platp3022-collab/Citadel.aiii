@@ -26,28 +26,32 @@
   --depth: 12px;
 }
 
-html,
-body,
-#root {
-  min-height: 100%;
-  background: var(--color-void);
-}
+/* Базовые правила обязаны лежать в слое: неслоёный css бьёт утилиты Tailwind
+   независимо от специфичности, и button { color: inherit } гасил бы text-*. */
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background: var(--color-void);
+  }
 
-body {
-  margin: 0;
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  overscroll-behavior-y: contain;
-  /* Телеграм отдаёт свои отступы под чёлку и домашний индикатор. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
-}
+  body {
+    margin: 0;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: contain;
+    /* Телеграм отдаёт свои отступы под чёлку и домашний индикатор. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
 
-button {
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
 }
 
 /* Зерно на фиксированном слое: на скроллящихся контейнерах оно съедает кадры. */
