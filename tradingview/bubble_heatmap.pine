@@ -1,12 +1,20 @@
 //@version=5
 // Citadel.aiii — Bubble
-// Тепловая карта покупок и продаж.
-//   синий     — объёма нет, ничего интересного
-//   оранжевый — объём пришёл, но покупки и продажи 50/50
-//   красный   — много объёма и одна сторона явно давит (точка входа)
-indicator("Bubble", overlay = true)
+// Облако пузырей внутри каждой свечи, как трейды в Bookmap.
+//   размер пузыря — сколько объёма прошло на этом ценовом уровне
+//   цвет пузыря   — синий: пусто | оранжевый: 50/50 | красный: одна сторона давит
+indicator("Bubble", overlay = true, max_labels_count = 500)
 
-// ---------- входы ----------
+// ---------- режим ----------
+mode     = input.string("Облако по уровням", "Режим пузырей", options = ["Облако по уровням", "Один пузырь на бар"])
+levels   = input.int(6, "Уровней внутри свечи", minval = 2, maxval = 20)
+histBars = input.int(80, "Сколько последних баров рисовать", minval = 10, maxval = 500)
+minShow  = input.float(0.08, "Не рисовать уровни легче", minval = 0.0, maxval = 1.0, step = 0.02)
+volLen   = input.int(50, "Окно нормировки размера", minval = 5)
+volSat   = input.float(3.0, "Во сколько раз объём на уровне даёт максимальный пузырь", minval = 1.0, maxval = 10.0, step = 0.5)
+wickW    = input.float(0.35, "Вес фитилей относительно тела", minval = 0.05, maxval = 1.0, step = 0.05)
+
+// ---------- движок тепла ----------
 lenVol   = input.int(50, "Окно активности (баров)", minval = 5)
 lenDelta = input.int(14, "Окно дельты (баров)", minval = 1)
 imbSat   = input.float(0.5, "Насыщение перевеса", minval = 0.05, maxval = 1.0, step = 0.05)
@@ -22,7 +30,6 @@ showBub  = input.bool(true, "Показывать пузыри")
 showSig  = input.bool(true, "Метки точек входа")
 colorBar = input.bool(false, "Красить бары по теплу")
 colorBg  = input.bool(false, "Красить фон по теплу")
-anchor   = input.string("Центр бара", "Где рисовать пузырь", options = ["Центр бара", "Закрытие", "Под баром", "Над баром"])
 
 cBlue = input.color(#1565C0, "Синий — пусто")
 cOrg  = input.color(#FF9800, "Оранжевый — 50/50")
@@ -35,46 +42,68 @@ posC = rng > 0 ? (close - low) / rng : 0.5
 tickR = close > close[1] ? 1.0 : close < close[1] ? 0.0 : 0.5
 mixR = (posC + tickR) / 2
 buyR = flowMode == "Позиция закрытия" ? posC : flowMode == "Тиковое правило" ? tickR : mixR
+dlt = vol * (2 * buyR - 1)
 
-buyV = vol * buyR
-selV = vol - buyV
-dlt = buyV - selV
-
-// ---------- активность ----------
+// ---------- активность и перевес ----------
 actVol = nz(ta.percentrank(vol, lenVol)) / 100
 actRng = nz(ta.percentrank(ta.tr(true), lenVol)) / 100
 act = useVola ? actVol * 0.7 + actRng * 0.3 : actVol
-
-// ---------- перевес одной стороны ----------
 dSum = nz(math.sum(dlt, lenDelta))
 vSum = nz(math.sum(vol, lenDelta))
 imbRaw = vSum > 0 ? math.abs(dSum) / vSum : 0.0
 imb = math.min(imbRaw / imbSat, 1.0)
 
-// ---------- тепло ----------
-// объёма нет           -> 0.0 -> синий
-// объём есть, 50/50    -> 0.5 -> оранжевый
-// объём есть + перевес -> 1.0 -> красный
+// ---------- тепло бара ----------
 heatRaw = act * (0.5 + 0.5 * imb)
 heat = math.min(math.max(nz(ta.sma(heatRaw, smooth)), 0), 1)
 bull = dSum > 0
 
 // ---------- цвет ----------
-cLow = color.from_gradient(heat, 0.0, 0.5, cBlue, cOrg)
-cHigh = color.from_gradient(heat, 0.5, 1.0, cOrg, cRed)
-cHeat = heat < 0.5 ? cLow : cHigh
+heatCol(float h) =>
+    hh = math.min(math.max(nz(h), 0), 1)
+    cl = color.from_gradient(hh, 0.0, 0.5, cBlue, cOrg)
+    ch = color.from_gradient(hh, 0.5, 1.0, cOrg, cRed)
+    hh < 0.5 ? cl : ch
 
-// ---------- где рисуем пузырь ----------
-pad = nz(ta.atr(14)) * 0.5
-px = anchor == "Закрытие" ? close : anchor == "Под баром" ? low - pad : anchor == "Над баром" ? high + pad : hl2
+bubSize(float r) =>
+    r < 0.2 ? size.tiny : r < 0.4 ? size.small : r < 0.6 ? size.normal : r < 0.8 ? size.large : size.huge
 
-// ---------- пузыри: пять слоёв, размер растёт вместе с теплом ----------
+cHeat = heatCol(heat)
+
+// ---------- эталон объёма на один уровень ----------
+volAvg = nz(ta.sma(vol, volLen))
+refLvl = volAvg / levels
+
+// ---------- облако пузырей внутри свечи ----------
+inWindow = bar_index > last_bar_index - histBars
+drawCloud = showBub and mode == "Облако по уровням" and inWindow and rng > 0 and vol > 0 and refLvl > 0
+
+if drawCloud
+    lvlStep = rng / levels
+    bodyTop = math.max(open, close)
+    bodyBot = math.min(open, close)
+    wSum = 0.0
+    for i = 0 to levels - 1
+        pc = low + lvlStep * (i + 0.5)
+        wSum := wSum + (pc <= bodyTop and pc >= bodyBot ? 1.0 : wickW)
+    for i = 0 to levels - 1
+        pc = low + lvlStep * (i + 0.5)
+        w = (pc <= bodyTop and pc >= bodyBot ? 1.0 : wickW) / wSum
+        vAt = vol * w
+        rel = math.min(vAt / (refLvl * volSat), 1.0)
+        lvlHeat = math.min(math.max(rel * (0.5 + 0.5 * imb), 0), 1)
+        if rel >= minShow
+            tip = "Объём на уровне: " + str.tostring(w * 100, "#.0") + "% бара, размер " + str.tostring(rel * 100, "#") + "%, тепло " + str.tostring(lvlHeat * 100, "#") + "%"
+            label.new(x = bar_index, y = pc, text = "", style = label.style_circle, color = color.new(heatCol(lvlHeat), 20), size = bubSize(rel), tooltip = tip)
+
+// ---------- режим "один пузырь на бар" (вся история) ----------
+oneMode = showBub and mode == "Один пузырь на бар"
 lvl = heat < 0.2 ? 1 : heat < 0.4 ? 2 : heat < 0.6 ? 3 : heat < 0.8 ? 4 : 5
-p1 = showBub and lvl == 1 ? px : na
-p2 = showBub and lvl == 2 ? px : na
-p3 = showBub and lvl == 3 ? px : na
-p4 = showBub and lvl == 4 ? px : na
-p5 = showBub and lvl == 5 ? px : na
+p1 = oneMode and lvl == 1 ? hl2 : na
+p2 = oneMode and lvl == 2 ? hl2 : na
+p3 = oneMode and lvl == 3 ? hl2 : na
+p4 = oneMode and lvl == 4 ? hl2 : na
+p5 = oneMode and lvl == 5 ? hl2 : na
 
 plot(p1, "Пузырь 1", cHeat, 1, plot.style_circles)
 plot(p2, "Пузырь 2", cHeat, 2, plot.style_circles)
