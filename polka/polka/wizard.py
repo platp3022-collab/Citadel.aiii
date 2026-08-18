@@ -74,6 +74,16 @@ async def find_chat_id(session: aiohttp.ClientSession, api: str,
     return None
 
 
+async def board_reachable(url: str) -> bool:
+    """Доступна ли доска, через которую приходит двойное касание."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)):
+                return True
+    except Exception:  # noqa: BLE001 — важен только сам факт
+        return False
+
+
 async def check_voice_key(key: str) -> tuple[bool, str]:
     """Проверить ключ распознавания речи. Groq и OpenAI отвечают одинаково."""
     host = "https://api.groq.com/openai/v1" if key.startswith("gsk_") \
@@ -218,6 +228,16 @@ async def amain() -> int:
 
     if not os.environ.get("POLKA_CAPTURE_TOKEN") and not cfg.capture_token:
         collected["POLKA_CAPTURE_TOKEN"] = secrets.token_urlsafe(24)
+
+    # Доска для двойного касания. Имя случайное и длинное: оно же и пароль.
+    if not cfg.relay_topic:
+        collected["POLKA_RELAY_TOPIC"] = "polka-" + secrets.token_hex(12)
+        if await board_reachable(cfg.relay_url):
+            ok("завёл канал для двойного касания крышки")
+        else:
+            bad(f"канал для двойного касания завёл, но {cfg.relay_url} сейчас"
+                " недоступен.\n     Двойное касание заработает, когда появится доступ."
+                " Всё остальное работает.")
 
     write_env(collected)
     print(f"\nЗаписано в {ENV}")

@@ -28,7 +28,7 @@ def make_config(**overrides) -> Config:
         openai_key="", groq_key="", capture_token="secret", public_url="", host="127.0.0.1",
         port=0, quiet_from=0, quiet_to=0, timezone_offset=3,
         telegram_api="https://api.telegram.org", voice_api="",
-        voice_reply=False, tts_api="",
+        voice_reply=False, tts_api="", relay_url="", relay_topic="",
     )
     base.update(overrides)
     return Config(**base)

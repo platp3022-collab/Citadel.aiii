@@ -20,7 +20,7 @@ from .config import DATA_DIR, load_config
 from .db import Store
 from .flow import Flow
 from .telegram import Telegram
-from . import scheduler
+from . import relay, scheduler
 
 log = logging.getLogger("polka")
 
@@ -73,6 +73,8 @@ async def amain(args: argparse.Namespace) -> int:
         if cfg.capture_token:
             print(f"\nПосмотреть полки в браузере:\n"
                   f"  http://localhost:{cfg.port}/?token={cfg.capture_token}\n")
+        if cfg.relay_topic:
+            print("Двойное касание крышки на связи.")
         print("Полка слушает. Пиши боту в Telegram, окно не закрывай.\n")
 
         loop = asyncio.get_running_loop()
@@ -83,6 +85,8 @@ async def amain(args: argparse.Namespace) -> int:
                 pass
 
         tasks = [asyncio.create_task(scheduler.run(store, flow, stop))]
+        if cfg.relay_topic:
+            tasks.append(asyncio.create_task(relay.run(cfg, flow, stop)))
         if cfg.bot_token or args.dry:
             bot = Bot(cfg, store, flow, tg, session)
             tasks.append(asyncio.create_task(bot.run(stop)))

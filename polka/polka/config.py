@@ -44,6 +44,8 @@ class Config:
     telegram_api: str          # подменяется в тестах на локальный макет
     voice_api: str             # то же для распознавания речи
     voice_reply: bool          # отвечать ли голосом на надиктованное
+    relay_url: str             # доска, через которую приходит двойное касание
+    relay_topic: str           # имя доски, оно же секрет
     tts_api: str               # подменяется в тестах
     quiet_from: int            # час начала тишины (не будим ночью)
     quiet_to: int
@@ -103,6 +105,8 @@ def load_config() -> Config:
                                     "https://api.telegram.org").strip().rstrip("/"),
         voice_api=os.environ.get("POLKA_VOICE_API", "").strip(),
         voice_reply=os.environ.get("POLKA_VOICE_REPLY", "1").strip() not in ("0", "нет", ""),
+        relay_url=os.environ.get("POLKA_RELAY_URL", "https://ntfy.sh").strip().rstrip("/"),
+        relay_topic=os.environ.get("POLKA_RELAY_TOPIC", "").strip(),
         tts_api=os.environ.get("POLKA_TTS_API", "").strip(),
         port=_int("POLKA_PORT", 8443),
         quiet_from=_int("POLKA_QUIET_FROM", 23),
