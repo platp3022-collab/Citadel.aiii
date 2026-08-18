@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from polka.api import check_init_data
-from polka.brain import fallback_card, normalize_card
+from polka.brain import SORT_SCHEMA, fallback_card, normalize_card
 from polka.config import Config
 from polka.db import Store
 from polka.flow import Flow
@@ -98,6 +98,46 @@ class CardTests(unittest.TestCase):
         self.assertEqual(card["title"], "Продлить домен")
         self.assertEqual(card["importance"], 4)
         self.assertEqual(card["reminder"]["delay_min"], 120)
+
+
+class SchemaTests(unittest.TestCase):
+    """Строгая схема structured outputs принимает не любой JSON Schema.
+
+    minimum и maximum у чисел она отвергает с 400, и разбор молча уходил
+    в резерв: карточка приходила, но полка всегда была «Входящее».
+    """
+
+    UNSUPPORTED = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+                   "multipleOf", "minLength", "maxLength", "pattern",
+                   "minItems", "maxItems", "uniqueItems"}
+
+    def walk(self, node, path="schema"):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in self.UNSUPPORTED:
+                    self.fail(f"{path}: ключ {key} строгая схема не принимает")
+                self.walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                self.walk(value, f"{path}[{index}]")
+
+    def test_schema_has_no_unsupported_keywords(self):
+        self.walk(SORT_SCHEMA)
+
+    def test_objects_are_closed_and_fully_required(self):
+        def check(node, path="schema"):
+            if isinstance(node, dict) and node.get("type") == "object":
+                properties = set(node.get("properties", {}))
+                self.assertIs(node.get("additionalProperties"), False,
+                              f"{path}: объект должен быть закрыт")
+                self.assertEqual(set(node.get("required", [])), properties,
+                                 f"{path}: обязательными должны быть все поля")
+                for name, value in node.get("properties", {}).items():
+                    check(value, f"{path}.{name}")
+        check(SORT_SCHEMA)
+
+    def test_importance_is_limited_to_five_levels(self):
+        self.assertEqual(SORT_SCHEMA["properties"]["importance"]["enum"], [1, 2, 3, 4, 5])
 
 
 class InitDataTests(unittest.TestCase):

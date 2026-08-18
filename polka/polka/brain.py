@@ -66,14 +66,15 @@ SORT_SCHEMA: dict[str, Any] = {
         "shelf": {"type": "string"},
         "new_shelf_title": {"type": "string"},
         "kind": {"type": "string", "enum": list(KINDS)},
-        "importance": {"type": "integer", "minimum": 1, "maximum": 5},
+        # Строгая схема не принимает minimum/maximum у чисел, диапазоны держит normalize_card.
+        "importance": {"type": "integer", "enum": [1, 2, 3, 4, 5]},
         "needs_reminder": {"type": "boolean"},
         "reminder": {
             "type": "object",
             "properties": {
                 "mode": {"type": "string", "enum": ["once", "every"]},
-                "interval_min": {"type": "integer", "minimum": 0},
-                "delay_min": {"type": "integer", "minimum": 0},
+                "interval_min": {"type": "integer"},
+                "delay_min": {"type": "integer"},
             },
             "required": ["mode", "interval_min", "delay_min"],
             "additionalProperties": False,
