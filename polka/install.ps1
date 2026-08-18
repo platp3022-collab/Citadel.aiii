@@ -1,6 +1,9 @@
-# Полка: установка и запуск одной командой.
+﻿# Полка: установка и запуск одной командой.
 #
-#   iwr -useb https://raw.githubusercontent.com/platp3022-collab/Citadel.aiii/refs/heads/claude/hello-pmjyoy/polka/install.ps1 | iex
+#   $f="$env:TEMP\polka.ps1"; iwr -useb https://raw.githubusercontent.com/platp3022-collab/Citadel.aiii/refs/heads/claude/hello-pmjyoy/polka/install.ps1 -OutFile $f; powershell -ExecutionPolicy Bypass -File $f
+#
+# Скачивание в файл, а не выполнение из потока: при выполнении из потока
+# PowerShell портит кириллицу, а из файла с меткой UTF-8 читает верно.
 #
 # Скачивает проект в %USERPROFILE%\Polka, ставит зависимости, спрашивает ключи,
 # поднимает временный адрес и вешает кнопку мини-приложения боту.

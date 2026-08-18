@@ -42,8 +42,20 @@
 
 ## Запуск
 
+**Windows, одной строкой.** Открой PowerShell где угодно и вставь:
+
+```powershell
+$f="$env:TEMP\polka.ps1"; iwr -useb https://raw.githubusercontent.com/platp3022-collab/Citadel.aiii/refs/heads/claude/hello-pmjyoy/polka/install.ps1 -OutFile $f; powershell -ExecutionPolicy Bypass -File $f
+```
+
+Установщик сам найдёт Python, скачает проект в `%USERPROFILE%\Polka`, поставит
+зависимости, спросит ключи, поднимет адрес и повесит кнопку боту. Повторный
+запуск обновляет файлы поверх: настройки и записанные мысли остаются на месте.
+
+**macOS и Linux:**
+
 ```bash
-cd polka && ./miniapp.sh              # Windows: двойной клик по miniapp.bat
+cd polka && ./miniapp.sh
 ```
 
 Одна команда на всё. При первом запуске мастер спросит три вещи и каждую сразу

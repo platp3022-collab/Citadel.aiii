@@ -12,6 +12,7 @@ import asyncio
 import os
 import re
 import sys
+from collections import deque
 from pathlib import Path
 
 import aiohttp
@@ -118,11 +119,14 @@ def save_url(url: str) -> None:
     os.environ["POLKA_PUBLIC_URL"] = url
 
 
-async def open_tunnel(port: int, binary: str = "cloudflared") -> tuple[str, asyncio.subprocess.Process]:
+async def open_tunnel(port: int, binary: str = "cloudflared",
+                      extra: list[str] | None = None
+                      ) -> tuple[str, asyncio.subprocess.Process]:
     """Поднять временный туннель и дождаться выданного адреса."""
     try:
         process = await asyncio.create_subprocess_exec(
             binary, "tunnel", "--url", f"http://localhost:{port}", "--no-autoupdate",
+            *(extra or []),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
     except FileNotFoundError:
@@ -132,17 +136,43 @@ async def open_tunnel(port: int, binary: str = "cloudflared") -> tuple[str, asyn
         ) from None
 
     assert process.stdout is not None
+    # Последние строки держим при себе: без них "закрылся" ничего не объясняет.
+    tail: deque[str] = deque(maxlen=12)
     try:
         while True:
-            raw = await asyncio.wait_for(process.stdout.readline(), timeout=60)
+            raw = await asyncio.wait_for(process.stdout.readline(), timeout=90)
             if not raw:
-                raise SetupError("cloudflared закрылся, не выдав адрес")
-            for found in TUNNEL_PATTERN.finditer(raw.decode("utf-8", "replace")):
+                raise SetupError(
+                    "cloudflared закрылся, не выдав адрес." + explain(tail))
+            line = raw.decode("utf-8", "replace").rstrip()
+            if line:
+                tail.append(line)
+            for found in TUNNEL_PATTERN.finditer(line):
                 if found.group(1) not in TUNNEL_SERVICE_HOSTS:
                     return found.group(0), process
     except asyncio.TimeoutError:
         process.terminate()
-        raise SetupError("cloudflared не выдал адрес за минуту") from None
+        raise SetupError("cloudflared не выдал адрес за полторы минуты." + explain(tail)) from None
+
+
+def explain(tail: "deque[str]") -> str:
+    """Собрать понятную подсказку из того, что успел напечатать cloudflared."""
+    text = "\n".join(tail)
+    hints = []
+    lowered = text.lower()
+    if "quic" in lowered or "udp" in lowered:
+        hints.append("Похоже, провайдер или брандмауэр режет QUIC. "
+                     "Попробуй ещё раз, я перезапущу туннель поверх http2.")
+    if "403" in text or "not in allowlist" in lowered:
+        hints.append("Сеть не пускает к Cloudflare. Проверь VPN и брандмауэр.")
+    if "failed to connect" in lowered or "timeout" in lowered:
+        hints.append("Нет связи с серверами Cloudflare. Проверь интернет.")
+    out = ""
+    if hints:
+        out += "\n" + "\n".join(f"  {h}" for h in hints)
+    if text:
+        out += "\n\nЧто сказал cloudflared:\n" + "\n".join(f"  {line}" for line in tail)
+    return out
 
 
 BOTFATHER_STEPS = """
@@ -170,8 +200,14 @@ async def amain(args: argparse.Namespace) -> int:
             cfg = load_config()
             url = cfg.public_url
         if not url and args.tunnel:
+            port = args.port or load_config().port
             print("  поднимаю туннель...")
-            url, tunnel = await open_tunnel(args.port or load_config().port)
+            try:
+                url, tunnel = await open_tunnel(port)
+            except SetupError as first:
+                # QUIC часто зарезан у провайдера или брандмауэром, http2 проходит.
+                print(f"  первый заход не удался, пробую поверх http2\n{first}\n")
+                url, tunnel = await open_tunnel(port, extra=["--protocol", "http2"])
             print(f"  туннель: {url}")
         if not url:
             raise SetupError(

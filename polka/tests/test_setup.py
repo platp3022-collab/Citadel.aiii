@@ -204,13 +204,37 @@ class TunnelTests(unittest.IsolatedAsyncioTestCase):
             process.terminate()
             await process.wait()
 
-    async def run_fake(self, script: str):
+    async def run_fake(self, script: str, extra: list[str] | None = None):
         path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "fake.py"
         path.write_text(script, encoding="utf-8")
         fake = Path(self.enterContext(tempfile.TemporaryDirectory())) / "cloudflared"
         fake.write_text(f"#!/bin/sh\nexec {sys.executable} {path}\n", encoding="utf-8")
         fake.chmod(0o755)
-        return await polka_setup.open_tunnel(8443, binary=str(fake))
+        return await polka_setup.open_tunnel(8443, binary=str(fake), extra=extra)
+
+    async def test_failure_reports_what_cloudflared_said(self):
+        """Без вывода процесса сообщение «закрылся» ничего не объясняет."""
+        script = ("import sys\n"
+                  "print('ERR failed to connect: quic handshake timeout')\n"
+                  "sys.stdout.flush()\n")
+        with self.assertRaises(SetupError) as caught:
+            await self.run_fake(script)
+        message = str(caught.exception)
+        self.assertIn("quic handshake timeout", message)
+        self.assertIn("QUIC", message)
+
+    async def test_extra_arguments_reach_cloudflared(self):
+        script = ("import sys\n"
+                  "print('INF args:', ' '.join(sys.argv[1:]))\n"
+                  "print('INF |  https://calm-fox-42.trycloudflare.com  |')\n"
+                  "sys.stdout.flush()\n"
+                  "import time; time.sleep(5)\n")
+        url, process = await self.run_fake(script, extra=["--protocol", "http2"])
+        try:
+            self.assertEqual(url, "https://calm-fox-42.trycloudflare.com")
+        finally:
+            process.terminate()
+            await process.wait()
 
     async def test_address_is_picked_from_output(self):
         script = ("import sys, time\n"
