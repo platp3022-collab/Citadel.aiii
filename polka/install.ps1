@@ -48,26 +48,34 @@ Remove-Item $Zip -Force
 $Root = Get-ChildItem $Unpacked -Directory | Select-Object -First 1
 if (-not $Root) { Fail 'Архив пришёл пустой. Проверь интернет и повтори.' }
 
-# Прошлую установку не затираем вслепую: в ней лежат настройки и все
-# пойманные мысли. Уносим их в сторону и возвращаем на место после распаковки.
-$EnvPath  = Join-Path $App '.env'
-$DataPath = Join-Path $App 'data'
-$Stash = Join-Path $env:TEMP 'polka-stash'
-if (Test-Path $Stash) { Remove-Item $Stash -Recurse -Force }
-$keptEnv = $false
-$keptData = $false
+# Обновляемся поверх, ничего не удаляя. Папку нельзя стереть, если в ней стоит
+# консоль или лежит запущенный процесс, а настройки и записанные мысли внутри.
+$EnvPath = Join-Path $App '.env'
+
 if (Test-Path $Dest) {
-    New-Item -ItemType Directory -Path $Stash -Force | Out-Null
-    if (Test-Path $EnvPath)  { Copy-Item $EnvPath  $Stash -Force; $keptEnv = $true }
-    if (Test-Path $DataPath) { Copy-Item $DataPath $Stash -Recurse -Force; $keptData = $true }
-    if ($keptEnv -or $keptData) { Step 'Сохраняю прошлые настройки и записанные мысли' }
-    Remove-Item $Dest -Recurse -Force
+    Step 'Нашёл прошлую установку, обновляю поверх'
+
+    # Уходим из папки, иначе любые операции в ней спотыкаются о текущий каталог.
+    Set-Location $Home_
+
+    # Гасим то, что осталось от прошлого запуска: иначе файлы заняты.
+    Get-Process -Name 'cloudflared' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($Dest) } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match 'polka' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 1
+
+    # Старую сборку интерфейса чистим: имена файлов в ней завязаны на хеш.
+    $OldAssets = Join-Path $App 'static\assets'
+    if (Test-Path $OldAssets) { Remove-Item $OldAssets -Recurse -Force -ErrorAction SilentlyContinue }
+
+    Copy-Item (Join-Path $Root.FullName '*') -Destination $Dest -Recurse -Force
+} else {
+    Move-Item $Root.FullName $Dest
 }
-Move-Item $Root.FullName $Dest
 Remove-Item $Unpacked -Recurse -Force -ErrorAction SilentlyContinue
-if ($keptEnv)  { Copy-Item (Join-Path $Stash '.env') $EnvPath -Force }
-if ($keptData) { Copy-Item (Join-Path $Stash 'data') $App -Recurse -Force }
-if (Test-Path $Stash) { Remove-Item $Stash -Recurse -Force }
 Step "Положил сюда: $Dest"
 
 Set-Location $App
@@ -104,7 +112,7 @@ $env:PATH = "$App;$env:PATH"
 
 # ── запуск ───────────────────────────────────────────────────────────────
 Step 'Запускаю Полку'
-$polka = Start-Process -FilePath $Py -ArgumentList '-m', 'polka' -PassThru -WindowStyle Minimized
+$polka = Start-Process -FilePath $Py -ArgumentList '-m', 'polka' -WorkingDirectory $App -PassThru -WindowStyle Minimized
 Start-Sleep -Seconds 4
 if ($polka.HasExited) { Fail 'Полка не поднялась. Запусти вручную: python -m polka' }
 
