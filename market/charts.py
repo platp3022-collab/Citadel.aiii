@@ -204,7 +204,7 @@ CHART_JS = r"""
   function fmtNum(v, digits) {
     if (v === null || v === undefined || !isFinite(v)) return '—';
     var a = Math.abs(v);
-    var d = digits !== undefined ? digits : (a >= 1000 ? 2 : (a >= 1 ? 2 : 4));
+    var d = digits !== undefined ? digits : (a >= 10 ? 2 : 4);
     return v.toLocaleString('ru-RU', {minimumFractionDigits: d, maximumFractionDigits: d});
   }
 
@@ -395,7 +395,16 @@ CHART_JS = r"""
       if (spec.kind === 'price') {
         var vmax = 0;
         for (i = from; i < to; i++) if (spec.v[i] > vmax) vmax = spec.v[i];
+        var hasVolume = vmax > 0;
         vmax = vmax || 1;
+        if (spec.lineOnly) {
+          var lpts = [];
+          for (i = from; i < to; i++) lpts.push(X(i).toFixed(2) + ',' + Y(spec.c[i]).toFixed(2));
+          if (lpts.length > 1) {
+            marks.push('<polyline class="series-line" stroke="var(--ma-mid)" points="' +
+                       lpts.join(' ') + '"></polyline>');
+          }
+        } else
         for (i = from; i < to; i++) {
           var up = spec.c[i] >= spec.o[i];
           var col = up ? 'var(--long)' : 'var(--short)';
@@ -424,10 +433,16 @@ CHART_JS = r"""
                        ')" points="' + pts.join(' ') + '"></polyline>');
           }
         });
-        marks.push('<line class="axis-line" x1="' + padL + '" y1="' + (volTop + volH) +
-                   '" x2="' + (padL + plotW) + '" y2="' + (volTop + volH) + '"></line>');
-        axes.push('<text class="axis-text" x="' + (padL + plotW + 6) + '" y="' +
-                  (volTop + 10) + '">объём</text>');
+        if (hasVolume) {
+          marks.push('<line class="axis-line" x1="' + padL + '" y1="' + (volTop + volH) +
+                     '" x2="' + (padL + plotW) + '" y2="' + (volTop + volH) + '"></line>');
+          axes.push('<text class="axis-text" x="' + (padL + plotW + 6) + '" y="' +
+                    (volTop + 10) + '">объём</text>');
+        } else {
+          // Источник не отдаёт объём — пустую полосу не рисуем.
+          axes.push('<text class="axis-text" x="' + (padL + 5) + '" y="' +
+                    (volTop + 26) + '">источник не отдаёт объём</text>');
+        }
 
         var shown = spec.levels.filter(function (L) {
           return L.value >= lo && L.value <= hi;
@@ -560,8 +575,8 @@ CHART_JS = r"""
                 '<span><span class="k">C</span><b>' + fmtNum(spec.c[i]) + '</b></span>' +
                 '<span class="' + (chg >= 0 ? 'up' : 'down') + '">' +
                 (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span>' +
-                '<span><span class="k">объём</span><b>' +
-                Math.round(spec.v[i]).toLocaleString('ru-RU') + '</b></span>';
+                (spec.v[i] > 0 ? '<span><span class="k">объём</span><b>' +
+                 Math.round(spec.v[i]).toLocaleString('ru-RU') + '</b></span>' : '');
       } else {
         var b0 = {};
         spec.series.forEach(function (s) { b0[s.name] = s.values[view.from]; });
@@ -715,8 +730,13 @@ def price_chart(snap, plan, view_bars: int = 130) -> str:
                                    ("T2", plan.t2, "var(--long)")):
             levels.append({"name": name, "value": round(float(value), 4), "color": color})
 
+    # Если источник не отдаёт внутридневной диапазон (H=L=C), свечи выродятся
+    # в точки — рисуем линию закрытий и говорим об этом прямо.
+    line_only = all(abs(row[2] - row[3]) < 1e-12 for row in hist[-60:])
+
     spec = {
         "kind": "price",
+        "lineOnly": line_only,
         "height": 430,
         "padR": 96,
         "viewBars": view_bars,

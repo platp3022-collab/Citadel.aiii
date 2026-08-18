@@ -103,6 +103,70 @@ CONFIG: dict[str, Any] = {
 UA = {"User-Agent": "Mozilla/5.0 (compatible; market-dashboard/1.0; +research)"}
 
 
+
+# ════════════════════════════════════════════════════════════════════════════
+#  СООТВЕТСТВИЕ СИМВОЛОВ
+# ════════════════════════════════════════════════════════════════════════════
+#
+# В терминале брокера инструменты называются по-своему: XAUUSD, GER40, NAS100.
+# У источников котировок имена другие. Здесь перевод, и для каждого имени —
+# несколько кандидатов: берётся первый, который реально отдал историю.
+#
+# Важно: индексные CFD у брокера и сам индекс — не одно и то же. GER40 у брокера
+# торгуется почти в ноль относительно ^GDAXI, но цена и часы торгов отличаются.
+# Для технического анализа это годится, для сверки цены с терминалом — нет.
+
+ALIASES: dict[str, list[str]] = {
+    # металлы
+    "XAUUSD": ["XAUUSD=X", "GC=F"],
+    "GOLD": ["XAUUSD=X", "GC=F"],
+    "ЗОЛОТО": ["XAUUSD=X", "GC=F"],
+    "XAGUSD": ["XAGUSD=X", "SI=F"],
+    "SILVER": ["XAGUSD=X", "SI=F"],
+    # форекс
+    "EURUSD": ["EURUSD=X"],
+    "GBPUSD": ["GBPUSD=X"],
+    "USDJPY": ["USDJPY=X"],
+    "USDCHF": ["USDCHF=X"],
+    "AUDUSD": ["AUDUSD=X"],
+    "USDCAD": ["USDCAD=X"],
+    # индексы: CFD брокера → сам индекс
+    "GER40": ["^GDAXI"],
+    "DAX": ["^GDAXI"],
+    "DE30": ["^GDAXI"],
+    "NAS100": ["^NDX"],
+    "NAS100USD": ["^NDX"],
+    "NASDAQ": ["^NDX"],
+    "SP500": ["^GSPC"],
+    "SPX500": ["^GSPC"],
+    "US500": ["^GSPC"],
+    "US30": ["^DJI"],
+    "UK100": ["^FTSE"],
+    "JP225": ["^N225"],
+    # крипта: биржевые пары → тикеры Yahoo
+    "BTCUSDT": ["BTC-USD"],
+    "BTCUSD": ["BTC-USD"],
+    "ETHUSDT": ["ETH-USD"],
+    "ETHUSD": ["ETH-USD"],
+    "SOLUSDT": ["SOL-USD"],
+    "SOLUSD": ["SOL-USD"],
+    "XRPUSDT": ["XRP-USD"],
+    "XRPUSD": ["XRP-USD"],
+    "DOGEUSDT": ["DOGE-USD"],
+    "DOGEUSD": ["DOGE-USD"],
+    "BNBUSDT": ["BNB-USD"],
+    "BNBUSD": ["BNB-USD"],
+}
+
+
+def resolve_symbols(label: str) -> list[str]:
+    """Кандидаты для загрузки: перевод по карте либо само имя."""
+    up = label.upper().strip()
+    if up in ALIASES:
+        return list(ALIASES[up])
+    return [label]
+
+
 def cfg(path: str, default: Any = None) -> Any:
     node: Any = CONFIG
     for part in path.split("."):
@@ -140,11 +204,41 @@ def fmt_price(v: float) -> str:
     return f"${v:.4f}"
 
 
+
+def is_fx(symbol: str, source_symbol: str = "") -> bool:
+    up = symbol.upper()
+    if source_symbol.upper().endswith("=X"):
+        return True
+    fx = {"EUR", "GBP", "USD", "JPY", "CHF", "AUD", "NZD", "CAD"}
+    return len(up) == 6 and up[:3] in fx and up[3:] in fx
+
+
+def is_index(symbol: str, source_symbol: str = "") -> bool:
+    if source_symbol.startswith("^"):
+        return True
+    return symbol.upper() in {"GER40", "DAX", "DE30", "NAS100", "NAS100USD",
+                              "NASDAQ", "SP500", "SPX500", "US500", "US30",
+                              "UK100", "JP225"}
+
+
+def fmt_quote(value: float, symbol: str = "", source_symbol: str = "") -> str:
+    """Цена по типу инструмента: у форекса пять знаков, у индексов нет доллара."""
+    if symbol and is_fx(symbol, source_symbol):
+        return f"{value:.5f}".rstrip("0").rstrip(".") if value < 10 else f"{value:.4f}"
+    if symbol and is_index(symbol, source_symbol):
+        return f"{value:,.2f}".replace(",", " ")
+    return fmt_price(value)
+
+
 def fmt_level(v: float) -> str:
-    """Уровень без знака доллара — для стопов, целей, MA."""
+    """Уровень без знака доллара — для стопов, целей, MA.
+
+    Ниже десяти даём четыре знака: у форекса разница между 1.34 и 1.3412 —
+    это сорок пунктов, и округление до сотых делает уровень бесполезным.
+    """
     if v >= 1000:
         return f"{v:,.2f}"
-    if v >= 1:
+    if v >= 10:
         return f"{v:.2f}"
     return f"{v:.4f}"
 
@@ -249,6 +343,7 @@ class Bars:
     volumes: list[float] = field(default_factory=list)
     source: str = ""
     currency: str = "USD"
+    resolved: str = ""            # под каким символом данные реально нашлись
 
     def __len__(self) -> int:
         return len(self.closes)
@@ -372,6 +467,7 @@ def _cache_write(bars: Bars) -> None:
     payload = {
         "symbol": bars.symbol,
         "source": bars.source,
+        "resolved": bars.resolved,
         "currency": bars.currency,
         "saved_at": datetime.now(timezone.utc).isoformat(),
         "dates": [d.isoformat() for d in bars.dates],
@@ -395,7 +491,8 @@ def _cache_read(symbol: str, max_age_hours: float | None) -> Bars | None:
         if age > max_age_hours:
             return None
     bars = Bars(symbol=payload["symbol"], source=payload.get("source", "cache") + "/cache",
-                currency=payload.get("currency", "USD"))
+                currency=payload.get("currency", "USD"),
+                resolved=payload.get("resolved", ""))
     bars.dates = [date.fromisoformat(s) for s in payload["dates"]]
     for attr in ("opens", "highs", "lows", "closes", "volumes"):
         setattr(bars, attr, [float(x) for x in payload[attr]])
@@ -411,15 +508,21 @@ def load_bars(symbol: str, offline: bool = False, no_cache: bool = False) -> Bar
     if offline:
         raise DataError(f"{symbol}: нет кеша, а сеть отключена (--offline)")
     errors: list[str] = []
-    for provider in (fetch_yahoo, fetch_stooq):
-        try:
-            bars = provider(symbol)
-            _cache_write(bars)
-            return bars
-        except DataError as e:
-            errors.append(str(e))
-        except Exception as e:                 # чужой источник, форма ответа не гарантирована
-            errors.append(f"{provider.__name__}: {type(e).__name__}: {e}")
+    # Имя из терминала может не совпадать с биржевым: пробуем кандидатов по порядку.
+    for candidate in resolve_symbols(symbol):
+        for provider in (fetch_yahoo, fetch_stooq):
+            try:
+                bars = provider(candidate)
+                bars.symbol = symbol           # в отчёте остаётся привычное имя
+                bars.resolved = candidate
+                if candidate != symbol:
+                    log.info("%s → %s (%s)", symbol, candidate, bars.source)
+                _cache_write(bars)
+                return bars
+            except DataError as e:
+                errors.append(str(e))
+            except Exception as e:             # чужой источник, форма ответа не гарантирована
+                errors.append(f"{provider.__name__}({candidate}): {type(e).__name__}: {e}")
     stale = _cache_read(symbol, None)
     if stale:
         log.warning("%s: источники недоступны, беру устаревший кеш", symbol)
@@ -481,6 +584,7 @@ class Snapshot:
     symbol: str
     as_of: date
     source: str
+    source_symbol: str          # под каким именем данные взяты у источника
     close: float
     prev_close: float
     change_pct: float
@@ -607,6 +711,7 @@ def build_snapshot(bars: Bars) -> Snapshot:
 
     return Snapshot(
         symbol=bars.symbol, as_of=bars.dates[-1], source=bars.source,
+        source_symbol=bars.resolved or bars.symbol,
         close=closes[-1], prev_close=prev_close,
         change_pct=safe_div((closes[-1] - prev_close) * 100.0, prev_close),
         change_1m=(safe_div((closes[-1] - closes[-22]) * 100.0, closes[-22])
@@ -1092,7 +1197,8 @@ def render_brief(assessments: list[Assessment], snaps: dict[str, Snapshot],
     for a in sorted(assessments, key=lambda x: x.score, reverse=True):
         s = a.snap
         mo = fmt_pct(s.change_1m) if s.change_1m is not None else "n/a"
-        out.append(f"| {s.symbol} | {fmt_price(s.close)} | {fmt_pct(s.change_pct)} | "
+        out.append(f"| {s.symbol} | {fmt_quote(s.close, s.symbol, s.source_symbol)} | "
+                   f"{fmt_pct(s.change_pct)} | "
                    f"{mo} | {s.trend_pair} | {a.score:.1f}/10 | {_setup_summary(a)} |")
     out.append("")
 
@@ -1356,6 +1462,16 @@ def self_test() -> int:
     blocked = assess(snap, {"earnings": (today + timedelta(days=1)).isoformat()}, today)
     if blocked.tradable or not blocked.binary_event:
         failures.append("отчётность завтра не заблокировала сетап")
+
+    # Карта источников: имена из терминала должны переводиться в биржевые
+    for label, want in (("GER40", "^GDAXI"), ("NAS100", "^NDX"), ("SP500", "^GSPC"),
+                        ("XAUUSD", "XAUUSD=X"), ("EURUSD", "EURUSD=X"),
+                        ("BTCUSDT", "BTC-USD"), ("XRPUSD", "XRP-USD")):
+        got = resolve_symbols(label)
+        if not got or got[0] != want:
+            failures.append(f"resolve_symbols({label}): получено {got}, ждали {want} первым")
+    if resolve_symbols("NVDA") != ["NVDA"]:
+        failures.append("resolve_symbols не пропустил обычный тикер как есть")
 
     # Символы TradingView: брокерские имена и крипта должны разрешаться
     from tradingview import tv_symbol

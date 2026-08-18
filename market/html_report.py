@@ -598,8 +598,8 @@ def ladder(plan, fmt) -> str:
 def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
                 events: "Events", missing: dict[str, str], as_of: date) -> str:
     # Импорт внутри функции: модуль остаётся необязательным для CLI-логики.
-    from market_dashboard import (ROOT, build_plan, cfg, fmt_level, fmt_price, fmt_pct,
-                                 macro_lines, num)
+    from market_dashboard import (ROOT, build_plan, cfg, fmt_level, fmt_pct,
+                                 fmt_quote, macro_lines, num)
     from charts import CHART_CSS, CHART_JS, color_tokens, performance_chart, price_chart
     from live_quotes import LIVE_CSS, LIVE_JS, load_live_config, render_live_panel
     from tradingview import TV_CSS, TV_JS, advanced_chart, ticker_tape, tv_symbol
@@ -690,7 +690,7 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
             f'<span class="t">{esc(s.symbol)}</span>'
             f'<span class="sub">дневной график · {esc(sub)}</span>'
             '<span class="right">'
-            f'<span>{esc(fmt_price(s.close))} '
+            f'<span>{esc(fmt_quote(s.close, s.symbol, s.source_symbol))} '
             f'<span class="{chg_cls}">{esc(fmt_pct(s.change_pct))}</span></span>'
             '<button class="reset-zoom" type="button">сбросить зум</button>'
             '</span></div>'
@@ -760,8 +760,10 @@ def render_html(assessments: list["Assessment"], snaps: dict[str, "Snapshot"],
         row_cls = "" if a.tradable else ' class="muted"'
         out.append(
             f'<tr{row_cls}>'
-            f'<td class="ticker">{esc(s.symbol)}<span class="side">{esc(side)}</span></td>'
-            f'<td class="num-cell">{esc(fmt_price(s.close))}</td>'
+            f'<td class="ticker">{esc(s.symbol)}<span class="side">{esc(side)}'
+            + (f' · {esc(s.source_symbol)}' if s.source_symbol != s.symbol else '')
+            + '</span></td>'
+            f'<td class="num-cell">{esc(fmt_quote(s.close, s.symbol, s.source_symbol))}</td>'
             f'<td class="num-cell {chg_cls}">{esc(fmt_pct(s.change_pct))}</td>'
             f'<td class="num-cell {mo_cls}">{esc(mo_txt)}</td>'
             # Цвет — по самому окну, а не по сегодняшнему дню: иначе
