@@ -1,233 +1,108 @@
-// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=5
 // Citadel.aiii — Bubble
-//
-// Тепловая карта активности покупателей и продавцов.
-//   синий     — ничего интересного (объёма нет, рынок спит)
-//   оранжевый — 50/50: объём пришёл, но покупатели и продавцы равны
-//   красный   — точка входа: много объёма И одна сторона явно давит
-//
-//@version=6
-indicator("Bubble — Heatmap точек входа", "Bubble", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500)
+// Тепловая карта покупок и продаж.
+//   синий     — объёма нет, ничего интересного
+//   оранжевый — объём пришёл, но покупки и продажи 50/50
+//   красный   — много объёма и одна сторона явно давит (точка входа)
+indicator("Bubble", overlay = true)
 
-// ============================== ВХОДЫ ==============================
+// ---------- входы ----------
+lenVol   = input.int(50, "Окно активности (баров)", minval = 5)
+lenDelta = input.int(14, "Окно дельты (баров)", minval = 1)
+imbSat   = input.float(0.5, "Насыщение перевеса", minval = 0.05, maxval = 1.0, step = 0.05)
+smooth   = input.int(2, "Сглаживание тепла", minval = 1)
+useVola  = input.bool(true, "Учитывать волатильность")
+flowMode = input.string("Смешанная", "Как делить объём", options = ["Позиция закрытия", "Тиковое правило", "Смешанная"])
 
-gEng = "1 · Движок тепла"
-actLen    = input.int(50, "Окно активности (баров)", minval = 5, maxval = 1000, group = gEng, tooltip = "На каком отрезке истории считается «нормальный» объём. Меньше — чувствительнее.")
-actMode   = input.string("Перцентиль", "Чем мерить активность", options = ["Перцентиль", "RVOL"], group = gEng, tooltip = "Перцентиль — адаптивно к инструменту. RVOL — объём делить на средний объём.")
-rvolSat   = input.float(3.0, "RVOL насыщения", minval = 1.1, maxval = 20.0, step = 0.1, group = gEng, tooltip = "Только для режима RVOL: во сколько раз объём должен превысить средний, чтобы активность = 100%.")
-useVola   = input.bool(true, "Учитывать волатильность", group = gEng, tooltip = "Объём без движения цены весит меньше.")
-volaW     = input.float(0.30, "Вес волатильности", minval = 0.0, maxval = 1.0, step = 0.05, group = gEng)
-deltaLen  = input.int(14, "Окно дельты (баров)", minval = 1, maxval = 500, group = gEng, tooltip = "На скольких барах копится перевес покупок над продажами.")
-imbSat    = input.float(0.50, "Насыщение дисбаланса", minval = 0.05, maxval = 1.0, step = 0.05, group = gEng, tooltip = "Какой перевес одной стороны считать абсолютным.")
-smoothLen = input.int(2, "Сглаживание тепла", minval = 1, maxval = 50, group = gEng)
+orgThr   = input.float(0.35, "Порог оранжевого", minval = 0.05, maxval = 0.95, step = 0.05)
+redThr   = input.float(0.65, "Порог красного", minval = 0.10, maxval = 1.00, step = 0.05)
+imbEntry = input.float(0.45, "Мин. перевес для сигнала", minval = 0.0, maxval = 1.0, step = 0.05)
 
-gFlow = "2 · Модель покупок/продаж"
-flowMode = input.string("Позиция закрытия", "Как делить объём", options = ["Позиция закрытия", "Тиковое правило", "Смешанная"], group = gFlow, tooltip = "Реального ордер-флоу в Pine нет, объём делится по форме свечи. Смешанная — самый устойчивый вариант.")
+showBub  = input.bool(true, "Показывать пузыри")
+showSig  = input.bool(true, "Метки точек входа")
+colorBar = input.bool(false, "Красить бары по теплу")
+colorBg  = input.bool(false, "Красить фон по теплу")
+anchor   = input.string("Центр бара", "Где рисовать пузырь", options = ["Центр бара", "Закрытие", "Под баром", "Над баром"])
 
-gLvl = "3 · Пороги"
-orangeThr = input.float(0.35, "Порог оранжевого (разогрев)", minval = 0.05, maxval = 0.95, step = 0.05, group = gLvl)
-redThr    = input.float(0.65, "Порог красного (вход)", minval = 0.10, maxval = 1.00, step = 0.05, group = gLvl)
-imbEntry  = input.float(0.45, "Мин. перевес для сигнала входа", minval = 0.0, maxval = 1.0, step = 0.05, group = gLvl, tooltip = "Насколько одна сторона должна перевешивать, чтобы красный бар стал сигналом, а не просто «жарко».")
+cBlue = input.color(#1565C0, "Синий — пусто")
+cOrg  = input.color(#FF9800, "Оранжевый — 50/50")
+cRed  = input.color(#D50000, "Красный — вход")
 
-gBub = "4 · Пузыри"
-showBub   = input.bool(true, "Показывать пузыри", group = gBub)
-minBubble = input.float(0.20, "Не рисовать пузырь ниже тепла", minval = 0.0, maxval = 1.0, step = 0.05, group = gBub)
-bubScale  = input.string("Средний", "Масштаб пузырей", options = ["Мелкий", "Средний", "Крупный"], group = gBub)
-bubAnchor = input.string("По направлению", "Куда ставить пузырь", options = ["По направлению", "Центр бара", "Закрытие", "Над баром", "Под баром"], group = gBub)
-bubOffset = input.float(0.6, "Отступ от бара (ATR)", minval = 0.0, maxval = 5.0, step = 0.1, group = gBub)
-
-gVis = "5 · Подсветка графика"
-showEntry = input.bool(true, "Метки точек входа", group = gVis)
-paintBars = input.bool(false, "Красить бары по теплу", group = gVis)
-paintBg   = input.bool(false, "Красить фон по теплу", group = gVis)
-showTable = input.bool(true, "Панель состояния", group = gVis)
-tablePos  = input.string("Справа сверху", "Где панель", options = ["Справа сверху", "Справа снизу", "Слева сверху", "Слева снизу"], group = gVis)
-
-gVP = "6 · Тепловая карта уровней"
-showVP   = input.bool(true, "Показывать карту уровней", group = gVP, tooltip = "Профиль объёма как heatmap: где за период торговали больше всего и кто там давил.")
-vpLen    = input.int(200, "Глубина карты (баров)", minval = 20, maxval = 2000, group = gVP)
-vpRows   = input.int(24, "Число уровней", minval = 5, maxval = 100, group = gVP)
-vpExtend = input.int(12, "Вынос вправо (баров)", minval = 0, maxval = 200, group = gVP)
-showPoc  = input.bool(true, "Линия POC (главный уровень)", group = gVP)
-
-gCol = "7 · Цвета"
-cCold = input.color(#0D47A1, "Синий — пусто", group = gCol)
-cCool = input.color(#29B6F6, "Голубой — оживает", group = gCol)
-cMid  = input.color(#FF9800, "Оранжевый — 50/50", group = gCol)
-cWarm = input.color(#FF5722, "Тёплый — перевес", group = gCol)
-cHot  = input.color(#D50000, "Красный — вход", group = gCol)
-
-// ============================== РАСЧЁТ ТЕПЛА ==============================
-
+// ---------- деление объёма на покупки и продажи ----------
 vol = nz(volume)
 rng = high - low
-atrV = nz(ta.atr(14))
+posC = rng > 0 ? (close - low) / rng : 0.5
+tickR = close > close[1] ? 1.0 : close < close[1] ? 0.0 : 0.5
+mixR = (posC + tickR) / 2
+buyR = flowMode == "Позиция закрытия" ? posC : flowMode == "Тиковое правило" ? tickR : mixR
 
-// 1. Как объём делится между покупателями и продавцами
-posClose = rng > 0 ? (close - low) / rng : 0.5
-tickRule = close > close[1] ? 1.0 : close < close[1] ? 0.0 : 0.5
-blended  = (posClose + tickRule) / 2
-buyRatio = flowMode == "Позиция закрытия" ? posClose : flowMode == "Тиковое правило" ? tickRule : blended
+buyV = vol * buyR
+selV = vol - buyV
+dlt = buyV - selV
 
-buyVol  = vol * buyRatio
-sellVol = vol * (1 - buyRatio)
-delta   = buyVol - sellVol
+// ---------- активность ----------
+actVol = nz(ta.percentrank(vol, lenVol)) / 100
+actRng = nz(ta.percentrank(ta.tr(true), lenVol)) / 100
+act = useVola ? actVol * 0.7 + actRng * 0.3 : actVol
 
-// 2. Активность: сколько объёма и движения пришло на бар
-vSma     = nz(ta.sma(vol, actLen))
-rvol     = vSma > 0 ? vol / vSma : 1.0
-volPct   = nz(ta.percentrank(vol, actLen)) / 100
-volRvol  = math.min(math.max((rvol - 1) / (rvolSat - 1), 0), 1)
-actByVol = actMode == "Перцентиль" ? volPct : volRvol
-actByRng = nz(ta.percentrank(ta.tr(true), actLen)) / 100
-actMix   = useVola ? (1 - volaW) * actByVol + volaW * actByRng : actByVol
-activity = math.min(math.max(nz(actMix), 0), 1)
-
-// 3. Дисбаланс: насколько одна сторона перевешивает
-dSum   = nz(math.sum(delta, deltaLen))
-vSum   = nz(math.sum(vol, deltaLen))
+// ---------- перевес одной стороны ----------
+dSum = nz(math.sum(dlt, lenDelta))
+vSum = nz(math.sum(vol, lenDelta))
 imbRaw = vSum > 0 ? math.abs(dSum) / vSum : 0.0
-imb    = math.min(math.max(imbRaw / imbSat, 0), 1)
+imb = math.min(imbRaw / imbSat, 1.0)
 
-// 4. Итоговое тепло
-// нет объёма           -> 0.0 -> синий (нечего ловить)
-// объём есть, 50/50    -> 0.5 -> оранжевый (баланс)
-// объём есть + перевес -> 1.0 -> красный (точка входа)
-heatRaw  = activity * (0.5 + 0.5 * imb)
-heatSm   = ta.sma(heatRaw, smoothLen)
-heat     = math.min(math.max(nz(heatSm), 0), 1)
-bullSide = dSum > 0
+// ---------- тепло ----------
+// объёма нет           -> 0.0 -> синий
+// объём есть, 50/50    -> 0.5 -> оранжевый
+// объём есть + перевес -> 1.0 -> красный
+heatRaw = act * (0.5 + 0.5 * imb)
+heat = math.min(math.max(nz(ta.sma(heatRaw, smooth)), 0), 1)
+bull = dSum > 0
 
-// ============================== ЦВЕТА ==============================
+// ---------- цвет ----------
+cLow = color.from_gradient(heat, 0.0, 0.5, cBlue, cOrg)
+cHigh = color.from_gradient(heat, 0.5, 1.0, cOrg, cRed)
+cHeat = heat < 0.5 ? cLow : cHigh
 
-heatColor(float h) =>
-    hh = math.min(math.max(nz(h), 0), 1)
-    c1 = color.from_gradient(hh, 0.00, 0.25, cCold, cCool)
-    c2 = color.from_gradient(hh, 0.25, 0.50, cCool, cMid)
-    c3 = color.from_gradient(hh, 0.50, 0.75, cMid, cWarm)
-    c4 = color.from_gradient(hh, 0.75, 1.00, cWarm, cHot)
-    hh < 0.25 ? c1 : hh < 0.50 ? c2 : hh < 0.75 ? c3 : c4
+// ---------- где рисуем пузырь ----------
+pad = nz(ta.atr(14)) * 0.5
+px = anchor == "Закрытие" ? close : anchor == "Под баром" ? low - pad : anchor == "Над баром" ? high + pad : hl2
 
-cNow = heatColor(heat)
+// ---------- пузыри: пять слоёв, размер растёт вместе с теплом ----------
+lvl = heat < 0.2 ? 1 : heat < 0.4 ? 2 : heat < 0.6 ? 3 : heat < 0.8 ? 4 : 5
+p1 = showBub and lvl == 1 ? px : na
+p2 = showBub and lvl == 2 ? px : na
+p3 = showBub and lvl == 3 ? px : na
+p4 = showBub and lvl == 4 ? px : na
+p5 = showBub and lvl == 5 ? px : na
 
-// ============================== ПУЗЫРИ ==============================
+plot(p1, "Пузырь 1", cHeat, 1, plot.style_circles)
+plot(p2, "Пузырь 2", cHeat, 2, plot.style_circles)
+plot(p3, "Пузырь 3", cHeat, 3, plot.style_circles)
+plot(p4, "Пузырь 4", cHeat, 4, plot.style_circles)
+plot(p5, "Пузырь 5", cHeat, 5, plot.style_circles)
 
-bubbleSize(float h) =>
-    raw = h < 0.20 ? 0 : h < 0.40 ? 1 : h < 0.60 ? 2 : h < 0.80 ? 3 : 4
-    shift = bubScale == "Крупный" ? 1 : bubScale == "Мелкий" ? -1 : 0
-    idx = math.max(0, math.min(4, raw + shift))
-    idx == 0 ? size.tiny : idx == 1 ? size.small : idx == 2 ? size.normal : idx == 3 ? size.large : size.huge
+// ---------- сигналы ----------
+isEntry = heat >= redThr and imb >= imbEntry
+buyEntry = isEntry and bull
+sellEntry = isEntry and not bull
+balance = heat >= orgThr and heat < redThr
 
-bOff = atrV * bubOffset
-byDir = bullSide ? low - bOff : high + bOff
-bubblePrice = bubAnchor == "Центр бара" ? hl2 : bubAnchor == "Закрытие" ? close : bubAnchor == "Над баром" ? high + bOff : bubAnchor == "Под баром" ? low - bOff : byDir
+plotshape(showSig and buyEntry, "Вход покупки", shape.triangleup, location.belowbar, cRed, size = size.tiny)
+plotshape(showSig and sellEntry, "Вход продажи", shape.triangledown, location.abovebar, cRed, size = size.tiny)
 
-isEntry   = heat >= redThr and imb >= imbEntry
-entryBuy  = isEntry and bullSide
-entrySell = isEntry and not bullSide
-isBalance = heat >= orangeThr and heat < redThr
+barcolor(colorBar ? cHeat : na, title = "Бары по теплу")
+bgcolor(colorBg ? color.new(cHeat, 88) : na, title = "Фон по теплу")
 
-entryTxt = bullSide ? "ТОЧКА ВХОДА · покупки" : "ТОЧКА ВХОДА · продажи"
-stateTxt = isEntry ? entryTxt : heat >= redThr ? "Жарко, но сторона не выбрана" : heat >= orangeThr ? "50/50 · баланс, ждём" : "Пусто · ничего интересного"
+// ---------- значения для Data Window ----------
+plot(heat * 100, "Тепло %", display = display.data_window)
+plot(act * 100, "Активность %", display = display.data_window)
+plot(imb * 100, "Перевес %", display = display.data_window)
+plot(buyR * 100, "Покупки %", display = display.data_window)
+plot(dSum, "Дельта", display = display.data_window)
 
-if showBub and barstate.isconfirmed and heat >= minBubble and not na(bubblePrice)
-    tip = stateTxt
-    tip := tip + "\nТепло: " + str.tostring(heat * 100, "#.0") + "%"
-    tip := tip + "\nАктивность: " + str.tostring(activity * 100, "#.0") + "%"
-    tip := tip + "\nПеревес: " + str.tostring(imb * 100, "#.0") + "%"
-    tip := tip + "\nПокупки: " + str.tostring(buyRatio * 100, "#.0") + "%"
-    tip := tip + "\nПродажи: " + str.tostring((1 - buyRatio) * 100, "#.0") + "%"
-    tip := tip + "\nRVOL: " + str.tostring(rvol, "#.00")
-    label.new(x = bar_index, y = bubblePrice, text = "", style = label.style_circle, color = color.new(cNow, 15), size = bubbleSize(heat), tooltip = tip)
-
-// ============================== СИГНАЛЫ ==============================
-
-plotshape(showEntry and entryBuy, title = "Вход · покупки", style = shape.triangleup, location = location.belowbar, color = cHot, size = size.tiny)
-plotshape(showEntry and entrySell, title = "Вход · продажи", style = shape.triangledown, location = location.abovebar, color = cHot, size = size.tiny)
-
-barcolor(paintBars ? cNow : na, title = "Бары по теплу")
-bgcolor(paintBg ? color.new(cNow, 88) : na, title = "Фон по теплу")
-
-plot(heat * 100, title = "Heat %", display = display.data_window)
-plot(activity * 100, title = "Activity %", display = display.data_window)
-plot(imb * 100, title = "Imbalance %", display = display.data_window)
-plot(dSum, title = "Delta sum", display = display.data_window)
-
-// ============================== КАРТА УРОВНЕЙ ==============================
-
-var array<box> vpBoxes = array.new_box()
-var array<line> vpLines = array.new_line()
-
-vpDepth = math.max(1, math.min(vpLen, bar_index))
-vpTop = ta.highest(high, vpDepth)
-vpBot = ta.lowest(low, vpDepth)
-
-if showVP and barstate.islast
-    for i = 0 to array.size(vpBoxes) - 1
-        box.delete(array.get(vpBoxes, i))
-    array.clear(vpBoxes)
-    for i = 0 to array.size(vpLines) - 1
-        line.delete(array.get(vpLines, i))
-    array.clear(vpLines)
-    binStep = (vpTop - vpBot) / vpRows
-    if binStep > 0
-        binVol = array.new_float(vpRows, 0.0)
-        binDelta = array.new_float(vpRows, 0.0)
-        for i = 0 to vpDepth - 1
-            barLo = math.max(low[i], vpBot)
-            barHi = math.min(high[i], vpTop)
-            loIdx = math.max(0, math.min(vpRows - 1, int(math.floor((barLo - vpBot) / binStep))))
-            hiIdx = math.max(0, math.min(vpRows - 1, int(math.floor((barHi - vpBot) / binStep))))
-            span = hiIdx - loIdx + 1
-            share = nz(volume[i]) / span
-            sgn = 2 * nz(buyRatio[i], 0.5) - 1
-            for j = loIdx to hiIdx
-                array.set(binVol, j, array.get(binVol, j) + share)
-                array.set(binDelta, j, array.get(binDelta, j) + share * sgn)
-        maxVol = array.max(binVol)
-        pocIdx = 0
-        if maxVol > 0
-            for j = 0 to vpRows - 1
-                v = array.get(binVol, j)
-                if v == maxVol
-                    pocIdx := j
-                vShare = v / maxVol
-                dShare = v > 0 ? math.min(math.abs(array.get(binDelta, j)) / v / imbSat, 1.0) : 0.0
-                hLvl = vShare * (0.5 + 0.5 * dShare)
-                lvlLo = vpBot + binStep * j
-                lvlCol = heatColor(hLvl)
-                lvlTr = int(math.round(94 - 44 * hLvl))
-                array.push(vpBoxes, box.new(left = bar_index - vpDepth + 1, top = lvlLo + binStep, right = bar_index + vpExtend, bottom = lvlLo, border_color = color.new(lvlCol, 100), bgcolor = color.new(lvlCol, lvlTr)))
-            if showPoc
-                pocPrice = vpBot + binStep * (pocIdx + 0.5)
-                array.push(vpLines, line.new(x1 = bar_index - vpDepth + 1, y1 = pocPrice, x2 = bar_index + vpExtend, y2 = pocPrice, color = cHot, style = line.style_dashed, width = 2))
-
-// ============================== ПАНЕЛЬ ==============================
-
-tPos = tablePos == "Справа сверху" ? position.top_right : tablePos == "Справа снизу" ? position.bottom_right : tablePos == "Слева сверху" ? position.top_left : position.bottom_left
-var table dash = table.new(position = tPos, columns = 2, rows = 7, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50), border_color = color.new(color.gray, 70))
-
-if showTable and barstate.islast
-    txt = color.white
-    bg = color.new(#131722, 15)
-    table.cell(dash, 0, 0, "BUBBLE", text_color = txt, bgcolor = color.new(cNow, 30), text_size = size.normal, text_halign = text.align_left)
-    table.cell(dash, 1, 0, str.tostring(heat * 100, "#") + "%", text_color = txt, bgcolor = color.new(cNow, 30), text_size = size.normal)
-    table.cell(dash, 0, 1, "Состояние", text_color = txt, bgcolor = bg, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 1, stateTxt, text_color = cNow, bgcolor = bg, text_size = size.small)
-    table.cell(dash, 0, 2, "Активность", text_color = txt, bgcolor = bg, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 2, str.tostring(activity * 100, "#.0") + "%", text_color = txt, bgcolor = bg, text_size = size.small)
-    table.cell(dash, 0, 3, "Перевес", text_color = txt, bgcolor = bg, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 3, str.tostring(imb * 100, "#.0") + "%", text_color = txt, bgcolor = bg, text_size = size.small)
-    table.cell(dash, 0, 4, "Покупки", text_color = txt, bgcolor = bg, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 4, str.tostring(buyRatio * 100, "#.0") + "%", text_color = txt, bgcolor = color.new(color.teal, 70), text_size = size.small)
-    table.cell(dash, 0, 5, "Продажи", text_color = txt, bgcolor = bg, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 5, str.tostring((1 - buyRatio) * 100, "#.0") + "%", text_color = txt, bgcolor = color.new(color.maroon, 70), text_size = size.small)
-    table.cell(dash, 0, 6, "RVOL", text_color = txt, bgcolor = bg, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 6, str.tostring(rvol, "#.00"), text_color = txt, bgcolor = bg, text_size = size.small)
-
-// ============================== АЛЕРТЫ ==============================
-
-alertcondition(entryBuy, "Точка входа — покупки", "Bubble: красная зона, давят покупатели")
-alertcondition(entrySell, "Точка входа — продажи", "Bubble: красная зона, давят продавцы")
-alertcondition(isEntry, "Красная зона (любая сторона)", "Bubble: красная зона")
-alertcondition(isBalance, "Оранжевая зона 50/50", "Bubble: объём пришёл, стороны равны")
+// ---------- алерты ----------
+alertcondition(buyEntry, "Точка входа покупки", "Bubble: красная зона, давят покупатели")
+alertcondition(sellEntry, "Точка входа продажи", "Bubble: красная зона, давят продавцы")
+alertcondition(isEntry, "Красная зона", "Bubble: красная зона")
+alertcondition(balance, "Оранжевая зона 50 на 50", "Bubble: объём пришёл, стороны равны")
