@@ -194,8 +194,8 @@ plot(dSum,           "Delta sum",    display = display.data_window)
 //                       ТЕПЛОВАЯ КАРТА УРОВНЕЙ (профиль)
 // ═══════════════════════════════════════════════════════════════════════════
 
-var box[]  vpBoxes = array.new_box()
-var line[] vpLines = array.new_line()
+var array<box>  vpBoxes = array.new_box()
+var array<line> vpLines = array.new_line()
 
 // Границы карты считаем на каждом баре — ta.* нельзя прятать внутрь условия
 vpDepth = math.max(1, math.min(vpLen, bar_index))
@@ -259,8 +259,8 @@ if showVP and barstate.islast
 // ═══════════════════════════════════════════════════════════════════════════
 
 tPos = tablePos == "Справа сверху" ? position.top_right :
-        tablePos == "Справа снизу" ? position.bottom_right :
-        tablePos == "Слева сверху" ? position.top_left : position.bottom_left
+     tablePos == "Справа снизу" ? position.bottom_right :
+     tablePos == "Слева сверху" ? position.top_left : position.bottom_left
 
 var table dash = table.new(tPos, 2, 7, border_width = 1, frame_width = 1,
      frame_color = color.new(color.gray, 50), border_color = color.new(color.gray, 70))
