@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 from typing import Any
 
@@ -113,6 +114,33 @@ class Telegram:
                     log.warning("sendDocument: %s", (await r.text())[:200])
         except Exception as exc:  # noqa: BLE001
             log.warning("sendDocument: %s", exc)
+
+    async def send_voice(self, audio: bytes, buttons: list[list[dict[str, Any]]] | None = None,
+                         caption: str = "", chat_id: str | None = None) -> bool:
+        """Отправить голосовое. Телеграм ждёт ogg с кодеком opus."""
+        if self.dry:
+            log.info("[dry] sendVoice (%d байт) %s", len(audio), caption[:60])
+            return True
+        form = aiohttp.FormData()
+        form.add_field("chat_id", chat_id or self.chat_id)
+        form.add_field("voice", audio, filename="polka.ogg",
+                       content_type="audio/ogg")
+        if caption:
+            form.add_field("caption", caption[:1000])
+            form.add_field("parse_mode", "HTML")
+        if buttons:
+            form.add_field("reply_markup",
+                           json.dumps({"inline_keyboard": buttons}, ensure_ascii=False))
+        try:
+            async with self.session.post(f"{self.api}/sendVoice", data=form,
+                                         timeout=aiohttp.ClientTimeout(total=60)) as r:
+                if r.status != 200:
+                    log.warning("sendVoice: %s", (await r.text())[:200])
+                    return False
+                return True
+        except Exception as exc:  # noqa: BLE001
+            log.warning("sendVoice: %s", exc)
+            return False
 
     async def download_file(self, file_id: str) -> bytes | None:
         info = await self.call("getFile", {"file_id": file_id})

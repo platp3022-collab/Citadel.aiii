@@ -7,6 +7,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import aiohttp
+
 from .brain import Brain
 from .config import Config
 from .db import Store
@@ -40,6 +42,11 @@ ESCALATION_STEPS: dict[int, list[int]] = {
     3: [90],
 }
 MAX_ESCALATION = 3
+
+
+# Надиктованное человек не видел на экране: он сказал и убрал телефон.
+# Поэтому по таким мыслям всегда переспрашиваем, а не решаем за него.
+DICTATED_SOURCES = frozenset({"voice", "shortcut"})
 
 
 class Flow:
@@ -108,17 +115,48 @@ class Flow:
             if card["needs_reminder"] else "",
         )
 
+        dictated = source in DICTATED_SOURCES
+        if dictated:
+            card["ask_user"] = True
         if card["needs_reminder"] and not card["ask_user"]:
             await self.schedule_from_card(thought_id, card["reminder"])
 
         thought = await self.store.get_thought(thought_id)
         if notify and thought:
-            await self.tg.send(
-                self.render_card(thought, card),
-                buttons=self.card_buttons(thought_id, thought["importance"],
-                                          bool(thought["claude_worthy"])),
-            )
+            buttons = self.card_buttons(thought_id, thought["importance"],
+                                        bool(thought["claude_worthy"]))
+            spoken = await self.speak_question(thought) if dictated else None
+            if spoken:
+                await self.tg.send_voice(spoken, buttons=buttons,
+                                         caption=self.render_card(thought, card))
+            else:
+                await self.tg.send(self.render_card(thought, card), buttons=buttons)
         return thought or {"id": thought_id}
+
+    async def speak_question(self, thought: dict[str, Any]) -> bytes | None:
+        """Озвучить вопрос про важность и срок. None - озвучка не настроена."""
+        speech = self.cfg.speech
+        if not speech:
+            return None
+        url, key = speech
+        text = (f"Записал: {thought['title']}. "
+                f"Насколько это важно и когда напомнить?")
+        try:
+            async with self.tg.session.post(
+                url,
+                json={"model": "gpt-4o-mini-tts", "voice": "alloy",
+                      "input": text, "response_format": "opus"},
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                if response.status != 200:
+                    log.warning("Озвучка %s: %s", response.status,
+                                (await response.text())[:200])
+                    return None
+                return await response.read()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Озвучка: %s", exc)
+            return None
 
     async def schedule_from_card(self, thought_id: str,
                                  reminder: dict[str, Any]) -> str | None:
@@ -159,9 +197,9 @@ class Flow:
             f"полка: <code>{esc(thought['shelf'])}</code>   "
             f"важность: {importance}/5, {IMPORTANCE_WORD[importance]}"
         )
-        if card and card.get("needs_reminder") and card.get("ask_user"):
+        if card and card.get("ask_user"):
             lines.append("")
-            lines.append("Когда напомнить?")
+            lines.append("Так важно? И когда напомнить?")
         return "\n".join(lines)
 
     def card_buttons(self, thought_id: str, importance: int,

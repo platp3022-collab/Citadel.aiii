@@ -43,6 +43,8 @@ class Config:
     port: int
     telegram_api: str          # подменяется в тестах на локальный макет
     voice_api: str             # то же для распознавания речи
+    voice_reply: bool          # отвечать ли голосом на надиктованное
+    tts_api: str               # подменяется в тестах
     quiet_from: int            # час начала тишины (не будим ночью)
     quiet_to: int
     timezone_offset: int       # смещение от UTC в часах, для тихих часов
@@ -59,6 +61,15 @@ class Config:
                     "https://api.openai.com/v1/audio/transcriptions",
                     self.openai_key, "whisper-1")
         return None
+
+    @property
+    def speech(self) -> tuple[str, str] | None:
+        """Чем озвучивать вопрос: (адрес, ключ). Умеет только OpenAI:
+        у бесплатных сервисов нет русского голоса."""
+        if not (self.voice_reply and self.openai_key):
+            return None
+        return (self.tts_api or "https://api.openai.com/v1/audio/speech",
+                self.openai_key)
 
     @property
     def has_brain(self) -> bool:
@@ -91,6 +102,8 @@ def load_config() -> Config:
         telegram_api=os.environ.get("POLKA_TELEGRAM_API",
                                     "https://api.telegram.org").strip().rstrip("/"),
         voice_api=os.environ.get("POLKA_VOICE_API", "").strip(),
+        voice_reply=os.environ.get("POLKA_VOICE_REPLY", "1").strip() not in ("0", "нет", ""),
+        tts_api=os.environ.get("POLKA_TTS_API", "").strip(),
         port=_int("POLKA_PORT", 8443),
         quiet_from=_int("POLKA_QUIET_FROM", 23),
         quiet_to=_int("POLKA_QUIET_TO", 8),

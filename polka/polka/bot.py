@@ -70,8 +70,10 @@ class Bot:
             await self.on_command(text, chat_id)
             return
 
+        source = "telegram"
         voice = message.get("voice") or message.get("audio") or message.get("video_note")
         if voice:
+            source = "voice"
             text = await self.transcribe(voice.get("file_id", "")) or ""
             if not text:
                 await self.tg.send(
@@ -85,7 +87,7 @@ class Bot:
 
         if not text:
             return
-        await self.flow.capture(text, source="telegram")
+        await self.flow.capture(text, source=source)
 
     async def on_command(self, text: str, chat_id: str) -> None:
         command = text.split()[0].lstrip("/").split("@")[0].lower()
