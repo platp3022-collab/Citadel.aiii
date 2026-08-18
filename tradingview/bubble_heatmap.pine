@@ -169,12 +169,16 @@ hmTop = ta.highest(high, hmDepth)
 hmBot = ta.lowest(low, hmDepth)
 
 if showHm and barstate.islast
-    for i = 0 to array.size(hmBoxes) - 1
-        box.delete(array.get(hmBoxes, i))
-    array.clear(hmBoxes)
-    for i = 0 to array.size(hmLines) - 1
-        line.delete(array.get(hmLines, i))
-    array.clear(hmLines)
+    // Внимание: в Pine цикл "for i = 0 to N" при N < 0 идёт в обратную сторону,
+    // поэтому пустой массив надо отсекать явно, иначе array.get(arr, 0) упадёт.
+    if array.size(hmBoxes) > 0
+        for i = 0 to array.size(hmBoxes) - 1
+            box.delete(array.get(hmBoxes, i))
+        array.clear(hmBoxes)
+    if array.size(hmLines) > 0
+        for i = 0 to array.size(hmLines) - 1
+            line.delete(array.get(hmLines, i))
+        array.clear(hmLines)
     rowStep = (hmTop - hmBot) / hmRows
     if rowStep > 0
         binVol = array.new_float(hmRows, 0.0)
