@@ -3,3 +3,6 @@ data/
 __pycache__/
 *.pyc
 .venv/
+
+# Claude skills bundle ships its own data files
+!.claude/skills/**/data/
