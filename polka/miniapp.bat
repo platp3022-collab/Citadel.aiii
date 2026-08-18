@@ -2,13 +2,15 @@
 rem Поднять Полку и подключить мини-приложение к боту. Двойной клик по файлу.
 cd /d "%~dp0"
 
-if not exist .env (
-  echo Нет файла .env. Скопируй .env.example в .env и заполни токен и chat id.
-  pause & exit /b 1
-)
-
 python -m pip install --quiet -r requirements.txt
 if errorlevel 1 ( echo Не поставились зависимости. Нужен Python 3. & pause & exit /b 1 )
+
+rem Первый запуск: спросить токен, chat id и ключ и проверить их.
+findstr /b /c:"TELEGRAM_BOT_TOKEN=" .env >nul 2>&1
+if errorlevel 1 (
+  python -m polka.wizard
+  if errorlevel 1 ( pause & exit /b 1 )
+)
 
 if not exist static\index.html (
   echo Нет собранного интерфейса. Поставь Node.js, затем в папке miniapp: npm install ^&^& npm run build

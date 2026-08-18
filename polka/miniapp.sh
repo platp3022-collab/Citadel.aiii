@@ -6,14 +6,14 @@ cd "$(dirname "$0")" || exit 1
 
 hold() { read -r -p "Нажми Enter, чтобы закрыть." _; }
 
-if [ ! -f .env ]; then
-  echo "Нет файла .env. Скопируй .env.example в .env и заполни токен и chat id."
-  hold; exit 1
-fi
-
 python3 -m pip install --quiet -r requirements.txt || {
   echo "Не поставились зависимости. Нужен python3."; hold; exit 1
 }
+
+# Первый запуск: спросить токен, chat id и ключ, проверить их и записать в .env.
+if ! grep -qs "^TELEGRAM_BOT_TOKEN=." .env 2>/dev/null; then
+  python3 -m polka.wizard || { hold; exit 1; }
+fi
 
 # Собранное мини-приложение лежит в репозитории. Пересобираем, только если его нет.
 if [ ! -f static/index.html ]; then
