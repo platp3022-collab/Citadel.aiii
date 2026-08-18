@@ -292,7 +292,9 @@ class TunnelTests(unittest.IsolatedAsyncioTestCase):
         path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "fake.py"
         path.write_text(script, encoding="utf-8")
         fake = Path(self.enterContext(tempfile.TemporaryDirectory())) / "cloudflared"
-        fake.write_text(f"#!/bin/sh\nexec {sys.executable} {path}\n", encoding="utf-8")
+        # Аргументы обязательно пробрасываем: без "$@" заглушка их не увидит.
+        fake.write_text(f'#!/bin/sh\nexec {sys.executable} {path} "$@"\n',
+                        encoding="utf-8")
         fake.chmod(0o755)
         return await polka_setup.open_tunnel(8443, binary=str(fake), extra=extra)
 
@@ -342,6 +344,25 @@ class TunnelTests(unittest.IsolatedAsyncioTestCase):
             process.terminate()
             await process.wait()
 
+    async def test_tunnel_points_at_ipv4_not_localhost(self):
+        """В Windows localhost разрешается в ::1, а Полка слушает только IPv4.
+
+        Из-за этого туннель стучался не туда и отдавал 530 при живой Полке.
+        """
+        seen = Path(self.enterContext(tempfile.TemporaryDirectory())) / "args.txt"
+        script = ("import sys\n"
+                  f"f = open(r'{seen}', 'w'); f.write(' '.join(sys.argv[1:])); f.close()\n"
+                  "print('INF |  https://calm-fox-42.trycloudflare.com  |')\n"
+                  "sys.stdout.flush()\n"
+                  "import time; time.sleep(5)\n")
+        _, process = await self.run_fake(script)
+        process.terminate()
+        await process.wait()
+
+        args = seen.read_text()
+        self.assertIn("http://127.0.0.1:8443", args)
+        self.assertNotIn("localhost", args)
+
     async def test_address_is_picked_from_output(self):
         script = ("import sys, time\n"
                   "print('INF starting')\n"
@@ -351,7 +372,9 @@ class TunnelTests(unittest.IsolatedAsyncioTestCase):
         path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "fake.py"
         path.write_text(script, encoding="utf-8")
         fake = Path(self.enterContext(tempfile.TemporaryDirectory())) / "cloudflared"
-        fake.write_text(f"#!/bin/sh\nexec {sys.executable} {path}\n", encoding="utf-8")
+        # Аргументы обязательно пробрасываем: без "$@" заглушка их не увидит.
+        fake.write_text(f'#!/bin/sh\nexec {sys.executable} {path} "$@"\n',
+                        encoding="utf-8")
         fake.chmod(0o755)
 
         url, process = await polka_setup.open_tunnel(8443, binary=str(fake))

@@ -81,8 +81,10 @@ async def amain(args: argparse.Namespace) -> int:
             print(f"\nМини-приложение в Telegram: {cfg.public_url}")
         # Без публичного адреса интерфейс всё равно можно открыть у себя.
         if cfg.capture_token:
+            # 127.0.0.1, а не localhost: в Windows localhost уходит в IPv6,
+            # а Полка слушает только IPv4.
             print(f"\nПосмотреть полки в браузере:\n"
-                  f"  http://localhost:{cfg.port}/?token={cfg.capture_token}\n")
+                  f"  http://127.0.0.1:{cfg.port}/?token={cfg.capture_token}\n")
         if cfg.relay_topic:
             print("Двойное касание крышки на связи.")
         print("Полка слушает. Пиши боту в Telegram, окно не закрывай.\n")
@@ -145,8 +147,12 @@ async def raise_tunnel(cfg, stop: asyncio.Event):
     except setup_module.SetupError as exc:
         print(f"\nБез мини-приложения: {exc}\n")
         # Кнопка от прошлого запуска ведёт в никуда, лучше её убрать.
-        if cfg.public_url and await setup_module.clear_menu_button(cfg):
-            print("Кнопку в Telegram снял, чтобы она не вела на мёртвый адрес.")
+        if cfg.public_url:
+            if await setup_module.clear_menu_button(cfg):
+                print("Кнопку в Telegram снял, чтобы она не вела на мёртвый адрес.")
+            # Адрес протух вместе с кнопкой, иначе он ещё и напечатается ниже.
+            setup_module.save_url("")
+            cfg = load_config()
         print("Всё остальное работает: бот, разбор, напоминания.\n")
         return None
 

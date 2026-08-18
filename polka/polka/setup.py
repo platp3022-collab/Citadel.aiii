@@ -186,7 +186,10 @@ async def open_tunnel(port: int, binary: str = "cloudflared",
     """Поднять временный туннель и дождаться выданного адреса."""
     try:
         process = await asyncio.create_subprocess_exec(
-            binary, "tunnel", "--url", f"http://localhost:{port}", "--no-autoupdate",
+            # Именно 127.0.0.1, а не localhost: в Windows localhost сначала
+            # разрешается в IPv6 ::1, а Полка слушает 0.0.0.0, то есть только
+            # IPv4. Туннель стучался не туда и отдавал 530.
+            binary, "tunnel", "--url", f"http://127.0.0.1:{port}", "--no-autoupdate",
             *(extra or []),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
