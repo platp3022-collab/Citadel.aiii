@@ -13,7 +13,7 @@ from aiohttp import web
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from polka import setup as polka_setup
-from polka.setup import SetupError, save_url, wire
+from polka.setup import SetupError, same_url, save_url, wire
 
 
 class FakeBotApi:
@@ -166,11 +166,51 @@ class SaveUrlTests(unittest.TestCase):
         self.assertIn("B=2", text)
 
 
+class UrlComparisonTests(unittest.TestCase):
+    """Telegram нормализует адрес и дописывает косую черту, сравнение это учитывает."""
+
+    def test_trailing_slash_is_ignored(self):
+        self.assertTrue(same_url("https://a.example.com/", "https://a.example.com"))
+        self.assertTrue(same_url("https://a.example.com", "https://a.example.com/"))
+
+    def test_different_addresses_still_differ(self):
+        self.assertFalse(same_url("https://a.example.com", "https://b.example.com"))
+
+    def test_missing_value_is_not_a_match(self):
+        self.assertFalse(same_url(None, "https://a.example.com"))
+
+    def test_path_is_not_stripped_away(self):
+        self.assertFalse(same_url("https://a.example.com/app", "https://a.example.com"))
+
+
 class TunnelTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_cloudflared_is_explained(self):
         with self.assertRaises(SetupError) as caught:
             await polka_setup.open_tunnel(8443, binary="cloudflared-which-is-not-here")
         self.assertIn("cloudflared", str(caught.exception))
+
+    async def test_service_host_is_not_mistaken_for_the_tunnel(self):
+        """cloudflared сначала пишет свой служебный адрес, и его брать нельзя."""
+        script = ("import sys, time\n"
+                  "print('INF Requesting new quick Tunnel on trycloudflare.com...')\n"
+                  "print('INF Connecting to https://api.trycloudflare.com')\n"
+                  "print('INF |  https://calm-fox-42.trycloudflare.com  |')\n"
+                  "sys.stdout.flush()\n"
+                  "time.sleep(5)\n")
+        url, process = await self.run_fake(script)
+        try:
+            self.assertEqual(url, "https://calm-fox-42.trycloudflare.com")
+        finally:
+            process.terminate()
+            await process.wait()
+
+    async def run_fake(self, script: str):
+        path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "fake.py"
+        path.write_text(script, encoding="utf-8")
+        fake = Path(self.enterContext(tempfile.TemporaryDirectory())) / "cloudflared"
+        fake.write_text(f"#!/bin/sh\nexec {sys.executable} {path}\n", encoding="utf-8")
+        fake.chmod(0o755)
+        return await polka_setup.open_tunnel(8443, binary=str(fake))
 
     async def test_address_is_picked_from_output(self):
         script = ("import sys, time\n"

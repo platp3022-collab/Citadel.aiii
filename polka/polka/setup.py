@@ -18,7 +18,11 @@ import aiohttp
 
 from .config import ROOT, load_config
 
-TUNNEL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+TUNNEL_PATTERN = re.compile(r"https://([a-z0-9-]+)\.trycloudflare\.com")
+
+# Служебные адреса самого cloudflared: они попадаются в его логе раньше, чем
+# выданный туннель, и раньше их принимали за адрес приложения.
+TUNNEL_SERVICE_HOSTS = {"api", "www", "update", "region1", "region2"}
 
 
 class SetupError(Exception):
@@ -80,10 +84,16 @@ async def wire(url: str, quiet: bool = False) -> str:
         check = await call(session, api, "getChatMenuButton",
                            {"chat_id": cfg.chat_id} if cfg.chat_id else None)
         got = ((check or {}).get("web_app") or {}).get("url")
-        if got != url:
+        # Telegram нормализует адрес и может дописать косую черту в конце.
+        if not same_url(got, url):
             raise SetupError(f"кнопка меню не сохранилась: Telegram отдаёт {got!r}")
         say("проверено: Telegram отдаёт тот же адрес", quiet)
     return name
+
+
+def same_url(left: str | None, right: str | None) -> bool:
+    """Сравнение адресов без учёта завершающей косой черты."""
+    return (left or "").rstrip("/") == (right or "").rstrip("/")
 
 
 def say(text: str, quiet: bool) -> None:
@@ -127,9 +137,9 @@ async def open_tunnel(port: int, binary: str = "cloudflared") -> tuple[str, asyn
             raw = await asyncio.wait_for(process.stdout.readline(), timeout=60)
             if not raw:
                 raise SetupError("cloudflared закрылся, не выдав адрес")
-            found = TUNNEL_PATTERN.search(raw.decode("utf-8", "replace"))
-            if found:
-                return found.group(0), process
+            for found in TUNNEL_PATTERN.finditer(raw.decode("utf-8", "replace")):
+                if found.group(1) not in TUNNEL_SERVICE_HOSTS:
+                    return found.group(0), process
     except asyncio.TimeoutError:
         process.terminate()
         raise SetupError("cloudflared не выдал адрес за минуту") from None
@@ -174,6 +184,7 @@ async def amain(args: argparse.Namespace) -> int:
         print(BOTFATHER_STEPS.format(name=name, url=url))
 
         if tunnel:
+            print(f"Мини-приложение живёт по адресу: {url}\n")
             print("Туннель живёт, пока открыто это окно. Закроешь - адрес пропадёт,\n"
                   "и мини-приложение перестанет открываться. Для постоянной работы\n"
                   "нужен свой домен либо сервер.\n")

@@ -7,6 +7,14 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Без этого консоль печатает кириллицу вопросительными знаками.
+try {
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    [Console]::InputEncoding  = [Text.Encoding]::UTF8
+    $OutputEncoding = [Text.Encoding]::UTF8
+    $env:PYTHONIOENCODING = 'utf-8'
+} catch { }
+
 $Repo   = 'platp3022-collab/Citadel.aiii'
 $Branch = 'claude/hello-pmjyoy'
 $Home_  = [Environment]::GetFolderPath('UserProfile')
