@@ -14,6 +14,7 @@ import re
 import sys
 from collections import deque
 from pathlib import Path
+from typing import Any
 
 import aiohttp
 
@@ -90,6 +91,26 @@ async def wire(url: str, quiet: bool = False) -> str:
             raise SetupError(f"кнопка меню не сохранилась: Telegram отдаёт {got!r}")
         say("проверено: Telegram отдаёт тот же адрес", quiet)
     return name
+
+
+async def clear_menu_button(cfg) -> bool:
+    """Снять кнопку мини-приложения.
+
+    Кнопка, ведущая на мёртвый адрес, хуже её отсутствия: человек жмёт и
+    получает страницу ошибки вместо понятного «кнопки пока нет».
+    """
+    if not cfg.bot_token:
+        return False
+    api = f"{cfg.telegram_api}/bot{cfg.bot_token}"
+    payload: dict[str, Any] = {"menu_button": {"type": "commands"}}
+    if cfg.chat_id:
+        payload["chat_id"] = cfg.chat_id
+    try:
+        async with aiohttp.ClientSession() as session:
+            await call(session, api, "setChatMenuButton", payload)
+        return True
+    except Exception:  # noqa: BLE001 — не смогли снять, это не повод падать
+        return False
 
 
 def same_url(left: str | None, right: str | None) -> bool:

@@ -67,7 +67,17 @@ async def amain(args: argparse.Namespace) -> int:
             store.close()
             return 3
         log.info("Веб-сервер на http://%s:%d", cfg.host, cfg.port)
-        if cfg.public_url:
+        tunnel = None
+        if args.tunnel:
+            # Туннель поднимаем в том же процессе: раньше Полка и туннель жили
+            # порознь, и закрытие одного оставляло кнопку висеть в пустоту.
+            tunnel = await raise_tunnel(cfg, stop)
+
+        if cfg.public_url and not args.tunnel:
+            print(f"\nВ настройках записан адрес {cfg.public_url}")
+            print("Если он от прошлого туннеля, кнопка в Telegram сейчас мертва.")
+            print("Запусти с ключом --tunnel, чтобы поднять свежий адрес.")
+        elif cfg.public_url:
             print(f"\nМини-приложение в Telegram: {cfg.public_url}")
         # Без публичного адреса интерфейс всё равно можно открыть у себя.
         if cfg.capture_token:
@@ -96,6 +106,8 @@ async def amain(args: argparse.Namespace) -> int:
         except KeyboardInterrupt:
             stop.set()
         log.info("Останавливаюсь")
+        if tunnel and tunnel.returncode is None:
+            tunnel.terminate()
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -105,10 +117,46 @@ async def amain(args: argparse.Namespace) -> int:
     return 0
 
 
+async def raise_tunnel(cfg, stop: asyncio.Event):
+    """Поднять туннель и повесить кнопку боту. Ошибка тут не валит Полку:
+    без адреса она работает, просто без кнопки в Telegram."""
+    from . import setup as setup_module
+
+    print("\nПоднимаю адрес для мини-приложения...")
+    try:
+        if not await setup_module.tunnel_service_reachable():
+            raise setup_module.SetupError(setup_module.BLOCKED_MESSAGE)
+        try:
+            url, process = await setup_module.open_tunnel(cfg.port)
+        except setup_module.SetupError:
+            url, process = await setup_module.open_tunnel(
+                cfg.port, extra=["--protocol", "http2"])
+        print(f"  адрес: {url}")
+
+        if not await setup_module.tunnel_reaches_polka(url):
+            process.terminate()
+            raise setup_module.SetupError(
+                setup_module.UNREACHABLE_MESSAGE.format(url=url, port=cfg.port))
+
+        await setup_module.wire(url)
+        setup_module.save_url(url)
+        print("  кнопка в Telegram обновлена\n")
+        return process
+    except setup_module.SetupError as exc:
+        print(f"\nБез мини-приложения: {exc}\n")
+        # Кнопка от прошлого запуска ведёт в никуда, лучше её убрать.
+        if cfg.public_url and await setup_module.clear_menu_button(cfg):
+            print("Кнопку в Telegram снял, чтобы она не вела на мёртвый адрес.")
+        print("Всё остальное работает: бот, разбор, напоминания.\n")
+        return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="polka", description="Полка: мысли по полкам")
     parser.add_argument("--dry", action="store_true",
                         help="ничего не слать в Telegram, писать в консоль")
+    parser.add_argument("--tunnel", action="store_true",
+                        help="поднять адрес для мини-приложения в этом же окне")
     parser.add_argument("--capture", metavar="ТЕКСТ",
                         help="разобрать одну мысль и выйти")
     parser.add_argument("-v", "--verbose", action="store_true")

@@ -207,7 +207,8 @@ async def amain() -> int:
         collected["ANTHROPIC_API_KEY"] = key
 
     # ── голосовые в Telegram ──────────────────────────────────────────────
-    if not (cfg.groq_key or cfg.openai_key):
+    if not (cfg.groq_key or cfg.openai_key
+            or os.environ.get("POLKA_VOICE_SKIPPED")):
         print("\nГолосовые сообщения боту требуют распознавания речи.")
         print("У Groq оно бесплатное: console.groq.com/keys, ключ вида gsk_...")
         voice_key = ask("Ключ распознавания речи:",
@@ -223,7 +224,9 @@ async def amain() -> int:
             voice_key = ask("Ключ распознавания речи:", "пустая строка - пропустить")
         if not voice_key:
             print("  ладно, без голосовых в чате")
-    else:
+            # Помечаем отказ, иначе вопрос повторялся бы при каждом обновлении.
+            collected["POLKA_VOICE_SKIPPED"] = "1"
+    elif cfg.groq_key or cfg.openai_key:
         ok("ключ распознавания речи уже записан")
 
     if not os.environ.get("POLKA_CAPTURE_TOKEN") and not cfg.capture_token:

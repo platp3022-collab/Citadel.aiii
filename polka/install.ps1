@@ -90,9 +90,13 @@ Step 'Ставлю зависимости'
 if ($LASTEXITCODE -ne 0) { Fail 'Не поставились зависимости. Пришли текст ошибки выше.' }
 
 # ── настройка ────────────────────────────────────────────────────────────
+# Проверяем не только токен: у тех, кто ставил раньше, не хватает настроек,
+# появившихся позже, и мастер их молча пропускал.
 $needsSetup = $true
 if (Test-Path $EnvPath) {
-    if (Select-String -Path $EnvPath -Pattern '^TELEGRAM_BOT_TOKEN=.' -Quiet) { $needsSetup = $false }
+    $hasToken = Select-String -Path $EnvPath -Pattern '^TELEGRAM_BOT_TOKEN=.' -Quiet
+    $hasRelay = Select-String -Path $EnvPath -Pattern '^POLKA_RELAY_TOPIC=.' -Quiet
+    if ($hasToken -and $hasRelay) { $needsSetup = $false }
 }
 if ($needsSetup) {
     Step 'Настройка: три вопроса'
@@ -114,23 +118,10 @@ if (-not (Test-Path $Cf)) {
 $env:PATH = "$App;$env:PATH"
 
 # ── запуск ───────────────────────────────────────────────────────────────
-Step 'Запускаю Полку'
-$polka = Start-Process -FilePath $Py -ArgumentList '-m', 'polka' -WorkingDirectory $App -PassThru -WindowStyle Minimized
-Start-Sleep -Seconds 4
-if ($polka.HasExited) { Fail 'Полка не поднялась. Запусти вручную: python -m polka' }
-
-Step 'Поднимаю адрес и вешаю кнопку боту'
-& $Py -m polka.setup --tunnel
-$tunnelResult = $LASTEXITCODE
-
-if (-not $polka.HasExited) { Stop-Process -Id $polka.Id -Force -ErrorAction SilentlyContinue }
-
-if ($tunnelResult -eq 2) {
-    # Сеть не пускает к сервису туннелей. Кнопки в Telegram не будет, но всё
-    # остальное работает, поэтому просто запускаем Полку и показываем адрес.
-    Write-Host "`nЗапускаю Полку без мини-приложения. Бот и напоминания работают." -ForegroundColor Yellow
-    Write-Host "Интерфейс открой в браузере по ссылке ниже.`n" -ForegroundColor Yellow
-    & $Py -m polka
-}
+# Полка сама поднимает туннель и вешает кнопку, всё живёт одним процессом
+# в этом окне. Раньше они запускались порознь, и закрытие одного оставляло
+# кнопку в Telegram висеть на мёртвом адресе.
+Write-Host "`nЗапускаю Полку. Это окно должно оставаться открытым.`n" -ForegroundColor Cyan
+& $Py -m polka --tunnel
 
 Read-Host 'Enter чтобы закрыть'

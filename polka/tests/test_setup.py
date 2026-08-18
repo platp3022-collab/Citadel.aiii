@@ -175,6 +175,39 @@ class ReachabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await original(timeout=0.001))
 
 
+class ClearMenuTests(unittest.IsolatedAsyncioTestCase):
+    """Кнопка на мёртвый адрес хуже отсутствия кнопки."""
+
+    async def asyncSetUp(self):
+        self.api = FakeBotApi()
+        base = await self.api.start()
+        self.saved = {k: os.environ.get(k) for k in
+                      ("POLKA_TELEGRAM_API", "TELEGRAM_BOT_TOKEN", "POLKA_CHAT_ID")}
+        os.environ["POLKA_TELEGRAM_API"] = base
+        os.environ["TELEGRAM_BOT_TOKEN"] = "111:TEST"
+        os.environ["POLKA_CHAT_ID"] = "42"
+
+    async def asyncTearDown(self):
+        await self.api.stop()
+        for key, value in self.saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    async def test_button_is_replaced_with_commands(self):
+        from polka.config import load_config
+        await wire("https://a.example.com", quiet=True)
+        self.assertEqual(self.api.menu["type"], "web_app")
+        self.assertTrue(await polka_setup.clear_menu_button(load_config()))
+        self.assertEqual(self.api.menu, {"type": "commands"})
+
+    async def test_without_token_nothing_happens(self):
+        from polka.config import load_config
+        os.environ["TELEGRAM_BOT_TOKEN"] = ""
+        self.assertFalse(await polka_setup.clear_menu_button(load_config()))
+
+
 class TunnelReachesPolkaTests(unittest.IsolatedAsyncioTestCase):
     """Адрес выдаётся раньше, чем маршрут заработает, поэтому нужна проверка."""
 
