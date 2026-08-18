@@ -1,40 +1,74 @@
 //@version=5
 // Citadel.aiii — Bubble
-// Облако пузырей внутри каждой свечи, как трейды в Bookmap.
+// Облако пузырей внутри каждой свечи (как трейды в Bookmap) + тепловая карта уровней.
 //   размер пузыря — сколько объёма прошло на этом ценовом уровне
-//   цвет пузыря   — синий: пусто | оранжевый: 50/50 | красный: одна сторона давит
-indicator("Bubble", overlay = true, max_labels_count = 500)
+//   цвет          — синий: пусто | оранжевый: 50/50 | красный: одна сторона давит
+indicator("Bubble", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 50)
 
-// ---------- режим ----------
-mode     = input.string("Облако по уровням", "Режим пузырей", options = ["Облако по уровням", "Один пузырь на бар"])
-levels   = input.int(3, "Уровней внутри свечи", minval = 1, maxval = 12)
-histBars = input.int(120, "Сколько последних баров рисовать", minval = 10, maxval = 500)
-minShow  = input.float(0.15, "Не рисовать уровни легче", minval = 0.0, maxval = 1.0, step = 0.05)
-sizeCap  = input.string("Средний", "Максимальный размер пузыря", options = ["Мелкий", "Средний", "Крупный"])
-volLen   = input.int(50, "Окно нормировки размера", minval = 5)
-volSat   = input.float(3.0, "Во сколько раз объём на уровне даёт максимальный пузырь", minval = 1.0, maxval = 10.0, step = 0.5)
-wickW    = input.float(0.35, "Вес фитилей относительно тела", minval = 0.05, maxval = 1.0, step = 0.05)
+// ---------- режим пузырей ----------
+gBub = "Пузыри"
+mode     = input.string("Облако по уровням", "Режим пузырей", options = ["Облако по уровням", "Один пузырь на бар"], group = gBub)
+levels   = input.int(3, "Уровней внутри свечи", minval = 1, maxval = 12, group = gBub)
+histBars = input.int(120, "Сколько последних баров рисовать", minval = 10, maxval = 500, group = gBub)
+minShow  = input.float(0.15, "Не рисовать уровни легче", minval = 0.0, maxval = 1.0, step = 0.05, group = gBub)
+sizeCap  = input.string("Средний", "Максимальный размер пузыря", options = ["Мелкий", "Средний", "Крупный"], group = gBub)
+volLen   = input.int(50, "Окно нормировки размера", minval = 5, group = gBub)
+volSat   = input.float(3.0, "Во сколько раз объём на уровне даёт максимальный пузырь", minval = 1.0, maxval = 10.0, step = 0.5, group = gBub)
+wickW    = input.float(0.35, "Вес фитилей относительно тела", minval = 0.05, maxval = 1.0, step = 0.05, group = gBub)
+showBub  = input.bool(true, "Показывать пузыри", group = gBub)
 
 // ---------- движок тепла ----------
-lenVol   = input.int(50, "Окно активности (баров)", minval = 5)
-lenDelta = input.int(14, "Окно дельты (баров)", minval = 1)
-imbSat   = input.float(0.5, "Насыщение перевеса", minval = 0.05, maxval = 1.0, step = 0.05)
-smooth   = input.int(2, "Сглаживание тепла", minval = 1)
-useVola  = input.bool(true, "Учитывать волатильность")
-flowMode = input.string("Смешанная", "Как делить объём", options = ["Позиция закрытия", "Тиковое правило", "Смешанная"])
+gEng = "Движок тепла"
+lenVol   = input.int(50, "Окно активности (баров)", minval = 5, group = gEng)
+lenDelta = input.int(14, "Окно дельты (баров)", minval = 1, group = gEng)
+imbSat   = input.float(0.5, "Насыщение перевеса", minval = 0.05, maxval = 1.0, step = 0.05, group = gEng)
+smooth   = input.int(2, "Сглаживание тепла", minval = 1, group = gEng)
+useVola  = input.bool(true, "Учитывать волатильность", group = gEng)
+flowMode = input.string("Смешанная", "Как делить объём", options = ["Позиция закрытия", "Тиковое правило", "Смешанная"], group = gEng)
 
-orgThr   = input.float(0.35, "Порог оранжевого", minval = 0.05, maxval = 0.95, step = 0.05)
-redThr   = input.float(0.65, "Порог красного", minval = 0.10, maxval = 1.00, step = 0.05)
-imbEntry = input.float(0.45, "Мин. перевес для сигнала", minval = 0.0, maxval = 1.0, step = 0.05)
+// ---------- сигналы ----------
+gSig = "Сигналы"
+orgThr   = input.float(0.35, "Порог оранжевого", minval = 0.05, maxval = 0.95, step = 0.05, group = gSig)
+redThr   = input.float(0.65, "Порог красного", minval = 0.10, maxval = 1.00, step = 0.05, group = gSig)
+imbEntry = input.float(0.45, "Мин. перевес для сигнала", minval = 0.0, maxval = 1.0, step = 0.05, group = gSig)
+showSig  = input.bool(true, "Метки точек входа", group = gSig)
+dirColor = input.bool(true, "Красить стрелки по направлению", group = gSig)
+colorBar = input.bool(false, "Красить бары по теплу", group = gSig)
+colorBg  = input.bool(false, "Красить фон по теплу", group = gSig)
 
-showBub  = input.bool(true, "Показывать пузыри")
-showSig  = input.bool(true, "Метки точек входа")
-colorBar = input.bool(false, "Красить бары по теплу")
-colorBg  = input.bool(false, "Красить фон по теплу")
+// ---------- фильтр новостей ----------
+// Pine не имеет доступа к экономическому календарю, поэтому фильтр состоит из
+// ручных окон времени и автодетекта аномального бара.
+gNews = "Фильтр новостей"
+useNews  = input.bool(true, "Не входить в новости", group = gNews)
+newsTz   = input.string("Europe/Kiev", "Часовой пояс окон", options = ["Europe/Kiev", "Europe/London", "Europe/Berlin", "Europe/Moscow", "America/New_York", "Asia/Tokyo", "UTC"], group = gNews)
+use1     = input.bool(true, "Окно 1", group = gNews)
+sess1    = input.session("1520-1545", "Время окна 1", group = gNews)
+use2     = input.bool(true, "Окно 2", group = gNews)
+sess2    = input.session("1620-1645", "Время окна 2", group = gNews)
+use3     = input.bool(false, "Окно 3", group = gNews)
+sess3    = input.session("2050-2130", "Время окна 3", group = gNews)
+spikeOn  = input.bool(true, "Ловить внезапные всплески", group = gNews)
+spikeMlt = input.float(2.5, "Бар больше ATR во столько раз", minval = 1.2, maxval = 10.0, step = 0.1, group = gNews)
+freezeN  = input.int(3, "Пауза после всплеска (баров)", minval = 1, maxval = 50, group = gNews)
+showNews = input.bool(true, "Подсвечивать запрет фоном", group = gNews)
 
-cBlue = input.color(#1565C0, "Синий — пусто")
-cOrg  = input.color(#FF9800, "Оранжевый — 50/50")
-cRed  = input.color(#D50000, "Красный — вход")
+// ---------- тепловая карта уровней ----------
+gHm = "Тепловая карта уровней"
+showHm = input.bool(true, "Показывать карту уровней", group = gHm)
+hmLen  = input.int(200, "Глубина карты (баров)", minval = 20, maxval = 1000, group = gHm)
+hmRows = input.int(24, "Число уровней", minval = 5, maxval = 60, group = gHm)
+hmExt  = input.int(10, "Вынос вправо (баров)", minval = 0, maxval = 100, group = gHm)
+hmTr   = input.int(82, "Прозрачность холодных уровней", minval = 0, maxval = 100, group = gHm)
+hmPoc  = input.bool(true, "Линия POC (главный уровень)", group = gHm)
+
+// ---------- цвета ----------
+gCol = "Цвета"
+cBlue = input.color(#1565C0, "Синий — пусто", group = gCol)
+cOrg  = input.color(#FF9800, "Оранжевый — 50/50", group = gCol)
+cRed  = input.color(#D50000, "Красный — вход", group = gCol)
+cLong = input.color(#00C853, "Стрелка в лонг", group = gCol)
+cShort = input.color(#D50000, "Стрелка в шорт", group = gCol)
 
 // ---------- деление объёма на покупки и продажи ----------
 vol = nz(volume)
@@ -58,6 +92,16 @@ imb = math.min(imbRaw / imbSat, 1.0)
 heatRaw = act * (0.5 + 0.5 * imb)
 heat = math.min(math.max(nz(ta.sma(heatRaw, smooth)), 0), 1)
 bull = dSum > 0
+
+// ---------- фильтр новостей ----------
+inS1 = use1 and not na(time(timeframe.period, sess1, newsTz))
+inS2 = use2 and not na(time(timeframe.period, sess2, newsTz))
+inS3 = use3 and not na(time(timeframe.period, sess3, newsTz))
+atrN = nz(ta.atr(14))
+spike = spikeOn and atrN > 0 and ta.tr(true) > atrN * spikeMlt
+sinceSpike = nz(ta.barssince(spike), 9999)
+frozen = spikeOn and sinceSpike < freezeN
+newsBlock = useNews and (inS1 or inS2 or inS3 or frozen)
 
 // ---------- цвет ----------
 heatCol(float h) =>
@@ -116,17 +160,70 @@ plot(p3, "Пузырь 3", cHeat, 3, plot.style_circles)
 plot(p4, "Пузырь 4", cHeat, 4, plot.style_circles)
 plot(p5, "Пузырь 5", cHeat, 5, plot.style_circles)
 
+// ---------- тепловая карта уровней ----------
+var array<box> hmBoxes = array.new_box()
+var array<line> hmLines = array.new_line()
+
+hmDepth = math.max(1, math.min(hmLen, bar_index))
+hmTop = ta.highest(high, hmDepth)
+hmBot = ta.lowest(low, hmDepth)
+
+if showHm and barstate.islast
+    for i = 0 to array.size(hmBoxes) - 1
+        box.delete(array.get(hmBoxes, i))
+    array.clear(hmBoxes)
+    for i = 0 to array.size(hmLines) - 1
+        line.delete(array.get(hmLines, i))
+    array.clear(hmLines)
+    rowStep = (hmTop - hmBot) / hmRows
+    if rowStep > 0
+        binVol = array.new_float(hmRows, 0.0)
+        binDlt = array.new_float(hmRows, 0.0)
+        for i = 0 to hmDepth - 1
+            barLo = math.max(low[i], hmBot)
+            barHi = math.min(high[i], hmTop)
+            loIdx = math.max(0, math.min(hmRows - 1, int(math.floor((barLo - hmBot) / rowStep))))
+            hiIdx = math.max(0, math.min(hmRows - 1, int(math.floor((barHi - hmBot) / rowStep))))
+            cnt = hiIdx - loIdx + 1
+            share = nz(volume[i]) / cnt
+            sgn = 2 * nz(buyR[i], 0.5) - 1
+            for j = loIdx to hiIdx
+                array.set(binVol, j, array.get(binVol, j) + share)
+                array.set(binDlt, j, array.get(binDlt, j) + share * sgn)
+        maxV = array.max(binVol)
+        pocIdx = 0
+        if maxV > 0
+            for j = 0 to hmRows - 1
+                v = array.get(binVol, j)
+                if v == maxV
+                    pocIdx := j
+                vShare = v / maxV
+                dShare = v > 0 ? math.min(math.abs(array.get(binDlt, j)) / v / imbSat, 1.0) : 0.0
+                hLvl = math.min(math.max(vShare * (0.5 + 0.5 * dShare), 0), 1)
+                rowLo = hmBot + rowStep * j
+                rowTr = int(math.max(10, math.min(100, hmTr - (hmTr - 20) * hLvl)))
+                array.push(hmBoxes, box.new(left = bar_index - hmDepth + 1, top = rowLo + rowStep, right = bar_index + hmExt, bottom = rowLo, border_color = color.new(color.gray, 100), bgcolor = color.new(heatCol(hLvl), rowTr)))
+            if hmPoc
+                pocPrice = hmBot + rowStep * (pocIdx + 0.5)
+                array.push(hmLines, line.new(x1 = bar_index - hmDepth + 1, y1 = pocPrice, x2 = bar_index + hmExt, y2 = pocPrice, color = cRed, style = line.style_dashed, width = 2))
+
 // ---------- сигналы ----------
 isEntry = heat >= redThr and imb >= imbEntry
-buyEntry = isEntry and bull
-sellEntry = isEntry and not bull
+buyEntry = isEntry and bull and not newsBlock
+sellEntry = isEntry and not bull and not newsBlock
 balance = heat >= orgThr and heat < redThr
+blocked = isEntry and newsBlock
 
-plotshape(showSig and buyEntry, "Вход покупки", shape.triangleup, location.belowbar, cRed, size = size.tiny)
-plotshape(showSig and sellEntry, "Вход продажи", shape.triangledown, location.abovebar, cRed, size = size.tiny)
+colUp = dirColor ? cLong : cRed
+colDn = dirColor ? cShort : cRed
+
+plotshape(showSig and buyEntry, "Вход в лонг", shape.triangleup, location.belowbar, colUp, size = size.tiny)
+plotshape(showSig and sellEntry, "Вход в шорт", shape.triangledown, location.abovebar, colDn, size = size.tiny)
+plotshape(showSig and blocked, "Сигнал заблокирован новостями", shape.xcross, location.abovebar, color.new(color.gray, 30), size = size.tiny)
 
 barcolor(colorBar ? cHeat : na, title = "Бары по теплу")
 bgcolor(colorBg ? color.new(cHeat, 88) : na, title = "Фон по теплу")
+bgcolor(showNews and newsBlock ? color.new(color.gray, 82) : na, title = "Запрет по новостям")
 
 // ---------- значения для Data Window ----------
 // именно plotchar, а не plot: plot с процентами уводит индикатор на собственную
@@ -136,9 +233,10 @@ plotchar(act * 100, "Активность %", "", location.top, display = displa
 plotchar(imb * 100, "Перевес %", "", location.top, display = display.data_window)
 plotchar(buyR * 100, "Покупки %", "", location.top, display = display.data_window)
 plotchar(dSum, "Дельта", "", location.top, display = display.data_window)
+plotchar(newsBlock ? 1 : 0, "Новости блокируют", "", location.top, display = display.data_window)
 
 // ---------- алерты ----------
-alertcondition(buyEntry, "Точка входа покупки", "Bubble: красная зона, давят покупатели")
-alertcondition(sellEntry, "Точка входа продажи", "Bubble: красная зона, давят продавцы")
-alertcondition(isEntry, "Красная зона", "Bubble: красная зона")
+alertcondition(buyEntry, "Вход в лонг", "Bubble: красная зона, давят покупатели")
+alertcondition(sellEntry, "Вход в шорт", "Bubble: красная зона, давят продавцы")
+alertcondition(buyEntry or sellEntry, "Любой вход", "Bubble: красная зона")
 alertcondition(balance, "Оранжевая зона 50 на 50", "Bubble: объём пришёл, стороны равны")
