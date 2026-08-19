@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")"
+export PYTHONUTF8=1
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Python3 не найден. Установи Python 3.11+ и запусти скрипт снова."

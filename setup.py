@@ -21,6 +21,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+# Windows-консоль бывает в cp866/cp1251 — без этого печать эмодзи роняет мастер.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # noqa: PERF203
+        pass
+
 ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / ".env"
 PASSPORT_PATH = ROOT / "marketing.json"
