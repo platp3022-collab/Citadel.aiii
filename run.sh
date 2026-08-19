@@ -15,9 +15,10 @@ fi
 source .venv/bin/activate
 pip install -q -r requirements.txt
 
-if [ ! -f .env ]; then
-    echo ".env не найден. Скопируй .env.example в .env и впиши токен бота."
-    exit 1
+if [ ! -f .env ] || ! grep -q "^TELEGRAM_BOT_TOKEN=." .env; then
+    echo "Первый запуск — открываю мастер настройки."
+    python setup.py
+    exit $?
 fi
 
 echo "Запускаю бота. Не закрывай терминал — пока он открыт, бот сканирует и шлёт алерты."

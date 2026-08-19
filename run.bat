@@ -17,9 +17,10 @@ call .venv\Scripts\activate.bat
 pip install -q -r requirements.txt
 
 if not exist .env (
-    echo .env не найден. Скопируй .env.example в .env и впиши токен бота.
+    echo Первый запуск — открываю мастер настройки.
+    python setup.py
     pause
-    exit /b 1
+    exit /b 0
 )
 
 echo Запускаю бота. Не закрывай это окно — пока оно открыто, бот сканирует и шлёт алерты.
