@@ -209,19 +209,36 @@ def step_channel(token: str, env: dict[str, str]) -> str:
             return ""
         try:
             chat = api(token, "getChat", chat_id=channel)
-            member = api(token, "getChatMember", chat_id=channel,
-                         user_id=api(token, "getMe").get("id"))
         except SetupError as e:
-            say(f"  ❌ {e}")
+            # канала нет, опечатка в имени или он приватный и бот туда не добавлен
+            say(f"  ❌ Канал не найден: {e}")
+            say("     Проверь имя (Управление каналом → Тип канала → t.me/…) "
+                "и что бот добавлен в канал.")
             if confirm("  Ввести другой канал?"):
                 current = ""
                 continue
             return channel
+        say(f"  ✅ Канал: {chat.get('title')} (id {chat.get('id')})")
+
+        # права — проверка необязательная: канал уже принят, это лишь предупреждение
+        try:
+            member = api(token, "getChatMember", chat_id=channel,
+                         user_id=api(token, "getMe").get("id"))
+        except SetupError as e:
+            say(f"  ⚠️ Права проверить не удалось ({e}).")
+            say("     Обычно это значит, что бот ещё не администратор канала:")
+            say("     Управление каналом → Администраторы → Добавить → выбери бота")
+            say("     → включи «Публикация сообщений».")
+            return channel
         status = member.get("status")
         can_post = member.get("can_post_messages", status == "creator")
-        say(f"  ✅ Канал: {chat.get('title')} (id {chat.get('id')})")
-        if status not in ("administrator", "creator") or not can_post:
-            say("  ⚠️ Бот не админ канала или не может публиковать — выдай права в настройках канала.")
+        if status not in ("administrator", "creator"):
+            say("  ⚠️ Бот в канале не администратор — публиковать не сможет. "
+                "Выдай права в настройках канала.")
+        elif not can_post:
+            say("  ⚠️ Бот админ, но без права «Публикация сообщений» — включи его.")
+        else:
+            say("  ✅ Бот админ и может публиковать.")
         return channel
 
 
