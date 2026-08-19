@@ -19,6 +19,11 @@ cd Citadel.aiii
 cp .env.example .env
 nano .env   # впиши TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID, TELEGRAM_CHAT_ID
 
+# 3b. Если пользуешься маркетинг-панелью — паспорт проекта в примонтированный каталог,
+#     чтобы он пережил пересборку образа (в .env добавь MARKETING_PASSPORT=data/marketing.json)
+mkdir -p data && cp marketing.example.json data/marketing.json
+nano data/marketing.json
+
 # 4. Собери и запусти — с автоперезапуском при падении/перезагрузке сервера
 docker build -t memebot .
 docker run -d --name memebot --restart unless-stopped \
@@ -53,6 +58,10 @@ cd /opt/memebot
 sudo cp .env.example .env
 sudo nano .env   # впиши TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID, TELEGRAM_CHAT_ID
 
+# 3b. Маркетинг-панель: паспорт проекта (пропусти, если не нужна)
+sudo cp marketing.example.json marketing.json
+sudo nano marketing.json
+
 # 4. Виртуальное окружение и зависимости
 sudo python3 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
@@ -75,6 +84,9 @@ sudo git pull
 sudo .venv/bin/pip install -r requirements.txt
 sudo systemctl restart memebot
 ```
+
+Маркетинг-панель на сервере работает так же, как локально: пишешь боту в личку инфоповод — получаешь
+контент-пак с кнопками публикации. Нужен `ANTHROPIC_API_KEY` в `.env`; ключи X и OpenAI — по желанию.
 
 После любого из способов бот работает постоянно на сервере: сканирует рынок и шлёт тебе алерты в Telegram
 независимо от того, где ты сам и включён ли твой компьютер/телефон — главное, чтобы у тебя было включено

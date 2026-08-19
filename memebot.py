@@ -52,6 +52,8 @@ try:
 except ImportError:
     feedparser = None
 
+import marketing  # маркетинговая панель (генерация контент-паков)
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("memebot")
 
@@ -118,6 +120,14 @@ CONFIG: dict[str, Any] = {
         },
     },
     "llm": {"enabled": False, "model": "claude-sonnet-5"},
+    # Маркетинг-панель: инфоповод → контент-пак (TG, X, тред, raid, промты).
+    # Нужен ANTHROPIC_API_KEY; публикация — только по кнопке из админ-чата.
+    "marketing": {
+        "enabled": True,
+        "model": "claude-opus-5",
+        "passport_path": "marketing.json",
+        "auto_brief": True,                  # любой текст в админ-чате = инфоповод
+    },
     "tracking": {"interval_minutes": 15, "window_hours": 48},
     "storage": {"path": "data/memebot.db", "keep_days": 7},
 }
@@ -1158,13 +1168,17 @@ class Telegram:
         return list(dict.fromkeys(targets))
 
     async def send(self, text: str, chat_id: str | None = None,
-                   preview: bool = False) -> bool:
+                   preview: bool = False, reply_markup: dict | None = None) -> bool:
         target = chat_id or self.channel_id or self.admin_chat_id
         if self.dry or not self.token or not target:
             print(f"\n--- [TG → {target or 'нет адресата'}] ---\n{text}\n")
+            if reply_markup:
+                print(f"[кнопки] {json.dumps(reply_markup, ensure_ascii=False)}")
             return True
         payload = {"chat_id": target, "text": text[:4090], "parse_mode": "HTML",
                    "disable_web_page_preview": not preview}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         for attempt in range(3):
             try:
                 async with self.session.post(f"{self.api}/sendMessage", json=payload,
@@ -1198,12 +1212,73 @@ class Telegram:
             await asyncio.sleep(0.4)
         return ok
 
+    async def send_photo(self, photo: bytes, caption: str = "",
+                         chat_id: str | None = None) -> bool:
+        target = chat_id or self.admin_chat_id or self.channel_id
+        if self.dry or not self.token or not target:
+            print(f"\n--- [TG photo → {target or 'нет адресата'}] {len(photo)} байт ---\n"
+                  f"{caption}\n")
+            return True
+        form = aiohttp.FormData()
+        form.add_field("chat_id", str(target))
+        if caption:
+            form.add_field("caption", caption[:1000])
+            form.add_field("parse_mode", "HTML")
+        form.add_field("photo", photo, filename="image.png", content_type="image/png")
+        try:
+            async with self.session.post(f"{self.api}/sendPhoto", data=form,
+                                         timeout=aiohttp.ClientTimeout(total=90)) as r:
+                if r.status != 200:
+                    log.warning("sendPhoto %s: %s", r.status, (await r.text())[:250])
+                    return False
+                return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("sendPhoto: %s", e)
+            return False
+
+    async def answer_callback(self, callback_id: str, text: str = "",
+                              alert: bool = False) -> bool:
+        if self.dry or not self.token or not callback_id:
+            print(f"\n--- [TG callback ответ] {text} ---\n")
+            return True
+        payload = {"callback_query_id": callback_id, "text": text[:200],
+                   "show_alert": alert}
+        try:
+            async with self.session.post(f"{self.api}/answerCallbackQuery", json=payload,
+                                         timeout=aiohttp.ClientTimeout(total=15)) as r:
+                return r.status == 200
+        except Exception as e:  # noqa: BLE001
+            log.warning("answerCallbackQuery: %s", e)
+            return False
+
+    async def download(self, file_id: str) -> bytes | None:
+        """Скачать присланный боту файл/голосовое."""
+        if self.dry or not self.token or not file_id:
+            return None
+        try:
+            async with self.session.get(f"{self.api}/getFile",
+                                        params={"file_id": file_id},
+                                        timeout=aiohttp.ClientTimeout(total=20)) as r:
+                if r.status != 200:
+                    log.warning("getFile %s: %s", r.status, (await r.text())[:200])
+                    return None
+                path = dig(await r.json(content_type=None), "result", "file_path")
+            if not path:
+                return None
+            url = f"https://api.telegram.org/file/bot{self.token}/{path}"
+            async with self.session.get(url,
+                                        timeout=aiohttp.ClientTimeout(total=120)) as r:
+                return await r.read() if r.status == 200 else None
+        except Exception as e:  # noqa: BLE001
+            log.warning("Скачивание файла: %s", e)
+            return None
+
     async def get_updates(self, timeout: int = 25) -> list[dict]:
         if not self.token or self.dry:
             await asyncio.sleep(timeout)
             return []
         params = {"timeout": timeout, "offset": self.offset,
-                  "allowed_updates": '["message","channel_post"]'}
+                  "allowed_updates": '["message","channel_post","callback_query"]'}
         try:
             async with self.session.get(f"{self.api}/getUpdates", params=params,
                                         timeout=aiohttp.ClientTimeout(total=timeout + 15)) as r:
@@ -1366,7 +1441,11 @@ HELP = (
     "/mute [минуты] — тишина · /unmute\n"
     "/news — свежие заголовки\n"
     "/id — показать chat_id этого чата\n"
-    "/help — справка"
+    "/help — справка\n\n"
+    "🎯 <b>Маркетинг</b>\n"
+    "/mkt [инфоповод] — собрать контент-пак (TG, X, тред, raid, промты)\n"
+    "/mkt_on · /mkt_off — ловить любой текст в чате как инфоповод\n"
+    "/passport — паспорт проекта · /drafts — черновики"
 )
 
 
@@ -1389,6 +1468,27 @@ class Bot:
         self.alerts_sent = 0
         self.last_seen = 0
         self.stop_event = asyncio.Event()
+        self.mkt = self._init_marketing(session, dry)
+
+    def _init_marketing(self, session: aiohttp.ClientSession,
+                        dry: bool) -> "marketing.MarketingPanel | None":
+        if not cfg("marketing.enabled", True):
+            return None
+        if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+            log.info("Маркетинг-панель выключена: нет ANTHROPIC_API_KEY")
+            return None
+        panel = marketing.MarketingPanel(
+            session, self.tg,
+            db_path=cfg("storage.path", "data/memebot.db"),
+            passport_path=cfg("marketing.passport_path", "marketing.json"),
+            model=cfg("marketing.model", "claude-opus-5"),
+            auto_brief=bool(cfg("marketing.auto_brief", True)),
+            dry=dry)
+        missing = panel.passport.missing()
+        if missing:
+            log.warning("Паспорт проекта не заполнен (%s) — публикация будет "
+                        "заблокирована, см. marketing.json", ", ".join(missing))
+        return panel
 
     # ---------- сбор кандидатов ----------
 
@@ -1570,13 +1670,35 @@ class Bot:
             return
         while not self.stop_event.is_set():
             for u in await self.tg.get_updates():
+                allowed = {self.tg.admin_chat_id, self.tg.channel_id} - {""}
+
+                cb = u.get("callback_query")
+                if cb:
+                    cb_chat = str(((cb.get("message") or {}).get("chat") or {}).get("id", ""))
+                    if allowed and cb_chat not in allowed:
+                        await self.tg.answer_callback(str(cb.get("id") or ""),
+                                                      "Кнопка не для этого чата.")
+                        continue
+                    try:
+                        if not (self.mkt and await self.mkt.handle_callback(cb)):
+                            await self.tg.answer_callback(str(cb.get("id") or ""),
+                                                          "Кнопка устарела.")
+                    except Exception as e:  # noqa: BLE001
+                        log.exception("Callback %s: %s", cb.get("data"), e)
+                    continue
+
                 msg = u.get("message") or u.get("channel_post") or {}
                 text = (msg.get("text") or "").strip()
                 chat_id = str((msg.get("chat") or {}).get("id", ""))
                 if not text.startswith("/"):
+                    # свободный текст/голосовое/файл из админ-чата = инфоповод
+                    if self.mkt and chat_id and chat_id == self.tg.admin_chat_id:
+                        try:
+                            await self.mkt.handle_message(msg, chat_id)
+                        except Exception as e:  # noqa: BLE001
+                            log.exception("Инфоповод: %s", e)
                     continue
                 # команды принимаем только из админ-чата (или из канала, если он же админ)
-                allowed = {self.tg.admin_chat_id, self.tg.channel_id} - {""}
                 if allowed and chat_id not in allowed and text.split()[0] != "/id":
                     continue
                 try:
@@ -1588,8 +1710,18 @@ class Bot:
         parts = text.split()
         cmd = parts[0].lower().split("@")[0]
         arg = parts[1] if len(parts) > 1 else None
+        rest = text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else ""
         def hours() -> float:
             return num(arg, 24) if arg else 24
+
+        if cmd in ("/mkt", "/mkt_on", "/mkt_off", "/passport", "/drafts"):
+            if not self.mkt:
+                await self.tg.send(
+                    "Маркетинг-панель выключена: задай ANTHROPIC_API_KEY в .env "
+                    "(и marketing.enabled в конфиге).", chat_id)
+                return
+            await self.mkt.handle_command(cmd, rest, chat_id)
+            return
 
         if cmd in ("/start", "/help"):
             await self.tg.send(HELP, chat_id)
@@ -1646,7 +1778,8 @@ class Bot:
         await self.tg.send(
             f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
             f"Порог: {self.threshold:.0f}/100\n"
-            f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
+            f"Канал: {esc(self.tg.channel_id or 'не задан')}\n"
+            f"Маркетинг-панель: {'вкл' if self.mkt else 'выкл'}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
                              self.tracker_loop(), self.telegram_loop())

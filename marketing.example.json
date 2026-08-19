@@ -1,0 +1,14 @@
+{
+  "name": "[Например: Doge King]",
+  "ticker": "[Например: $DKING]",
+  "chain": "[TON / Solana / Ethereum / BNB / Base]",
+  "contract": "[Вставьте адрес контракта]",
+  "buy_link": "[Ссылка на покупку: Raydium / Jupiter / Ston.fi / Uniswap]",
+  "chart_link": "[Ссылка на DexScreener или Dextools]",
+  "market_cap": "[Например: $100k]",
+  "target_market_cap": "[Например: $10M]",
+  "mascot": "[Персонаж, его история и характер: кто он, откуда, чем цепляет, как шутит]",
+  "tg_channel": "[@your_channel]",
+  "tg_chat": "[@your_chat]",
+  "x_url": "[https://x.com/your_project]"
+}
