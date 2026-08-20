@@ -6,9 +6,14 @@ Everything is drawn on a small integer grid and then exported both as SVG
 (nearest-neighbour upscale, written with zlib only - no third-party deps).
 
 Run:  python3 tools/make_assets.py
+
+It also re-embeds the mascot into index.html, between the <!-- fish:start -->
+and <!-- fish:end --> markers, so the single-file page picks up any edit made
+to the palette or to draw_fish().
 """
 
 import os
+import re
 import struct
 import zlib
 
@@ -229,6 +234,23 @@ def to_png(g, path, scale=1):
         fh.write(png)
 
 
+def embed_in_page(fish):
+    """Replace the <symbol id="fish"> block inside the single-file index.html."""
+    page = os.path.normpath(os.path.join(HERE, "..", "index.html"))
+    if not os.path.exists(page):
+        return
+    inner = to_svg(fish).split(">", 1)[1].rsplit("</svg>", 1)[0]
+    block = ('<!-- fish:start -->\n'
+             '<svg width="0" height="0" style="position:absolute" aria-hidden="true">\n'
+             '  <symbol id="fish" viewBox="0 0 %d %d" shape-rendering="crispEdges">' % (W, H)
+             + inner + '</symbol>\n</svg>\n<!-- fish:end -->')
+    html = open(page).read()
+    new = re.sub(r"<!-- fish:start -->.*?<!-- fish:end -->", lambda m: block, html, flags=re.S)
+    if new != html:
+        open(page, "w").write(new)
+        print("embedded mascot into", page)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     fish = draw_fish()
@@ -243,6 +265,7 @@ def main():
     icon = scene(fish, w=56, h=56, ox=5, oy=12)
     to_png(icon, os.path.join(OUT, "favicon.png"), scale=4)
 
+    embed_in_page(fish)
     print("wrote assets to", OUT)
 
 

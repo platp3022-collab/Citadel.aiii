@@ -10,20 +10,606 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="BITFISH ($BFISH) — the pixel fish of the Solana ocean">
 <meta property="og:description" content="Fair launch on pump.fun. Liquidity burned, mint revoked, 100% community. Swim with the school.">
-<meta property="og:image" content="assets/img/og.png">
-<meta name="twitter:card" content="summary_large_image">
+<!-- Social preview: upload assets/img/og.png next to this page and put its
+     absolute URL here, e.g. https://yourdomain/og.png -->
+<!-- <meta property="og:image" content="https://yourdomain/og.png"> -->
+<meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="BITFISH ($BFISH)">
 <meta name="twitter:description" content="The pixel fish swimming the Solana ocean. Fair launch, burned LP, community owned.">
-<meta name="twitter:image" content="assets/img/og.png">
 
-<link rel="icon" href="assets/img/favicon.png" type="image/png">
-<link rel="apple-touch-icon" href="assets/img/favicon.png">
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
+<script>document.documentElement.classList.add("js");</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Press+Start+2P&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/style.css">
+<style>
+/* =========================================================================
+   Ocean theme - deep sea palette, pixel accents
+   ========================================================================= */
+:root {
+  --abyss: #030d1c;
+  --deep: #071a33;
+  --mid: #0c2a4d;
+  --shelf: #124a7d;
+  --surface: #1f7fb8;
+
+  --cyan: #3fb2e6;
+  --cyan-bright: #8fe4ff;
+  --gold: #e3a01e;
+  --gold-bright: #f6cd5f;
+  --coral: #e2564d;
+
+  --foam: #eaf7ff;
+  --muted: #9dc0dc;
+  --line: rgba(143, 228, 255, 0.16);
+  --glass: rgba(9, 32, 58, 0.62);
+
+  --pixel: "Press Start 2P", "Courier New", monospace;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --radius: 18px;
+  --maxw: 1180px;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+
+body {
+  margin: 0;
+  position: relative;
+  /* the gradient spans the whole document, so scrolling really is a dive */
+  background:
+    linear-gradient(180deg,
+      #1e6fa8 0%,
+      #14598a 5%,
+      #0d3f68 12%,
+      #0a2f50 22%,
+      #072440 38%,
+      #061c34 56%,
+      #041428 76%,
+      #030e1f 100%) no-repeat;
+  font-family: var(--sans);
+  color: var(--foam);
+  background: var(--abyss);
+  line-height: 1.65;
+  overflow-x: hidden;
+  background-color: var(--abyss);
+  -webkit-font-smoothing: antialiased;
+}
+
+img { max-width: 100%; display: block; }
+
+/* the mascot is one inline <symbol>, reused everywhere via <use> */
+.fish { display: block; height: auto; shape-rendering: crispEdges; }
+a { color: var(--cyan-bright); text-decoration: none; }
+a:hover { color: var(--gold-bright); }
+
+/* ------------------------------------------------------------- ocean bg -- */
+.ocean { /* sunlight pooling just under the surface */
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1500px;
+  z-index: -3;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(70, 165, 215, 0.55), rgba(70, 165, 215, 0.12) 46%, transparent 100%),
+    radial-gradient(110% 85% at 50% -8%, rgba(175, 240, 255, 0.35), transparent 60%);
+}
+
+.rays {
+  position: fixed;
+  inset: -20% -10% auto -10%;
+  height: 130vh;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    linear-gradient(94deg, transparent 46%, rgba(190, 240, 255, 0.10) 48%, transparent 52%),
+    linear-gradient(86deg, transparent 30%, rgba(190, 240, 255, 0.07) 33%, transparent 37%),
+    linear-gradient(100deg, transparent 66%, rgba(190, 240, 255, 0.08) 69%, transparent 73%);
+  filter: blur(6px);
+  animation: sway 16s ease-in-out infinite alternate;
+}
+
+@keyframes sway {
+  from { transform: translateX(-3%) skewX(-2deg); opacity: 0.75; }
+  to   { transform: translateX(3%) skewX(2deg); opacity: 1; }
+}
+
+#bubbles {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* swimming school in the background */
+.school { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+.school .fish {
+  position: absolute;
+  width: 90px;
+  opacity: 0.5;
+  animation: swim linear infinite;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+}
+@keyframes swim {
+  from { transform: translateX(-30vw) translateY(0) scaleX(1); }
+  50%  { transform: translateX(50vw) translateY(-22px) scaleX(1); }
+  to   { transform: translateX(130vw) translateY(0) scaleX(1); }
+}
+
+/* -------------------------------------------------------------- layout --- */
+.wrap { width: min(var(--maxw), 92vw); margin-inline: auto; }
+
+section { position: relative; padding: 96px 0; }
+
+.eyebrow {
+  font-family: var(--pixel);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--cyan-bright);
+  text-transform: uppercase;
+  margin-bottom: 18px;
+}
+
+h1, h2, h3 { line-height: 1.15; margin: 0 0 18px; }
+
+h2 {
+  font-size: clamp(28px, 4.4vw, 44px);
+  letter-spacing: -0.5px;
+}
+
+h2 .accent, h1 .accent {
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lead { color: var(--muted); font-size: clamp(16px, 1.6vw, 18px); max-width: 62ch; }
+
+/* --------------------------------------------------------------- navbar -- */
+.nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 50;
+  backdrop-filter: blur(14px);
+  background: rgba(4, 18, 36, 0.55);
+  border-bottom: 1px solid var(--line);
+  transition: background 0.3s ease;
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 68px;
+}
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--pixel); font-size: 13px; color: var(--foam); }
+.brand .fish { width: 38px; }
+.nav-links { display: flex; gap: 22px; margin-left: auto; }
+.nav-links a {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  position: relative;
+}
+.nav-links a::after {
+  content: "";
+  position: absolute;
+  left: 0; bottom: -6px;
+  width: 0; height: 2px;
+  background: var(--gold);
+  transition: width 0.25s ease;
+}
+.nav-links a:hover { color: var(--foam); }
+.nav-links a:hover::after { width: 100%; }
+
+.lang {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  font-family: var(--pixel);
+  font-size: 9px;
+}
+.lang button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  padding: 8px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+.lang button[aria-pressed="true"] { background: var(--cyan); color: #04121f; }
+
+.burger {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--foam);
+  width: 42px; height: 38px;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+/* -------------------------------------------------------------- buttons -- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 24px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.25s ease, background 0.25s ease;
+  font-family: inherit;
+}
+.btn:active { transform: translateY(1px); }
+.btn-gold {
+  background: linear-gradient(135deg, var(--gold-bright), var(--gold));
+  color: #2a1a02;
+  box-shadow: 0 10px 30px rgba(227, 160, 30, 0.32);
+}
+.btn-gold:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(227, 160, 30, 0.45); color: #2a1a02; }
+.btn-ghost {
+  background: rgba(143, 228, 255, 0.08);
+  border-color: var(--line);
+  color: var(--foam);
+}
+.btn-ghost:hover { background: rgba(143, 228, 255, 0.16); transform: translateY(-2px); color: var(--foam); }
+.btn-sm { padding: 10px 18px; font-size: 13px; }
+
+/* ----------------------------------------------------------------- hero -- */
+.hero { padding-top: 150px; padding-bottom: 40px; }
+.hero-grid > *, .about-grid > * { min-width: 0; } /* keep the long CA from stretching the grid */
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 46px;
+  align-items: center;
+}
+.hero h1 {
+  font-size: clamp(38px, 6.4vw, 74px);
+  letter-spacing: -2px;
+  font-weight: 800;
+}
+.hero .tagline {
+  font-family: var(--pixel);
+  font-size: clamp(10px, 1.4vw, 13px);
+  color: var(--cyan-bright);
+  letter-spacing: 1px;
+  margin-bottom: 22px;
+}
+.hero-cta { display: flex; flex-wrap: wrap; gap: 14px; margin: 30px 0 26px; }
+
+.hero-art { position: relative; display: grid; place-items: center; }
+.hero-art .fish {
+  width: min(430px, 88%);
+  animation: float 5.5s ease-in-out infinite;
+  filter: drop-shadow(0 20px 45px rgba(3, 13, 28, 0.75));
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-18px) rotate(1.5deg); }
+}
+.hero-art::before {
+  content: "";
+  position: absolute;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(63, 178, 230, 0.35), transparent 70%);
+  filter: blur(30px);
+  animation: pulse 6s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.15); opacity: 1; } }
+
+/* contract address box */
+.ca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: var(--glass);
+  max-width: 620px;
+}
+.ca .label {
+  font-family: var(--pixel);
+  font-size: 9px;
+  color: var(--gold-bright);
+  white-space: nowrap;
+}
+.ca code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--foam);
+  /* the address must always be readable in full - wrap, never truncate */
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.4;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.ca button { flex: none; }
+
+/* ---------------------------------------------------------------- stats -- */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 46px;
+}
+.stat {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  backdrop-filter: blur(8px);
+}
+.stat .k { font-family: var(--pixel); font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+.stat .v { font-size: clamp(20px, 2.4vw, 28px); font-weight: 800; margin-top: 10px; color: var(--gold-bright); }
+.stat .v.small { font-size: 18px; }
+.stats-note { margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- cards -- */
+.cards { display: grid; gap: 22px; }
+.cards.c3 { grid-template-columns: repeat(3, 1fr); }
+.cards.c4 { grid-template-columns: repeat(4, 1fr); }
+.cards.c2 { grid-template-columns: repeat(2, 1fr); }
+
+.card {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 28px;
+  backdrop-filter: blur(10px);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(143, 228, 255, 0.4);
+  box-shadow: 0 22px 50px rgba(2, 10, 22, 0.6);
+}
+.card h3 { font-size: 19px; }
+.card p { color: var(--muted); margin: 0; font-size: 15px; }
+.card .icon {
+  font-size: 26px;
+  width: 54px; height: 54px;
+  display: grid; place-items: center;
+  border-radius: 14px;
+  background: rgba(63, 178, 230, 0.14);
+  border: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+.card .step-no {
+  font-family: var(--pixel);
+  font-size: 11px;
+  color: var(--gold);
+  margin-bottom: 14px;
+}
+
+/* ------------------------------------------------------------ about art -- */
+.about-grid { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 48px; align-items: center; }
+.about-art {
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: linear-gradient(180deg, #0b2947, #06182e);
+  padding: 26px;
+}
+.about-art .fish { margin-inline: auto; width: 78%; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.tag {
+  font-family: var(--pixel);
+  font-size: 9px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--cyan-bright);
+  background: rgba(63, 178, 230, 0.08);
+}
+
+/* ------------------------------------------------------------- roadmap --- */
+.depths { position: relative; margin-top: 40px; display: grid; gap: 26px; }
+.depths::before {
+  content: "";
+  position: absolute;
+  left: 26px; top: 10px; bottom: 10px;
+  width: 2px;
+  background: linear-gradient(180deg, var(--cyan), rgba(63, 178, 230, 0.05));
+}
+.depth {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 22px;
+  align-items: start;
+}
+.depth .dot {
+  width: 54px; height: 54px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--deep);
+  border: 2px solid var(--cyan);
+  font-family: var(--pixel);
+  font-size: 8px;
+  color: var(--cyan-bright);
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+.depth.done .dot { border-color: var(--gold); color: var(--gold-bright); box-shadow: 0 0 22px rgba(227, 160, 30, 0.35); }
+.depth .body {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 26px;
+  backdrop-filter: blur(8px);
+}
+.depth h3 { margin-bottom: 8px; font-size: 18px; }
+.depth ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
+.depth li { margin-bottom: 6px; }
+.depth .status {
+  font-family: var(--pixel);
+  font-size: 8px;
+  color: var(--gold);
+  display: inline-block;
+  margin-bottom: 10px;
+}
+
+/* ----------------------------------------------------------------- faq --- */
+.faq { display: grid; gap: 14px; margin-top: 36px; }
+details {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 22px;
+  backdrop-filter: blur(8px);
+}
+details[open] { border-color: rgba(143, 228, 255, 0.35); }
+summary {
+  cursor: pointer;
+  font-weight: 700;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--gold); font-size: 22px; line-height: 1; }
+details[open] summary::after { content: "−"; }
+details p { color: var(--muted); margin: 14px 0 0; font-size: 15px; }
+
+/* -------------------------------------------------------------- community */
+.community { text-align: center; }
+.socials { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 34px; }
+.social {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  width: 150px;
+  padding: 24px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--foam);
+  transition: transform 0.22s ease, background 0.22s ease;
+}
+.social:hover { transform: translateY(-5px); background: rgba(63, 178, 230, 0.14); color: var(--foam); }
+.social span { font-family: var(--pixel); font-size: 9px; }
+.social .ico { font-size: 26px; }
+
+/* ------------------------------------------------------------- footer ---- */
+footer {
+  border-top: 1px solid var(--line);
+  background: rgba(3, 12, 26, 0.7);
+  padding: 46px 0 34px;
+  position: relative;
+}
+.foot-grid { display: flex; flex-wrap: wrap; gap: 24px; justify-content: space-between; align-items: center; }
+.disclaimer {
+  margin-top: 28px;
+  font-size: 12.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+  max-width: 78ch;
+}
+
+/* --------------------------------------------------------------- waves --- */
+.waves { position: absolute; left: 0; right: 0; line-height: 0; pointer-events: none; overflow: hidden; }
+.waves.top { top: -1px; }
+.waves svg { width: 200%; height: 90px; animation: drift 22s linear infinite; }
+@keyframes drift { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* --------------------------------------------------------------- toast --- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translate(-50%, 30px);
+  background: linear-gradient(135deg, var(--gold-bright), var(--gold));
+  color: #2a1a02;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 90;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ------------------------------------------------------------- reveals --- */
+.reveal { transition: opacity 0.7s ease, transform 0.7s ease; }
+.js .reveal { opacity: 0; transform: translateY(26px); }
+.js .reveal.in { opacity: 1; transform: none; }
+
+/* ---------------------------------------------------------- responsive --- */
+@media (max-width: 980px) {
+  .hero-grid, .about-grid { grid-template-columns: 1fr; }
+  .hero-art { order: -1; }
+  .hero-art .fish { width: min(320px, 70%); }
+  .cards.c3, .cards.c4, .cards.c2 { grid-template-columns: repeat(2, 1fr); }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 720px) {
+  section { padding: 70px 0; }
+  .burger { display: block; }
+  .nav-links {
+    position: absolute;
+    top: 68px; left: 0; right: 0;
+    flex-direction: column;
+    gap: 0;
+    background: rgba(4, 18, 36, 0.97);
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+    display: none;
+  }
+  .nav-links.open { display: flex; }
+  .nav-links a { padding: 14px 6vw; }
+  .nav-links a::after { display: none; }
+  .cards.c3, .cards.c4, .cards.c2 { grid-template-columns: 1fr; }
+  .hero { padding-top: 104px; }
+  .hero-art .fish { width: min(230px, 60%); }
+  .ca { flex-wrap: wrap; }
+  .ca code {
+    font-size: 12px;
+    width: 100%;
+    white-space: normal;
+    word-break: break-all;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .school .fish { width: 60px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  html { scroll-behavior: auto; }
+  .reveal, .js .reveal { opacity: 1 !important; transform: none !important; }
+}
+</style>
 </head>
 <body>
+
+<!-- fish:start -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="fish" viewBox="0 0 46 32" shape-rendering="crispEdges"><rect x="5" y="2" width="1" height="1" fill="#111d3a"/><rect x="24" y="2" width="3" height="1" fill="#111d3a"/><rect x="4" y="3" width="1" height="1" fill="#111d3a"/><rect x="5" y="3" width="1" height="1" fill="#8fe4ff"/><rect x="6" y="3" width="1" height="1" fill="#111d3a"/><rect x="22" y="3" width="2" height="1" fill="#111d3a"/><rect x="24" y="3" width="1" height="1" fill="#3fb2e6"/><rect x="25" y="3" width="2" height="1" fill="#8fe4ff"/><rect x="27" y="3" width="1" height="1" fill="#111d3a"/><rect x="4" y="4" width="1" height="1" fill="#111d3a"/><rect x="5" y="4" width="2" height="1" fill="#3fb2e6"/><rect x="7" y="4" width="1" height="1" fill="#111d3a"/><rect x="21" y="4" width="1" height="1" fill="#111d3a"/><rect x="22" y="4" width="2" height="1" fill="#3fb2e6"/><rect x="24" y="4" width="2" height="1" fill="#8fe4ff"/><rect x="26" y="4" width="2" height="1" fill="#3fb2e6"/><rect x="28" y="4" width="1" height="1" fill="#111d3a"/><rect x="4" y="5" width="1" height="1" fill="#111d3a"/><rect x="5" y="5" width="3" height="1" fill="#3fb2e6"/><rect x="8" y="5" width="1" height="1" fill="#111d3a"/><rect x="20" y="5" width="1" height="1" fill="#111d3a"/><rect x="21" y="5" width="2" height="1" fill="#3fb2e6"/><rect x="23" y="5" width="2" height="1" fill="#8fe4ff"/><rect x="25" y="5" width="4" height="1" fill="#3fb2e6"/><rect x="29" y="5" width="1" height="1" fill="#111d3a"/><rect x="4" y="6" width="1" height="1" fill="#111d3a"/><rect x="5" y="6" width="3" height="1" fill="#3fb2e6"/><rect x="8" y="6" width="1" height="1" fill="#8fe4ff"/><rect x="9" y="6" width="1" height="1" fill="#111d3a"/><rect x="19" y="6" width="1" height="1" fill="#111d3a"/><rect x="20" y="6" width="2" height="1" fill="#3fb2e6"/><rect x="22" y="6" width="2" height="1" fill="#8fe4ff"/><rect x="24" y="6" width="5" height="1" fill="#3fb2e6"/><rect x="29" y="6" width="1" height="1" fill="#8fe4ff"/><rect x="30" y="6" width="1" height="1" fill="#111d3a"/><rect x="4" y="7" width="1" height="1" fill="#111d3a"/><rect x="5" y="7" width="2" height="1" fill="#3fb2e6"/><rect x="7" y="7" width="2" height="1" fill="#8fe4ff"/><rect x="9" y="7" width="1" height="1" fill="#3fb2e6"/><rect x="10" y="7" width="1" height="1" fill="#111d3a"/><rect x="18" y="7" width="1" height="1" fill="#111d3a"/><rect x="19" y="7" width="2" height="1" fill="#3fb2e6"/><rect x="21" y="7" width="2" height="1" fill="#8fe4ff"/><rect x="23" y="7" width="5" height="1" fill="#3fb2e6"/><rect x="28" y="7" width="2" height="1" fill="#8fe4ff"/><rect x="30" y="7" width="1" height="1" fill="#3fb2e6"/><rect x="31" y="7" width="2" height="1" fill="#111d3a"/><rect x="4" y="8" width="1" height="1" fill="#111d3a"/><rect x="5" y="8" width="1" height="1" fill="#3fb2e6"/><rect x="6" y="8" width="2" height="1" fill="#8fe4ff"/><rect x="8" y="8" width="3" height="1" fill="#3fb2e6"/><rect x="11" y="8" width="1" height="1" fill="#111d3a"/><rect x="16" y="8" width="2" height="1" fill="#111d3a"/><rect x="18" y="8" width="2" height="1" fill="#3fb2e6"/><rect x="20" y="8" width="2" height="1" fill="#8fe4ff"/><rect x="22" y="8" width="5" height="1" fill="#3fb2e6"/><rect x="27" y="8" width="2" height="1" fill="#8fe4ff"/><rect x="29" y="8" width="4" height="1" fill="#3fb2e6"/><rect x="33" y="8" width="1" height="1" fill="#111d3a"/><rect x="4" y="9" width="1" height="1" fill="#111d3a"/><rect x="5" y="9" width="2" height="1" fill="#8fe4ff"/><rect x="7" y="9" width="5" height="1" fill="#3fb2e6"/><rect x="12" y="9" width="1" height="1" fill="#111d3a"/><rect x="15" y="9" width="1" height="1" fill="#111d3a"/><rect x="16" y="9" width="3" height="1" fill="#3fb2e6"/><rect x="19" y="9" width="1" height="1" fill="#8fe4ff"/><rect x="20" y="9" width="10" height="1" fill="#f6cd5f"/><rect x="30" y="9" width="3" height="1" fill="#3fb2e6"/><rect x="33" y="9" width="1" height="1" fill="#8fe4ff"/><rect x="34" y="9" width="1" height="1" fill="#111d3a"/><rect x="4" y="10" width="1" height="1" fill="#111d3a"/><rect x="5" y="10" width="1" height="1" fill="#8fe4ff"/><rect x="6" y="10" width="5" height="1" fill="#3fb2e6"/><rect x="11" y="10" width="2" height="1" fill="#8fe4ff"/><rect x="13" y="10" width="1" height="1" fill="#111d3a"/><rect x="16" y="10" width="2" height="1" fill="#111d3a"/><rect x="18" y="10" width="3" height="1" fill="#f6cd5f"/><rect x="21" y="10" width="2" height="1" fill="#111d3a"/><rect x="23" y="10" width="1" height="1" fill="#f6cd5f"/><rect x="24" y="10" width="2" height="1" fill="#111d3a"/><rect x="26" y="10" width="6" height="1" fill="#f6cd5f"/><rect x="32" y="10" width="2" height="1" fill="#111d3a"/><rect x="4" y="11" width="1" height="1" fill="#111d3a"/><rect x="5" y="11" width="5" height="1" fill="#3fb2e6"/><rect x="10" y="11" width="2" height="1" fill="#8fe4ff"/><rect x="12" y="11" width="2" height="1" fill="#3fb2e6"/><rect x="14" y="11" width="2" height="1" fill="#111d3a"/><rect x="16" y="11" width="5" height="1" fill="#f6cd5f"/><rect x="21" y="11" width="2" height="1" fill="#111d3a"/><rect x="23" y="11" width="1" height="1" fill="#f6cd5f"/><rect x="24" y="11" width="2" height="1" fill="#111d3a"/><rect x="26" y="11" width="8" height="1" fill="#f6cd5f"/><rect x="34" y="11" width="1" height="1" fill="#111d3a"/><rect x="5" y="12" width="1" height="1" fill="#111d3a"/><rect x="6" y="12" width="3" height="1" fill="#3fb2e6"/><rect x="9" y="12" width="2" height="1" fill="#8fe4ff"/><rect x="11" y="12" width="4" height="1" fill="#3fb2e6"/><rect x="15" y="12" width="5" height="1" fill="#f6cd5f"/><rect x="20" y="12" width="7" height="1" fill="#111d3a"/><rect x="27" y="12" width="1" height="1" fill="#f6cd5f"/><rect x="28" y="12" width="4" height="1" fill="#ffffff"/><rect x="32" y="12" width="3" height="1" fill="#f6cd5f"/><rect x="35" y="12" width="1" height="1" fill="#111d3a"/><rect x="6" y="13" width="3" height="1" fill="#111d3a"/><rect x="9" y="13" width="1" height="1" fill="#8fe4ff"/><rect x="10" y="13" width="4" height="1" fill="#3fb2e6"/><rect x="14" y="13" width="1" height="1" fill="#f6cd5f"/><rect x="15" y="13" width="5" height="1" fill="#e3a01e"/><rect x="20" y="13" width="2" height="1" fill="#111d3a"/><rect x="22" y="13" width="2" height="1" fill="#e3a01e"/><rect x="24" y="13" width="1" height="1" fill="#f6cd5f"/><rect x="25" y="13" width="2" height="1" fill="#111d3a"/><rect x="27" y="13" width="1" height="1" fill="#e3a01e"/><rect x="28" y="13" width="1" height="1" fill="#ffffff"/><rect x="29" y="13" width="2" height="1" fill="#111d3a"/><rect x="31" y="13" width="1" height="1" fill="#ffffff"/><rect x="32" y="13" width="4" height="1" fill="#e3a01e"/><rect x="36" y="13" width="1" height="1" fill="#111d3a"/><rect x="9" y="14" width="3" height="1" fill="#111d3a"/><rect x="12" y="14" width="2" height="1" fill="#3fb2e6"/><rect x="14" y="14" width="2" height="1" fill="#f6cd5f"/><rect x="16" y="14" width="4" height="1" fill="#e3a01e"/><rect x="20" y="14" width="2" height="1" fill="#111d3a"/><rect x="22" y="14" width="3" height="1" fill="#e3a01e"/><rect x="25" y="14" width="2" height="1" fill="#111d3a"/><rect x="27" y="14" width="1" height="1" fill="#e3a01e"/><rect x="28" y="14" width="1" height="1" fill="#ffffff"/><rect x="29" y="14" width="2" height="1" fill="#111d3a"/><rect x="31" y="14" width="1" height="1" fill="#ffffff"/><rect x="32" y="14" width="4" height="1" fill="#e3a01e"/><rect x="36" y="14" width="1" height="1" fill="#111d3a"/><rect x="12" y="15" width="2" height="1" fill="#111d3a"/><rect x="14" y="15" width="1" height="1" fill="#e3a01e"/><rect x="15" y="15" width="2" height="1" fill="#f6cd5f"/><rect x="17" y="15" width="3" height="1" fill="#e3a01e"/><rect x="20" y="15" width="7" height="1" fill="#111d3a"/><rect x="27" y="15" width="1" height="1" fill="#f6cd5f"/><rect x="28" y="15" width="1" height="1" fill="#ffffff"/><rect x="29" y="15" width="2" height="1" fill="#111d3a"/><rect x="31" y="15" width="1" height="1" fill="#ffffff"/><rect x="32" y="15" width="4" height="1" fill="#e3a01e"/><rect x="36" y="15" width="1" height="1" fill="#111d3a"/><rect x="12" y="16" width="2" height="1" fill="#111d3a"/><rect x="14" y="16" width="2" height="1" fill="#e3a01e"/><rect x="16" y="16" width="2" height="1" fill="#f6cd5f"/><rect x="18" y="16" width="2" height="1" fill="#e3a01e"/><rect x="20" y="16" width="2" height="1" fill="#111d3a"/><rect x="22" y="16" width="3" height="1" fill="#e3a01e"/><rect x="25" y="16" width="2" height="1" fill="#111d3a"/><rect x="27" y="16" width="2" height="1" fill="#f6cd5f"/><rect x="29" y="16" width="7" height="1" fill="#e3a01e"/><rect x="36" y="16" width="1" height="1" fill="#111d3a"/><rect x="9" y="17" width="3" height="1" fill="#111d3a"/><rect x="12" y="17" width="1" height="1" fill="#8fe4ff"/><rect x="13" y="17" width="1" height="1" fill="#3fb2e6"/><rect x="14" y="17" width="3" height="1" fill="#e3a01e"/><rect x="17" y="17" width="2" height="1" fill="#f6cd5f"/><rect x="19" y="17" width="1" height="1" fill="#e3a01e"/><rect x="20" y="17" width="2" height="1" fill="#111d3a"/><rect x="22" y="17" width="3" height="1" fill="#e3a01e"/><rect x="25" y="17" width="2" height="1" fill="#111d3a"/><rect x="27" y="17" width="1" height="1" fill="#e3a01e"/><rect x="28" y="17" width="2" height="1" fill="#f6cd5f"/><rect x="30" y="17" width="6" height="1" fill="#e3a01e"/><rect x="36" y="17" width="1" height="1" fill="#111d3a"/><rect x="6" y="18" width="3" height="1" fill="#111d3a"/><rect x="9" y="18" width="1" height="1" fill="#3fb2e6"/><rect x="10" y="18" width="2" height="1" fill="#8fe4ff"/><rect x="12" y="18" width="2" height="1" fill="#3fb2e6"/><rect x="14" y="18" width="4" height="1" fill="#e3a01e"/><rect x="18" y="18" width="2" height="1" fill="#f6cd5f"/><rect x="20" y="18" width="7" height="1" fill="#111d3a"/><rect x="27" y="18" width="2" height="1" fill="#e3a01e"/><rect x="29" y="18" width="2" height="1" fill="#f6cd5f"/><rect x="31" y="18" width="5" height="1" fill="#e3a01e"/><rect x="36" y="18" width="1" height="1" fill="#111d3a"/><rect x="5" y="19" width="1" height="1" fill="#111d3a"/><rect x="6" y="19" width="3" height="1" fill="#3fb2e6"/><rect x="9" y="19" width="2" height="1" fill="#8fe4ff"/><rect x="11" y="19" width="4" height="1" fill="#3fb2e6"/><rect x="15" y="19" width="4" height="1" fill="#e3a01e"/><rect x="19" y="19" width="2" height="1" fill="#f6cd5f"/><rect x="21" y="19" width="2" height="1" fill="#111d3a"/><rect x="23" y="19" width="1" height="1" fill="#e3a01e"/><rect x="24" y="19" width="2" height="1" fill="#111d3a"/><rect x="26" y="19" width="4" height="1" fill="#e3a01e"/><rect x="30" y="19" width="2" height="1" fill="#f6cd5f"/><rect x="32" y="19" width="3" height="1" fill="#e3a01e"/><rect x="35" y="19" width="1" height="1" fill="#e2564d"/><rect x="36" y="19" width="1" height="1" fill="#111d3a"/><rect x="4" y="20" width="1" height="1" fill="#111d3a"/><rect x="5" y="20" width="3" height="1" fill="#3fb2e6"/><rect x="8" y="20" width="2" height="1" fill="#8fe4ff"/><rect x="10" y="20" width="4" height="1" fill="#3fb2e6"/><rect x="14" y="20" width="2" height="1" fill="#111d3a"/><rect x="16" y="20" width="4" height="1" fill="#bd7a12"/><rect x="20" y="20" width="1" height="1" fill="#e3a01e"/><rect x="21" y="20" width="2" height="1" fill="#111d3a"/><rect x="23" y="20" width="1" height="1" fill="#bd7a12"/><rect x="24" y="20" width="2" height="1" fill="#111d3a"/><rect x="26" y="20" width="5" height="1" fill="#bd7a12"/><rect x="31" y="20" width="1" height="1" fill="#e3a01e"/><rect x="32" y="20" width="1" height="1" fill="#bd7a12"/><rect x="33" y="20" width="3" height="1" fill="#e2564d"/><rect x="36" y="20" width="1" height="1" fill="#111d3a"/><rect x="4" y="21" width="1" height="1" fill="#111d3a"/><rect x="5" y="21" width="2" height="1" fill="#3fb2e6"/><rect x="7" y="21" width="2" height="1" fill="#8fe4ff"/><rect x="9" y="21" width="4" height="1" fill="#3fb2e6"/><rect x="13" y="21" width="1" height="1" fill="#111d3a"/><rect x="16" y="21" width="2" height="1" fill="#111d3a"/><rect x="18" y="21" width="3" height="1" fill="#bd7a12"/><rect x="21" y="21" width="2" height="1" fill="#e3a01e"/><rect x="23" y="21" width="9" height="1" fill="#bd7a12"/><rect x="32" y="21" width="3" height="1" fill="#3fb2e6"/><rect x="35" y="21" width="1" height="1" fill="#111d3a"/><rect x="4" y="22" width="1" height="1" fill="#111d3a"/><rect x="5" y="22" width="1" height="1" fill="#3fb2e6"/><rect x="6" y="22" width="2" height="1" fill="#8fe4ff"/><rect x="8" y="22" width="4" height="1" fill="#3fb2e6"/><rect x="12" y="22" width="1" height="1" fill="#111d3a"/><rect x="16" y="22" width="4" height="1" fill="#111d3a"/><rect x="20" y="22" width="2" height="1" fill="#bd7a12"/><rect x="22" y="22" width="2" height="1" fill="#e3a01e"/><rect x="24" y="22" width="6" height="1" fill="#bd7a12"/><rect x="30" y="22" width="4" height="1" fill="#3fb2e6"/><rect x="34" y="22" width="1" height="1" fill="#111d3a"/><rect x="4" y="23" width="1" height="1" fill="#111d3a"/><rect x="5" y="23" width="2" height="1" fill="#8fe4ff"/><rect x="7" y="23" width="4" height="1" fill="#3fb2e6"/><rect x="11" y="23" width="1" height="1" fill="#111d3a"/><rect x="15" y="23" width="1" height="1" fill="#111d3a"/><rect x="16" y="23" width="3" height="1" fill="#3fb2e6"/><rect x="19" y="23" width="2" height="1" fill="#8fe4ff"/><rect x="21" y="23" width="5" height="1" fill="#3fb2e6"/><rect x="26" y="23" width="2" height="1" fill="#8fe4ff"/><rect x="28" y="23" width="5" height="1" fill="#3fb2e6"/><rect x="33" y="23" width="1" height="1" fill="#111d3a"/><rect x="4" y="24" width="1" height="1" fill="#111d3a"/><rect x="5" y="24" width="1" height="1" fill="#8fe4ff"/><rect x="6" y="24" width="4" height="1" fill="#3fb2e6"/><rect x="10" y="24" width="1" height="1" fill="#111d3a"/><rect x="16" y="24" width="1" height="1" fill="#111d3a"/><rect x="17" y="24" width="1" height="1" fill="#3fb2e6"/><rect x="18" y="24" width="2" height="1" fill="#8fe4ff"/><rect x="20" y="24" width="5" height="1" fill="#3fb2e6"/><rect x="25" y="24" width="2" height="1" fill="#8fe4ff"/><rect x="27" y="24" width="5" height="1" fill="#3fb2e6"/><rect x="32" y="24" width="1" height="1" fill="#111d3a"/><rect x="4" y="25" width="1" height="1" fill="#111d3a"/><rect x="5" y="25" width="4" height="1" fill="#3fb2e6"/><rect x="9" y="25" width="1" height="1" fill="#111d3a"/><rect x="17" y="25" width="1" height="1" fill="#111d3a"/><rect x="18" y="25" width="1" height="1" fill="#8fe4ff"/><rect x="19" y="25" width="5" height="1" fill="#3fb2e6"/><rect x="24" y="25" width="2" height="1" fill="#8fe4ff"/><rect x="26" y="25" width="2" height="1" fill="#3fb2e6"/><rect x="28" y="25" width="2" height="1" fill="#111d3a"/><rect x="30" y="25" width="1" height="1" fill="#3fb2e6"/><rect x="31" y="25" width="1" height="1" fill="#111d3a"/><rect x="4" y="26" width="1" height="1" fill="#111d3a"/><rect x="5" y="26" width="3" height="1" fill="#3fb2e6"/><rect x="8" y="26" width="1" height="1" fill="#111d3a"/><rect x="18" y="26" width="1" height="1" fill="#111d3a"/><rect x="19" y="26" width="4" height="1" fill="#3fb2e6"/><rect x="23" y="26" width="2" height="1" fill="#8fe4ff"/><rect x="25" y="26" width="2" height="1" fill="#3fb2e6"/><rect x="27" y="26" width="1" height="1" fill="#111d3a"/><rect x="30" y="26" width="1" height="1" fill="#111d3a"/><rect x="4" y="27" width="1" height="1" fill="#111d3a"/><rect x="5" y="27" width="2" height="1" fill="#3fb2e6"/><rect x="7" y="27" width="1" height="1" fill="#111d3a"/><rect x="19" y="27" width="1" height="1" fill="#111d3a"/><rect x="20" y="27" width="2" height="1" fill="#3fb2e6"/><rect x="22" y="27" width="2" height="1" fill="#8fe4ff"/><rect x="24" y="27" width="2" height="1" fill="#3fb2e6"/><rect x="26" y="27" width="1" height="1" fill="#111d3a"/><rect x="4" y="28" width="1" height="1" fill="#111d3a"/><rect x="5" y="28" width="1" height="1" fill="#3fb2e6"/><rect x="6" y="28" width="1" height="1" fill="#111d3a"/><rect x="20" y="28" width="2" height="1" fill="#111d3a"/><rect x="22" y="28" width="1" height="1" fill="#8fe4ff"/><rect x="23" y="28" width="2" height="1" fill="#3fb2e6"/><rect x="25" y="28" width="1" height="1" fill="#111d3a"/><rect x="5" y="29" width="1" height="1" fill="#111d3a"/><rect x="22" y="29" width="3" height="1" fill="#111d3a"/></symbol>
+</svg>
+<!-- fish:end -->
 
 <div class="ocean"></div>
 <div class="rays"></div>
@@ -34,7 +620,7 @@
 <header class="nav">
   <div class="wrap nav-inner">
     <a class="brand" href="#top">
-      <img src="assets/img/fish.svg" alt="BITFISH mascot">
+      <svg class="fish" viewBox="0 0 46 32" role="img" aria-label="BITFISH"><use href="#fish"/></svg>
       <span data-token="ticker">$BFISH</span>
     </a>
 
@@ -88,7 +674,7 @@
     </div>
 
     <div class="hero-art">
-      <img src="assets/img/fish.svg" alt="BITFISH — pixel-art fish with a bitcoin symbol" width="430" height="299">
+      <svg class="fish" viewBox="0 0 46 32" role="img" aria-label="BITFISH — pixel-art fish with a bitcoin symbol"><use href="#fish"/></svg>
     </div>
   </div>
 
@@ -121,7 +707,7 @@
 <section id="about">
   <div class="wrap about-grid">
     <div class="about-art reveal">
-      <img src="assets/img/fish.svg" alt="BITFISH pixel mascot">
+      <svg class="fish" viewBox="0 0 46 32" role="img" aria-label="BITFISH pixel mascot"><use href="#fish"/></svg>
       <div class="tag-row">
         <span class="tag">SOLANA</span>
         <span class="tag">PUMP.FUN</span>
@@ -413,7 +999,7 @@
   <div class="wrap">
     <div class="foot-grid">
       <a class="brand" href="#top">
-        <img src="assets/img/fish.svg" alt="">
+        <svg class="fish" viewBox="0 0 46 32" aria-hidden="true"><use href="#fish"/></svg>
         <span data-token="name">BITFISH</span>
       </a>
       <nav class="nav-links" style="position:static; display:flex; background:none; border:0; padding:0">
@@ -434,6 +1020,318 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="assets/js/app.js"></script>
+<script>
+/* =========================================================================
+   BITFISH - site logic
+   -------------------------------------------------------------------------
+   Everything you normally need to change lives in CONFIG below.
+   ========================================================================= */
+const CONFIG = {
+  name: "BITFISH",
+  ticker: "$BFISH",
+  contract: "AzoyECzeEbmi3bczngZZnZDj4M9EreNM93mDXqNcpump",
+  chain: "solana",
+  // Social links - replace with the real ones when they exist.
+  twitter: "https://x.com/",
+  telegram: "https://t.me/",
+};
+
+const LINKS = {
+  pump: `https://pump.fun/coin/${CONFIG.contract}`,
+  dexscreener: `https://dexscreener.com/${CONFIG.chain}/${CONFIG.contract}`,
+  jupiter: `https://jup.ag/swap/SOL-${CONFIG.contract}`,
+  solscan: `https://solscan.io/token/${CONFIG.contract}`,
+};
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ------------------------------------------------------------- content -- */
+function applyConfig() {
+  $$("[data-token='ticker']").forEach((el) => (el.textContent = CONFIG.ticker));
+  $$("[data-token='name']").forEach((el) => (el.textContent = CONFIG.name));
+  $$("#caText, #caText2").forEach((el) => (el.textContent = CONFIG.contract));
+
+  const set = (id, href) => { const el = $(id); if (el) el.href = href; };
+  set("#buyPump", LINKS.pump);
+  set("#buyPump2", LINKS.pump);
+  set("#socialPump", LINKS.pump);
+  set("#chartLink", LINKS.dexscreener);
+  set("#socialDex", LINKS.dexscreener);
+  set("#jupLink", LINKS.jupiter);
+  set("#solscanLink", LINKS.solscan);
+  set("#socialX", CONFIG.twitter);
+  set("#socialTg", CONFIG.telegram);
+
+  const year = $("#year");
+  if (year) year.textContent = new Date().getFullYear();
+}
+
+/* ------------------------------------------------------------ language -- */
+let statsState = null; // "live" | "pending" - so the note can follow the language
+
+function setLang(lang) {
+  document.documentElement.lang = lang;
+  $$("[data-en]").forEach((el) => {
+    const text = el.getAttribute(lang === "ru" ? "data-ru" : "data-en");
+    if (text !== null && text !== "") el.textContent = text;
+  });
+  $$(".lang button").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.lang === lang))
+  );
+  if (statsState) renderStatsNote(statsState.kind, statsState.time);
+  try { localStorage.setItem("bitfish-lang", lang); } catch (e) { /* private mode */ }
+}
+
+function initLang() {
+  let saved = null;
+  try { saved = localStorage.getItem("bitfish-lang"); } catch (e) { /* ignore */ }
+  const guess = /^(ru|uk|be|kk)/i.test(navigator.language || "") ? "ru" : "en";
+  setLang(saved || guess);
+  $$(".lang button").forEach((b) =>
+    b.addEventListener("click", () => setLang(b.dataset.lang))
+  );
+}
+
+/* ---------------------------------------------------------------- toast -- */
+let toastTimer;
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+/* ------------------------------------------------------------ copy CA --- */
+async function copyContract() {
+  const done = () =>
+    toast(document.documentElement.lang === "ru"
+      ? "Адрес контракта скопирован"
+      : "Contract address copied");
+  try {
+    await navigator.clipboard.writeText(CONFIG.contract);
+    done();
+  } catch (e) {
+    // clipboard API is blocked on http:// and in some in-app browsers
+    const tmp = document.createElement("textarea");
+    tmp.value = CONFIG.contract;
+    tmp.setAttribute("readonly", "");
+    tmp.style.cssText = "position:absolute;left:-9999px";
+    document.body.appendChild(tmp);
+    tmp.select();
+    try { document.execCommand("copy"); done(); } catch (_) { toast(CONFIG.contract); }
+    document.body.removeChild(tmp);
+  }
+}
+
+/* ------------------------------------------------------------ live data -- */
+const fmtUsd = (n) => {
+  if (!isFinite(n)) return "—";
+  if (n >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
+  if (n >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K";
+  return "$" + n.toFixed(2);
+};
+
+const fmtPrice = (p) => {
+  const n = parseFloat(p);
+  if (!isFinite(n) || n === 0) return "—";
+  if (n >= 1) return "$" + n.toFixed(3);
+  // show the first 3 significant digits for tiny memecoin prices
+  const decimals = Math.min(12, Math.max(4, Math.ceil(-Math.log10(n)) + 2));
+  return "$" + n.toFixed(decimals);
+};
+
+function renderStatsNote(kind, time) {
+  const note = $("#statsNote");
+  const ru = document.documentElement.lang === "ru";
+  statsState = { kind, time };
+  note.removeAttribute("data-en");
+  note.removeAttribute("data-ru");
+  if (kind === "live") {
+    note.textContent = ru
+      ? "Данные DEX Screener · обновлено " + time
+      : "Live from DEX Screener · updated " + time;
+  } else {
+    note.textContent = ru
+      ? "Статистика появится, как только токен проиндексирует DEX Screener. Пока смотри график по ссылке выше."
+      : "Stats appear as soon as the token is indexed by DEX Screener. Until then, use the chart link above.";
+  }
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${CONFIG.contract}`,
+      { headers: { accept: "application/json" } }
+    );
+    if (!res.ok) throw new Error("http " + res.status);
+    const data = await res.json();
+    const pairs = (data && data.pairs) || [];
+    if (!pairs.length) throw new Error("no pairs");
+
+    const pair = pairs.reduce((best, p) =>
+      (p.liquidity?.usd || 0) > (best.liquidity?.usd || 0) ? p : best, pairs[0]);
+
+    $("#statPrice").textContent = fmtPrice(pair.priceUsd);
+    $("#statMcap").textContent = fmtUsd(pair.marketCap || pair.fdv);
+    $("#statVol").textContent = fmtUsd(pair.volume?.h24);
+
+    const ch = parseFloat(pair.priceChange?.h24);
+    const chEl = $("#statChange");
+    if (isFinite(ch)) {
+      chEl.textContent = (ch > 0 ? "+" : "") + ch.toFixed(2) + "%";
+      chEl.style.color = ch >= 0 ? "#5ce08a" : "#e2564d";
+    }
+
+    renderStatsNote("live", new Date().toLocaleTimeString());
+  } catch (e) {
+    renderStatsNote("pending");
+  }
+}
+
+/* --------------------------------------------------------------- bubbles -- */
+function initBubbles() {
+  const canvas = $("#bubbles");
+  if (!canvas || reduced) return;
+  const ctx = canvas.getContext("2d");
+  let w = 0, h = 0, dpr = 1, bubbles = [];
+
+  const spawn = (initial) => ({
+    x: Math.random() * w,
+    y: initial ? Math.random() * h : h + 20 + Math.random() * 60,
+    r: 1.5 + Math.random() * 5,
+    speed: 0.25 + Math.random() * 0.9,
+    drift: (Math.random() - 0.5) * 0.5,
+    phase: Math.random() * Math.PI * 2,
+    alpha: 0.15 + Math.random() * 0.4,
+  });
+
+  const resize = () => {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = canvas.clientWidth = window.innerWidth;
+    h = canvas.clientHeight = window.innerHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const count = Math.round(Math.min(90, Math.max(28, w / 16)));
+    bubbles = Array.from({ length: count }, () => spawn(true));
+  };
+
+  const frame = () => {
+    ctx.clearRect(0, 0, w, h);
+    for (const b of bubbles) {
+      b.y -= b.speed;
+      b.phase += 0.02;
+      b.x += b.drift + Math.sin(b.phase) * 0.4;
+      if (b.y + b.r < -10) Object.assign(b, spawn(false));
+
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(143, 228, 255, ${b.alpha * 0.35})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(190, 245, 255, ${b.alpha})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, Math.max(0.5, b.r * 0.22), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${b.alpha * 0.8})`;
+      ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  };
+
+  window.addEventListener("resize", resize);
+  resize();
+  frame();
+}
+
+/* ---------------------------------------------------------------- school -- */
+function initSchool() {
+  const box = $("#school");
+  if (!box || reduced) return;
+  const fish = [
+    { top: 12, size: 66, dur: 52, delay: -6, hue: -12, op: 0.22, blur: 1.2 },
+    { top: 45, size: 44, dur: 74, delay: -26, hue: 18, op: 0.16, blur: 1.8 },
+    { top: 68, size: 92, dur: 42, delay: -14, hue: -25, op: 0.26, blur: 0.6 },
+    { top: 88, size: 38, dur: 84, delay: -38, hue: 10, op: 0.14, blur: 2 },
+  ];
+  const NS = "http://www.w3.org/2000/svg";
+  fish.forEach((f) => {
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 46 32");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", "fish");
+    const use = document.createElementNS(NS, "use");
+    use.setAttribute("href", "#fish");
+    svg.appendChild(use);
+    svg.style.top = f.top + "vh";
+    svg.style.width = f.size + "px";
+    svg.style.opacity = f.op;
+    svg.style.animationDuration = f.dur + "s";
+    svg.style.animationDelay = f.delay + "s";
+    svg.style.filter = `hue-rotate(${f.hue}deg) blur(${f.blur}px) drop-shadow(0 6px 18px rgba(0,0,0,.45))`;
+    box.appendChild(svg);
+  });
+}
+
+/* --------------------------------------------------------------- reveal -- */
+function initReveal() {
+  const items = $$(".reveal");
+  if (!("IntersectionObserver" in window) || reduced) {
+    items.forEach((el) => el.classList.add("in"));
+    return;
+  }
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry, i) => {
+        if (entry.isIntersecting) {
+          setTimeout(() => entry.target.classList.add("in"), i * 70);
+          io.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
+  );
+  items.forEach((el) => io.observe(el));
+}
+
+/* ------------------------------------------------------------------ nav -- */
+function initNav() {
+  const burger = $("#burger");
+  const links = $("#navLinks");
+  burger.addEventListener("click", () => {
+    const open = links.classList.toggle("open");
+    burger.setAttribute("aria-expanded", String(open));
+    burger.textContent = open ? "✕" : "☰";
+  });
+  $$("#navLinks a").forEach((a) =>
+    a.addEventListener("click", () => {
+      links.classList.remove("open");
+      burger.setAttribute("aria-expanded", "false");
+      burger.textContent = "☰";
+    })
+  );
+}
+
+/* ----------------------------------------------------------------- boot -- */
+document.addEventListener("DOMContentLoaded", () => {
+  applyConfig();
+  initLang();
+  initNav();
+  initReveal();
+  initBubbles();
+  initSchool();
+  $$("#copyCa, #copyCa2").forEach((b) => b.addEventListener("click", copyContract));
+  $$("#caText, #caText2").forEach((c) => {
+    c.style.cursor = "pointer";
+    c.addEventListener("click", copyContract);
+  });
+  loadStats();
+  setInterval(loadStats, 60000);
+});
+</script>
 </body>
 </html>
