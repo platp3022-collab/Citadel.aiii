@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BITFISH ($BFISH) — the pixel fish swimming the Solana ocean</title>
+<meta name="description" content="BITFISH is a community memecoin on Solana. Pixel fish, deep-ocean vibes, fair launch on pump.fun. No presale, no team allocation, just the school.">
+<meta name="theme-color" content="#071a33">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="BITFISH ($BFISH) — the pixel fish of the Solana ocean">
+<meta property="og:description" content="Fair launch on pump.fun. Liquidity burned, mint revoked, 100% community. Swim with the school.">
+<meta property="og:image" content="assets/img/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="BITFISH ($BFISH)">
+<meta name="twitter:description" content="The pixel fish swimming the Solana ocean. Fair launch, burned LP, community owned.">
+<meta name="twitter:image" content="assets/img/og.png">
+
+<link rel="icon" href="assets/img/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/img/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<div class="ocean"></div>
+<div class="rays"></div>
+<canvas id="bubbles"></canvas>
+<div class="school" id="school" aria-hidden="true"></div>
+
+<!-- ============================================================ NAV ==== -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top">
+      <img src="assets/img/fish.svg" alt="BITFISH mascot">
+      <span data-token="ticker">$BFISH</span>
+    </a>
+
+    <nav class="nav-links" id="navLinks">
+      <a href="#about" data-en="About" data-ru="О монете">About</a>
+      <a href="#tokenomics" data-en="Tokenomics" data-ru="Токеномика">Tokenomics</a>
+      <a href="#buy" data-en="How to buy" data-ru="Как купить">How to buy</a>
+      <a href="#roadmap" data-en="Roadmap" data-ru="Дорожная карта">Roadmap</a>
+      <a href="#faq" data-en="FAQ" data-ru="Вопросы">FAQ</a>
+      <a href="#community" data-en="Community" data-ru="Комьюнити">Community</a>
+    </nav>
+
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true">EN</button>
+      <button type="button" data-lang="ru" aria-pressed="false">RU</button>
+    </div>
+
+    <a class="btn btn-gold btn-sm" id="navBuy" href="#buy" data-en="Buy" data-ru="Купить">Buy</a>
+    <button class="burger" id="burger" aria-label="Menu" aria-expanded="false">☰</button>
+  </div>
+</header>
+
+<!-- =========================================================== HERO ==== -->
+<main id="top">
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="tagline" data-en="&gt; deep sea liquidity protocol" data-ru="&gt; протокол глубоководной ликвидности">&gt; deep sea liquidity protocol</p>
+      <h1>
+        <span data-en="The pixel fish that swims the" data-ru="Пиксельная рыба, плывущая по">The pixel fish that swims the</span>
+        <span class="accent" data-en="Solana ocean" data-ru="океану Solana">Solana ocean</span>
+      </h1>
+      <p class="lead"
+         data-en="BITFISH was born where the bitcoin current meets the deep blue. Fair launch on pump.fun, liquidity burned, no team bags — just a school of degens swimming in the same direction."
+         data-ru="BITFISH родился там, где биткоин-течение встречается с глубокой синевой. Честный запуск на pump.fun, ликвидность сожжена, у команды нет мешков — только стая, которая плывёт в одну сторону.">
+        BITFISH was born where the bitcoin current meets the deep blue. Fair launch on pump.fun, liquidity burned, no team bags — just a school of degens swimming in the same direction.
+      </p>
+
+      <div class="hero-cta">
+        <a class="btn btn-gold" id="buyPump" href="#" target="_blank" rel="noopener"
+           data-en="Buy on pump.fun" data-ru="Купить на pump.fun">Buy on pump.fun</a>
+        <a class="btn btn-ghost" id="chartLink" href="#" target="_blank" rel="noopener"
+           data-en="Live chart" data-ru="График">Live chart</a>
+      </div>
+
+      <div class="ca">
+        <span class="label" data-en="CONTRACT" data-ru="КОНТРАКТ">CONTRACT</span>
+        <code id="caText">AzoyECzeEbmi3bczngZZnZDj4M9EreNM93mDXqNcpump</code>
+        <button class="btn btn-ghost btn-sm" id="copyCa" data-en="Copy" data-ru="Копировать">Copy</button>
+      </div>
+    </div>
+
+    <div class="hero-art">
+      <img src="assets/img/fish.svg" alt="BITFISH — pixel-art fish with a bitcoin symbol" width="430" height="299">
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="stats reveal">
+      <div class="stat">
+        <div class="k" data-en="PRICE" data-ru="ЦЕНА">PRICE</div>
+        <div class="v" id="statPrice">—</div>
+      </div>
+      <div class="stat">
+        <div class="k" data-en="MARKET CAP" data-ru="КАПИТАЛИЗАЦИЯ">MARKET CAP</div>
+        <div class="v" id="statMcap">—</div>
+      </div>
+      <div class="stat">
+        <div class="k" data-en="24H VOLUME" data-ru="ОБЪЁМ 24Ч">24H VOLUME</div>
+        <div class="v" id="statVol">—</div>
+      </div>
+      <div class="stat">
+        <div class="k" data-en="24H CHANGE" data-ru="ИЗМЕНЕНИЕ 24Ч">24H CHANGE</div>
+        <div class="v" id="statChange">—</div>
+      </div>
+    </div>
+    <p class="stats-note" id="statsNote"
+       data-en="Live data from DEX Screener. Loading…"
+       data-ru="Данные в реальном времени с DEX Screener. Загрузка…">Live data from DEX Screener. Loading…</p>
+  </div>
+</section>
+
+<!-- ========================================================== ABOUT ==== -->
+<section id="about">
+  <div class="wrap about-grid">
+    <div class="about-art reveal">
+      <img src="assets/img/fish.svg" alt="BITFISH pixel mascot">
+      <div class="tag-row">
+        <span class="tag">SOLANA</span>
+        <span class="tag">PUMP.FUN</span>
+        <span class="tag">PIXEL ART</span>
+        <span class="tag">100% COMMUNITY</span>
+      </div>
+    </div>
+    <div class="reveal">
+      <p class="eyebrow" data-en="// the legend" data-ru="// легенда">// the legend</p>
+      <h2>
+        <span data-en="Small fish," data-ru="Маленькая рыба,">Small fish,</span>
+        <span class="accent" data-en="deep ocean" data-ru="глубокий океан">deep ocean</span>
+      </h2>
+      <p class="lead"
+         data-en="Every chart is an ocean. Whales move slow and loud, shrimp get eaten, and somewhere in the middle a golden pixel fish keeps swimming — carrying the bitcoin mark on its side like a scar from the first bull run."
+         data-ru="Каждый график — это океан. Киты двигаются медленно и шумно, креветок съедают, а где-то посередине плывёт золотая пиксельная рыба — со знаком биткоина на боку, как шрам с первого бычьего цикла.">
+        Every chart is an ocean. Whales move slow and loud, shrimp get eaten, and somewhere in the middle a golden pixel fish keeps swimming — carrying the bitcoin mark on its side like a scar from the first bull run.
+      </p>
+      <p class="lead" style="margin-top:16px"
+         data-en="BITFISH is not a promise of returns. It is a flag for people who like pixels, salt water and green candles — a meme with a community, an art style and a very simple rule: the school swims together."
+         data-ru="BITFISH — это не обещание прибыли. Это флаг для тех, кто любит пиксели, солёную воду и зелёные свечи — мем с комьюнити, своим стилем и очень простым правилом: стая плывёт вместе.">
+        BITFISH is not a promise of returns. It is a flag for people who like pixels, salt water and green candles — a meme with a community, an art style and a very simple rule: the school swims together.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================== TOKENOMICS ==== -->
+<section id="tokenomics">
+  <div class="wrap">
+    <div class="reveal" style="text-align:center; margin-bottom:44px">
+      <p class="eyebrow" data-en="// the water we swim in" data-ru="// вода, в которой мы плаваем">// the water we swim in</p>
+      <h2><span class="accent" data-en="Tokenomics" data-ru="Токеномика">Tokenomics</span></h2>
+      <p class="lead" style="margin-inline:auto"
+         data-en="Standard pump.fun fair launch. Nothing hidden under the sand — verify every line on-chain."
+         data-ru="Стандартный честный запуск pump.fun. Ничего не спрятано под песком — каждую строку можно проверить в блокчейне.">
+        Standard pump.fun fair launch. Nothing hidden under the sand — verify every line on-chain.
+      </p>
+    </div>
+
+    <div class="cards c4">
+      <div class="card reveal">
+        <div class="icon">🪙</div>
+        <h3 data-en="1,000,000,000" data-ru="1 000 000 000">1,000,000,000</h3>
+        <p data-en="Total supply. Fixed at launch, mint authority revoked — no new fish can be printed."
+           data-ru="Общая эмиссия. Зафиксирована при запуске, право эмиссии отозвано — новых рыб не напечатать.">
+          Total supply. Fixed at launch, mint authority revoked — no new fish can be printed.
+        </p>
+      </div>
+      <div class="card reveal">
+        <div class="icon">🔥</div>
+        <h3 data-en="LP burned" data-ru="LP сожжена">LP burned</h3>
+        <p data-en="Liquidity is burned when the bonding curve completes. Nobody can pull the water out of the tank."
+           data-ru="Ликвидность сжигается после завершения бондинг-кривой. Никто не сможет слить воду из аквариума.">
+          Liquidity is burned when the bonding curve completes. Nobody can pull the water out of the tank.
+        </p>
+      </div>
+      <div class="card reveal">
+        <div class="icon">🚫</div>
+        <h3 data-en="0% tax" data-ru="0% налог">0% tax</h3>
+        <p data-en="No buy tax, no sell tax, no hidden fees. Only the standard Solana network fee."
+           data-ru="Нет налога на покупку и продажу, нет скрытых комиссий. Только стандартная комиссия сети Solana.">
+          No buy tax, no sell tax, no hidden fees. Only the standard Solana network fee.
+        </p>
+      </div>
+      <div class="card reveal">
+        <div class="icon">🤝</div>
+        <h3 data-en="Fair launch" data-ru="Честный запуск">Fair launch</h3>
+        <p data-en="No presale, no private round, no team allocation. Everyone entered the same water."
+           data-ru="Без пресейла, без приватного раунда, без доли команды. Все зашли в одну воду.">
+          No presale, no private round, no team allocation. Everyone entered the same water.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================= HOW TO BUY  -->
+<section id="buy">
+  <div class="wrap">
+    <div class="reveal" style="text-align:center; margin-bottom:44px">
+      <p class="eyebrow" data-en="// four strokes and you are in" data-ru="// четыре гребка и ты в воде">// four strokes and you are in</p>
+      <h2><span data-en="How to" data-ru="Как">How to</span> <span class="accent" data-en="buy" data-ru="купить">buy</span></h2>
+    </div>
+
+    <div class="cards c4">
+      <div class="card reveal">
+        <div class="step-no">STEP 01</div>
+        <h3 data-en="Get a wallet" data-ru="Заведи кошелёк">Get a wallet</h3>
+        <p data-en="Install Phantom or Solflare — on desktop as a browser extension, or as a mobile app."
+           data-ru="Установи Phantom или Solflare — расширение для браузера на компьютере или приложение на телефоне.">
+          Install Phantom or Solflare — on desktop as a browser extension, or as a mobile app.
+        </p>
+      </div>
+      <div class="card reveal">
+        <div class="step-no">STEP 02</div>
+        <h3 data-en="Fund it with SOL" data-ru="Пополни его в SOL">Fund it with SOL</h3>
+        <p data-en="Buy SOL on any exchange and send it to your wallet address, or use the wallet's built-in on-ramp."
+           data-ru="Купи SOL на любой бирже и отправь на адрес своего кошелька, или используй встроенную покупку в кошельке.">
+          Buy SOL on any exchange and send it to your wallet address, or use the wallet's built-in on-ramp.
+        </p>
+      </div>
+      <div class="card reveal">
+        <div class="step-no">STEP 03</div>
+        <h3 data-en="Open the pool" data-ru="Открой пул">Open the pool</h3>
+        <p data-en="Go to pump.fun (or Jupiter) with the contract address below, connect your wallet and paste the CA."
+           data-ru="Зайди на pump.fun (или Jupiter) с адресом контракта ниже, подключи кошелёк и вставь CA.">
+          Go to pump.fun (or Jupiter) with the contract address below, connect your wallet and paste the CA.
+        </p>
+      </div>
+      <div class="card reveal">
+        <div class="step-no">STEP 04</div>
+        <h3 data-en="Swap and swim" data-ru="Меняй и плыви">Swap and swim</h3>
+        <p data-en="Swap SOL for $BFISH, confirm the transaction, and welcome to the school. Keep some SOL for fees."
+           data-ru="Обменяй SOL на $BFISH, подтверди транзакцию — и добро пожаловать в стаю. Оставь немного SOL на комиссии.">
+          Swap SOL for $BFISH, confirm the transaction, and welcome to the school. Keep some SOL for fees.
+        </p>
+      </div>
+    </div>
+
+    <div class="ca reveal" style="margin:36px auto 22px; max-width:720px">
+      <span class="label" data-en="CONTRACT" data-ru="КОНТРАКТ">CONTRACT</span>
+      <code id="caText2">AzoyECzeEbmi3bczngZZnZDj4M9EreNM93mDXqNcpump</code>
+      <button class="btn btn-ghost btn-sm" id="copyCa2" data-en="Copy" data-ru="Копировать">Copy</button>
+    </div>
+
+    <div class="hero-cta reveal" style="justify-content:center">
+      <a class="btn btn-gold" id="buyPump2" href="#" target="_blank" rel="noopener"
+         data-en="Buy on pump.fun" data-ru="Купить на pump.fun">Buy on pump.fun</a>
+      <a class="btn btn-ghost" id="jupLink" href="#" target="_blank" rel="noopener"
+         data-en="Swap on Jupiter" data-ru="Обмен на Jupiter">Swap on Jupiter</a>
+      <a class="btn btn-ghost" id="solscanLink" href="#" target="_blank" rel="noopener"
+         data-en="View on Solscan" data-ru="Смотреть в Solscan">View on Solscan</a>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================== ROADMAP ==== -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="reveal" style="text-align:center; margin-bottom:20px">
+      <p class="eyebrow" data-en="// diving deeper" data-ru="// погружаемся глубже">// diving deeper</p>
+      <h2><span class="accent" data-en="The dive plan" data-ru="План погружения">The dive plan</span></h2>
+    </div>
+
+    <div class="depths">
+      <div class="depth done reveal">
+        <div class="dot">0m</div>
+        <div class="body">
+          <div class="status" data-en="COMPLETE" data-ru="ГОТОВО">COMPLETE</div>
+          <h3 data-en="Surface — the splash" data-ru="Поверхность — всплеск">Surface — the splash</h3>
+          <ul>
+            <li data-en="Fair launch on pump.fun" data-ru="Честный запуск на pump.fun">Fair launch on pump.fun</li>
+            <li data-en="Pixel mascot and brand kit" data-ru="Пиксельный маскот и айдентика">Pixel mascot and brand kit</li>
+            <li data-en="Website and socials online" data-ru="Сайт и соцсети онлайн">Website and socials online</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="depth reveal">
+        <div class="dot">-200m</div>
+        <div class="body">
+          <div class="status" data-en="IN PROGRESS" data-ru="В РАБОТЕ">IN PROGRESS</div>
+          <h3 data-en="The reef — first school" data-ru="Риф — первая стая">The reef — first school</h3>
+          <ul>
+            <li data-en="1,000 holders and an active chat" data-ru="1 000 холдеров и живой чат">1,000 holders and an active chat</li>
+            <li data-en="Meme contests and sticker packs" data-ru="Мем-конкурсы и стикерпаки">Meme contests and sticker packs</li>
+            <li data-en="DEX Screener profile + trending push" data-ru="Профиль на DEX Screener и попадание в тренды">DEX Screener profile + trending push</li>
+            <li data-en="Listings on CoinGecko / CMC" data-ru="Листинги на CoinGecko / CMC">Listings on CoinGecko / CMC</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="depth reveal">
+        <div class="dot">-2km</div>
+        <div class="body">
+          <div class="status" data-en="NEXT" data-ru="ДАЛЬШЕ">NEXT</div>
+          <h3 data-en="Twilight zone — momentum" data-ru="Сумеречная зона — импульс">Twilight zone — momentum</h3>
+          <ul>
+            <li data-en="Community raids and creator collabs" data-ru="Комьюнити-рейды и коллабы с креаторами">Community raids and creator collabs</li>
+            <li data-en="On-chain pixel aquarium: every holder gets a fish" data-ru="Ончейн-аквариум: у каждого холдера своя рыба">On-chain pixel aquarium: every holder gets a fish</li>
+            <li data-en="Mini-game: feed the fish, climb the leaderboard" data-ru="Мини-игра: покорми рыбу и поднимись в таблице лидеров">Mini-game: feed the fish, climb the leaderboard</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="depth reveal">
+        <div class="dot">-11km</div>
+        <div class="body">
+          <div class="status" data-en="THE ABYSS" data-ru="БЕЗДНА">THE ABYSS</div>
+          <h3 data-en="Trench — where whales live" data-ru="Впадина — где живут киты">Trench — where whales live</h3>
+          <ul>
+            <li data-en="CEX listings" data-ru="Листинги на централизованных биржах">CEX listings</li>
+            <li data-en="Merch drop: pixel hoodies and caps" data-ru="Дроп мерча: пиксельные худи и кепки">Merch drop: pixel hoodies and caps</li>
+            <li data-en="Community treasury voted on by holders" data-ru="Казна комьюнити с голосованием холдеров">Community treasury voted on by holders</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ FAQ ==== -->
+<section id="faq">
+  <div class="wrap">
+    <div class="reveal" style="text-align:center">
+      <p class="eyebrow" data-en="// bubbles of doubt" data-ru="// пузыри сомнений">// bubbles of doubt</p>
+      <h2><span class="accent" data-en="FAQ" data-ru="Частые вопросы">FAQ</span></h2>
+    </div>
+
+    <div class="faq">
+      <details class="reveal" open>
+        <summary data-en="What is BITFISH?" data-ru="Что такое BITFISH?">What is BITFISH?</summary>
+        <p data-en="A community memecoin on Solana with a pixel-art fish as its mascot. It has no utility promises, no roadmap of products you must buy — it is a meme, a brand and a community."
+           data-ru="Комьюнити-мемкоин на Solana с пиксельной рыбой в роли маскота. Без обещаний утилити и без продуктов, которые нужно покупать — это мем, бренд и сообщество.">
+          A community memecoin on Solana with a pixel-art fish as its mascot. It has no utility promises, no roadmap of products you must buy — it is a meme, a brand and a community.
+        </p>
+      </details>
+      <details class="reveal">
+        <summary data-en="Is the liquidity safe?" data-ru="Ликвидность в безопасности?">Is the liquidity safe?</summary>
+        <p data-en="The token launched on pump.fun, where liquidity is burned once the bonding curve completes and mint authority is revoked. Do not take our word for it — check the contract on Solscan and DEX Screener yourself."
+           data-ru="Токен запущен на pump.fun, где ликвидность сжигается после завершения бондинг-кривой, а право эмиссии отзывается. Не верь на слово — проверь контракт в Solscan и на DEX Screener.">
+          The token launched on pump.fun, where liquidity is burned once the bonding curve completes and mint authority is revoked. Do not take our word for it — check the contract on Solscan and DEX Screener yourself.
+        </p>
+      </details>
+      <details class="reveal">
+        <summary data-en="Where can I buy it?" data-ru="Где купить?">Where can I buy it?</summary>
+        <p data-en="On pump.fun with the contract address from this page, or through any Solana aggregator such as Jupiter. Always paste the CA — never trust a search result."
+           data-ru="На pump.fun по адресу контракта с этой страницы или через любой агрегатор Solana, например Jupiter. Всегда вставляй CA вручную — не доверяй результатам поиска.">
+          On pump.fun with the contract address from this page, or through any Solana aggregator such as Jupiter. Always paste the CA — never trust a search result.
+        </p>
+      </details>
+      <details class="reveal">
+        <summary data-en="Are there fake tokens?" data-ru="Есть ли фейковые токены?">Are there fake tokens?</summary>
+        <p data-en="Yes — memecoins get cloned within minutes. The only real contract is the one printed on this site. If an address does not match character for character, it is not us."
+           data-ru="Да — мемкоины клонируют за минуты. Настоящий контракт только тот, что указан на этом сайте. Если адрес не совпадает символ в символ — это не мы.">
+          Yes — memecoins get cloned within minutes. The only real contract is the one printed on this site. If an address does not match character for character, it is not us.
+        </p>
+      </details>
+      <details class="reveal">
+        <summary data-en="Will it go up?" data-ru="Он вырастет?">Will it go up?</summary>
+        <p data-en="Nobody knows, and anyone who tells you otherwise is lying. Memecoins are extremely volatile and can go to zero. Never put in more than you can lose in the deep."
+           data-ru="Никто не знает, и любой, кто говорит иначе, врёт. Мемкоины крайне волатильны и могут обнулиться. Никогда не вкладывай больше, чем готов потерять в глубине.">
+          Nobody knows, and anyone who tells you otherwise is lying. Memecoins are extremely volatile and can go to zero. Never put in more than you can lose in the deep.
+        </p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================== COMMUNITY ==== -->
+<section id="community" class="community">
+  <div class="wrap">
+    <div class="reveal">
+      <p class="eyebrow" data-en="// join the school" data-ru="// присоединяйся к стае">// join the school</p>
+      <h2><span data-en="Swim" data-ru="Плыви">Swim</span> <span class="accent" data-en="with us" data-ru="с нами">with us</span></h2>
+      <p class="lead" style="margin-inline:auto"
+         data-en="A fish alone gets eaten. A school moves the market. Come say hi."
+         data-ru="Одинокую рыбу съедают. Стая двигает рынок. Заходи поздороваться.">
+        A fish alone gets eaten. A school moves the market. Come say hi.
+      </p>
+    </div>
+
+    <div class="socials reveal">
+      <a class="social" id="socialX" href="#" target="_blank" rel="noopener">
+        <span class="ico">𝕏</span><span>TWITTER</span>
+      </a>
+      <a class="social" id="socialTg" href="#" target="_blank" rel="noopener">
+        <span class="ico">✈️</span><span>TELEGRAM</span>
+      </a>
+      <a class="social" id="socialDex" href="#" target="_blank" rel="noopener">
+        <span class="ico">📈</span><span>DEXSCREENER</span>
+      </a>
+      <a class="social" id="socialPump" href="#" target="_blank" rel="noopener">
+        <span class="ico">🚀</span><span>PUMP.FUN</span>
+      </a>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ========================================================= FOOTER ==== -->
+<footer>
+  <div class="waves top">
+    <svg viewBox="0 0 1440 90" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path fill="rgba(63,178,230,0.18)" d="M0,40 C180,80 360,0 720,40 C1080,80 1260,0 1440,40 L1440,90 L0,90 Z"></path>
+    </svg>
+  </div>
+  <div class="wrap">
+    <div class="foot-grid">
+      <a class="brand" href="#top">
+        <img src="assets/img/fish.svg" alt="">
+        <span data-token="name">BITFISH</span>
+      </a>
+      <nav class="nav-links" style="position:static; display:flex; background:none; border:0; padding:0">
+        <a href="#about" data-en="About" data-ru="О монете">About</a>
+        <a href="#tokenomics" data-en="Tokenomics" data-ru="Токеномика">Tokenomics</a>
+        <a href="#buy" data-en="How to buy" data-ru="Как купить">How to buy</a>
+        <a href="#faq" data-en="FAQ" data-ru="Вопросы">FAQ</a>
+      </nav>
+    </div>
+    <p class="disclaimer"
+       data-en="$BFISH is a memecoin created for entertainment and community purposes. It is not an investment product, it has no intrinsic value and it promises no returns. Crypto assets are highly volatile — you can lose everything you put in. Nothing on this page is financial advice. Always verify the contract address before you trade, and do your own research."
+       data-ru="$BFISH — мемкоин, созданный для развлечения и комьюнити. Это не инвестиционный продукт, у него нет внутренней стоимости и он не обещает доходности. Криптоактивы крайне волатильны — можно потерять всё вложенное. Ничего на этой странице не является финансовой рекомендацией. Всегда проверяй адрес контракта перед покупкой и принимай решения сам.">
+      $BFISH is a memecoin created for entertainment and community purposes. It is not an investment product, it has no intrinsic value and it promises no returns. Crypto assets are highly volatile — you can lose everything you put in. Nothing on this page is financial advice. Always verify the contract address before you trade, and do your own research.
+    </p>
+    <p class="disclaimer" style="border:0; padding-top:10px; opacity:0.7">© <span id="year">2026</span> BITFISH. <span data-en="Made by the school, for the school." data-ru="Сделано стаей для стаи.">Made by the school, for the school.</span></p>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/js/app.js"></script>
+</body>
+</html>
