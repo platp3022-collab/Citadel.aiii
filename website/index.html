@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BITFISH ($BFISH) — the pixel fish swimming the Solana ocean</title>
-<meta name="description" content="BITFISH is a community memecoin on Solana. Pixel fish, deep-ocean vibes, fair launch on pump.fun. No presale, no team allocation, just the school.">
+<meta name="description" content="BITFISH is a community memecoin on Solana. Pixel fish, deep-ocean vibes, a free mini-game and a growing family of fish coins. Fair launch on pump.fun - no presale, no team allocation.">
 <meta name="theme-color" content="#071a33">
 
 <meta property="og:type" content="website">
@@ -204,23 +204,6 @@ h2 .accent, h1 .accent {
 .nav-links a:hover { color: var(--foam); }
 .nav-links a:hover::after { width: 100%; }
 
-.lang {
-  display: flex;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  overflow: hidden;
-  font-family: var(--pixel);
-  font-size: 9px;
-}
-.lang button {
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  padding: 8px 10px;
-  cursor: pointer;
-  font: inherit;
-}
-.lang button[aria-pressed="true"] { background: var(--cyan); color: #04121f; }
 
 .burger {
   display: none;
@@ -556,6 +539,117 @@ footer {
 .js .reveal { opacity: 0; transform: translateY(26px); }
 .js .reveal.in { opacity: 1; transform: none; }
 
+
+/* --------------------------------------------------------- family ------ */
+.family-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+
+.fish-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  backdrop-filter: blur(10px);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.fish-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(143, 228, 255, 0.4);
+  box-shadow: 0 22px 50px rgba(2, 10, 22, 0.6);
+}
+.fish-card .tank {
+  position: relative;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(31, 111, 168, 0.35), rgba(4, 20, 39, 0.9)),
+    repeating-linear-gradient(90deg, transparent 0 26px, rgba(143, 228, 255, 0.05) 26px 27px),
+    repeating-linear-gradient(0deg, transparent 0 26px, rgba(143, 228, 255, 0.05) 26px 27px);
+  padding: 14px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.fish-card canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  image-rendering: pixelated;
+}
+.fish-card.locked canvas { opacity: 0.75; }
+.fish-card h3 { margin: 0 0 4px; font-size: 19px; }
+.fish-card .tick { font-family: var(--pixel); font-size: 9px; color: var(--gold-bright); letter-spacing: 1px; }
+.fish-card p { color: var(--muted); font-size: 14.5px; margin: 12px 0 0; }
+.fish-card .meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.badge {
+  position: absolute;
+  top: 10px; right: 10px;
+  font-family: var(--pixel);
+  font-size: 8px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  letter-spacing: 1px;
+}
+.badge.live { color: #5ce08a; background: rgba(92, 224, 138, 0.14); border: 1px solid rgba(92, 224, 138, 0.4); }
+.badge.soon { color: var(--gold-bright); background: rgba(246, 205, 95, 0.12); border: 1px solid rgba(246, 205, 95, 0.35); }
+.badge.planned { color: var(--cyan-bright); background: rgba(143, 228, 255, 0.08); border: 1px solid var(--line); }
+.family-note { text-align: center; color: var(--muted); font-size: 13.5px; margin-top: 28px; }
+
+/* --------------------------------------------------------- arcade ------ */
+.arcade { max-width: 900px; margin-inline: auto; }
+.arcade-hud {
+  display: flex;
+  gap: 22px;
+  justify-content: center;
+  font-family: var(--pixel);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+.arcade-hud b { color: var(--gold-bright); font-size: 11px; margin-left: 4px; }
+.arcade-screen {
+  position: relative;
+  border-radius: var(--radius);
+  border: 1px solid rgba(143, 228, 255, 0.3);
+  background: #041427;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(2, 10, 22, 0.6), inset 0 0 70px rgba(63, 178, 230, 0.08);
+}
+.arcade-screen canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 8 / 5;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.arcade-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+  background: rgba(4, 16, 32, 0.78);
+  backdrop-filter: blur(3px);
+}
+.arcade-overlay.hidden { display: none; }
+.arcade-overlay h3 { font-family: var(--pixel); font-size: clamp(13px, 2.6vw, 20px); color: var(--gold-bright); margin: 0; line-height: 1.6; }
+.arcade-overlay p { margin: 0; max-width: 44ch; color: var(--foam); font-size: 15px; }
+.arcade-help { text-align: center; color: var(--muted); font-size: 13px; margin-top: 16px; }
+.arcade-help b { color: var(--cyan-bright); font-weight: 600; }
+
 /* ---------------------------------------------------------- responsive --- */
 @media (max-width: 980px) {
   .hero-grid, .about-grid { grid-template-columns: 1fr; }
@@ -563,6 +657,7 @@ footer {
   .hero-art .fish { width: min(320px, 70%); }
   .cards.c3, .cards.c4, .cards.c2 { grid-template-columns: repeat(2, 1fr); }
   .stats { grid-template-columns: repeat(2, 1fr); }
+  .family-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 720px) {
@@ -582,6 +677,8 @@ footer {
   .nav-links a { padding: 14px 6vw; }
   .nav-links a::after { display: none; }
   .cards.c3, .cards.c4, .cards.c2 { grid-template-columns: 1fr; }
+  .family-grid { grid-template-columns: 1fr; }
+  .arcade-hud { gap: 12px; font-size: 8px; }
   .hero { padding-top: 104px; }
   .hero-art .fish { width: min(230px, 60%); }
   .ca { flex-wrap: wrap; }
@@ -625,20 +722,16 @@ footer {
     </a>
 
     <nav class="nav-links" id="navLinks">
-      <a href="#about" data-en="About" data-ru="О монете">About</a>
-      <a href="#tokenomics" data-en="Tokenomics" data-ru="Токеномика">Tokenomics</a>
-      <a href="#buy" data-en="How to buy" data-ru="Как купить">How to buy</a>
-      <a href="#roadmap" data-en="Roadmap" data-ru="Дорожная карта">Roadmap</a>
-      <a href="#faq" data-en="FAQ" data-ru="Вопросы">FAQ</a>
-      <a href="#community" data-en="Community" data-ru="Комьюнити">Community</a>
+      <a href="#about">About</a>
+      <a href="#family">Fish family</a>
+      <a href="#game">Play</a>
+      <a href="#tokenomics">Tokenomics</a>
+      <a href="#buy">How to buy</a>
+      <a href="#roadmap">Roadmap</a>
     </nav>
 
-    <div class="lang" role="group" aria-label="Language">
-      <button type="button" data-lang="en" aria-pressed="true">EN</button>
-      <button type="button" data-lang="ru" aria-pressed="false">RU</button>
-    </div>
 
-    <a class="btn btn-gold btn-sm" id="navBuy" href="#buy" data-en="Buy" data-ru="Купить">Buy</a>
+    <a class="btn btn-gold btn-sm" id="navBuy" href="#buy">Buy</a>
     <button class="burger" id="burger" aria-label="Menu" aria-expanded="false">☰</button>
   </div>
 </header>
@@ -648,28 +741,24 @@ footer {
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <p class="tagline" data-en="&gt; deep sea liquidity protocol" data-ru="&gt; протокол глубоководной ликвидности">&gt; deep sea liquidity protocol</p>
+      <p class="tagline">&gt; deep sea liquidity protocol</p>
       <h1>
-        <span data-en="The pixel fish that swims the" data-ru="Пиксельная рыба, плывущая по">The pixel fish that swims the</span>
-        <span class="accent" data-en="Solana ocean" data-ru="океану Solana">Solana ocean</span>
+        <span>The pixel fish that swims the</span>
+        <span class="accent">Solana ocean</span>
       </h1>
-      <p class="lead"
-         data-en="BITFISH was born where the bitcoin current meets the deep blue. Fair launch on pump.fun, liquidity burned, no team bags — just a school of degens swimming in the same direction."
-         data-ru="BITFISH родился там, где биткоин-течение встречается с глубокой синевой. Честный запуск на pump.fun, ликвидность сожжена, у команды нет мешков — только стая, которая плывёт в одну сторону.">
+      <p class="lead">
         BITFISH was born where the bitcoin current meets the deep blue. Fair launch on pump.fun, liquidity burned, no team bags — just a school of degens swimming in the same direction.
       </p>
 
       <div class="hero-cta">
-        <a class="btn btn-gold" id="buyPump" href="#" target="_blank" rel="noopener"
-           data-en="Buy on pump.fun" data-ru="Купить на pump.fun">Buy on pump.fun</a>
-        <a class="btn btn-ghost" id="chartLink" href="#" target="_blank" rel="noopener"
-           data-en="Live chart" data-ru="График">Live chart</a>
+        <a class="btn btn-gold" id="buyPump" href="#" target="_blank" rel="noopener">Buy on pump.fun</a>
+        <a class="btn btn-ghost" id="chartLink" href="#" target="_blank" rel="noopener">Live chart</a>
       </div>
 
       <div class="ca">
-        <span class="label" data-en="CONTRACT" data-ru="КОНТРАКТ">CONTRACT</span>
+        <span class="label">CONTRACT</span>
         <code id="caText">AzoyECzeEbmi3bczngZZnZDj4M9EreNM93mDXqNcpump</code>
-        <button class="btn btn-ghost btn-sm" id="copyCa" data-en="Copy" data-ru="Копировать">Copy</button>
+        <button class="btn btn-ghost btn-sm" id="copyCa">Copy</button>
       </div>
     </div>
 
@@ -681,25 +770,23 @@ footer {
   <div class="wrap">
     <div class="stats reveal">
       <div class="stat">
-        <div class="k" data-en="PRICE" data-ru="ЦЕНА">PRICE</div>
+        <div class="k">PRICE</div>
         <div class="v" id="statPrice">—</div>
       </div>
       <div class="stat">
-        <div class="k" data-en="MARKET CAP" data-ru="КАПИТАЛИЗАЦИЯ">MARKET CAP</div>
+        <div class="k">MARKET CAP</div>
         <div class="v" id="statMcap">—</div>
       </div>
       <div class="stat">
-        <div class="k" data-en="24H VOLUME" data-ru="ОБЪЁМ 24Ч">24H VOLUME</div>
+        <div class="k">24H VOLUME</div>
         <div class="v" id="statVol">—</div>
       </div>
       <div class="stat">
-        <div class="k" data-en="24H CHANGE" data-ru="ИЗМЕНЕНИЕ 24Ч">24H CHANGE</div>
+        <div class="k">24H CHANGE</div>
         <div class="v" id="statChange">—</div>
       </div>
     </div>
-    <p class="stats-note" id="statsNote"
-       data-en="Live data from DEX Screener. Loading…"
-       data-ru="Данные в реальном времени с DEX Screener. Загрузка…">Live data from DEX Screener. Loading…</p>
+    <p class="stats-note" id="statsNote">Live data from DEX Screener. Loading…</p>
   </div>
 </section>
 
@@ -716,20 +803,73 @@ footer {
       </div>
     </div>
     <div class="reveal">
-      <p class="eyebrow" data-en="// the legend" data-ru="// легенда">// the legend</p>
+      <p class="eyebrow">// the legend</p>
       <h2>
-        <span data-en="Small fish," data-ru="Маленькая рыба,">Small fish,</span>
-        <span class="accent" data-en="deep ocean" data-ru="глубокий океан">deep ocean</span>
+        <span>Small fish,</span>
+        <span class="accent">deep ocean</span>
       </h2>
-      <p class="lead"
-         data-en="Every chart is an ocean. Whales move slow and loud, shrimp get eaten, and somewhere in the middle a golden pixel fish keeps swimming — carrying the bitcoin mark on its side like a scar from the first bull run."
-         data-ru="Каждый график — это океан. Киты двигаются медленно и шумно, креветок съедают, а где-то посередине плывёт золотая пиксельная рыба — со знаком биткоина на боку, как шрам с первого бычьего цикла.">
+      <p class="lead">
         Every chart is an ocean. Whales move slow and loud, shrimp get eaten, and somewhere in the middle a golden pixel fish keeps swimming — carrying the bitcoin mark on its side like a scar from the first bull run.
       </p>
-      <p class="lead" style="margin-top:16px"
-         data-en="BITFISH is not a promise of returns. It is a flag for people who like pixels, salt water and green candles — a meme with a community, an art style and a very simple rule: the school swims together."
-         data-ru="BITFISH — это не обещание прибыли. Это флаг для тех, кто любит пиксели, солёную воду и зелёные свечи — мем с комьюнити, своим стилем и очень простым правилом: стая плывёт вместе.">
+      <p class="lead" style="margin-top:16px">
         BITFISH is not a promise of returns. It is a flag for people who like pixels, salt water and green candles — a meme with a community, an art style and a very simple rule: the school swims together.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================== FAMILY ==== -->
+<section id="family">
+  <div class="wrap">
+    <div class="reveal" style="text-align:center; margin-bottom:44px">
+      <p class="eyebrow">// one school, many scales</p>
+      <h2>The <span class="accent">fish family</span></h2>
+      <p class="lead" style="margin-inline:auto">
+        BITFISH swims first. Behind it the rest of the school is still growing —
+        same pixels, same fins, a different coin on every flank. Each one gets
+        its own launch; this page is where they surface.
+      </p>
+    </div>
+
+    <div class="family-grid" id="familyGrid"></div>
+
+    <p class="family-note reveal">
+      Only the coins marked <b>LIVE</b> exist on-chain today. Everything else is
+      a plan, not a promise — never buy a "presale" of a fish that has not
+      launched yet.
+    </p>
+  </div>
+</section>
+
+<!-- ======================================================= GAME ==== -->
+<section id="game">
+  <div class="wrap">
+    <div class="reveal" style="text-align:center; margin-bottom:36px">
+      <p class="eyebrow">// arcade cabinet, bottom of the sea</p>
+      <h2><span class="accent">Deep Dive</span> — the BITFISH game</h2>
+      <p class="lead" style="margin-inline:auto">
+        Swim the fish through the red candles and eat the family tokens.
+        One button, no wallet, no gas. Your best score lives in this browser.
+      </p>
+    </div>
+
+    <div class="arcade reveal">
+      <div class="arcade-hud">
+        <span>SCORE <b id="gScore">0</b></span>
+        <span>TOKENS <b id="gCoins">0</b></span>
+        <span>BEST <b id="gBest">0</b></span>
+      </div>
+      <div class="arcade-screen">
+        <canvas id="gameCanvas" aria-label="Deep Dive - guide the pixel fish through the candles"></canvas>
+        <div class="arcade-overlay" id="gOverlay">
+          <h3 id="gTitle">DEEP DIVE</h3>
+          <p id="gText">Tap, click or press Space to swim. Dodge the red candles.</p>
+          <button class="btn btn-gold" id="gStart" type="button">Start swimming</button>
+        </div>
+      </div>
+      <p class="arcade-help">
+        <b>Space</b> / <b>W</b> / <b>↑</b> / click / tap to swim ·
+        <b>P</b> to pause · red candle = dead fish · tokens are worth 5 points
       </p>
     </div>
   </div>
@@ -739,11 +879,9 @@ footer {
 <section id="tokenomics">
   <div class="wrap">
     <div class="reveal" style="text-align:center; margin-bottom:44px">
-      <p class="eyebrow" data-en="// the water we swim in" data-ru="// вода, в которой мы плаваем">// the water we swim in</p>
-      <h2><span class="accent" data-en="Tokenomics" data-ru="Токеномика">Tokenomics</span></h2>
-      <p class="lead" style="margin-inline:auto"
-         data-en="Standard pump.fun fair launch. Nothing hidden under the sand — verify every line on-chain."
-         data-ru="Стандартный честный запуск pump.fun. Ничего не спрятано под песком — каждую строку можно проверить в блокчейне.">
+      <p class="eyebrow">// the water we swim in</p>
+      <h2><span class="accent">Tokenomics</span></h2>
+      <p class="lead" style="margin-inline:auto">
         Standard pump.fun fair launch. Nothing hidden under the sand — verify every line on-chain.
       </p>
     </div>
@@ -751,33 +889,29 @@ footer {
     <div class="cards c4">
       <div class="card reveal">
         <div class="icon">🪙</div>
-        <h3 data-en="1,000,000,000" data-ru="1 000 000 000">1,000,000,000</h3>
-        <p data-en="Total supply. Fixed at launch, mint authority revoked — no new fish can be printed."
-           data-ru="Общая эмиссия. Зафиксирована при запуске, право эмиссии отозвано — новых рыб не напечатать.">
+        <h3>1,000,000,000</h3>
+        <p>
           Total supply. Fixed at launch, mint authority revoked — no new fish can be printed.
         </p>
       </div>
       <div class="card reveal">
         <div class="icon">🔥</div>
-        <h3 data-en="LP burned" data-ru="LP сожжена">LP burned</h3>
-        <p data-en="Liquidity is burned when the bonding curve completes. Nobody can pull the water out of the tank."
-           data-ru="Ликвидность сжигается после завершения бондинг-кривой. Никто не сможет слить воду из аквариума.">
+        <h3>LP burned</h3>
+        <p>
           Liquidity is burned when the bonding curve completes. Nobody can pull the water out of the tank.
         </p>
       </div>
       <div class="card reveal">
         <div class="icon">🚫</div>
-        <h3 data-en="0% tax" data-ru="0% налог">0% tax</h3>
-        <p data-en="No buy tax, no sell tax, no hidden fees. Only the standard Solana network fee."
-           data-ru="Нет налога на покупку и продажу, нет скрытых комиссий. Только стандартная комиссия сети Solana.">
+        <h3>0% tax</h3>
+        <p>
           No buy tax, no sell tax, no hidden fees. Only the standard Solana network fee.
         </p>
       </div>
       <div class="card reveal">
         <div class="icon">🤝</div>
-        <h3 data-en="Fair launch" data-ru="Честный запуск">Fair launch</h3>
-        <p data-en="No presale, no private round, no team allocation. Everyone entered the same water."
-           data-ru="Без пресейла, без приватного раунда, без доли команды. Все зашли в одну воду.">
+        <h3>Fair launch</h3>
+        <p>
           No presale, no private round, no team allocation. Everyone entered the same water.
         </p>
       </div>
@@ -789,58 +923,51 @@ footer {
 <section id="buy">
   <div class="wrap">
     <div class="reveal" style="text-align:center; margin-bottom:44px">
-      <p class="eyebrow" data-en="// four strokes and you are in" data-ru="// четыре гребка и ты в воде">// four strokes and you are in</p>
-      <h2><span data-en="How to" data-ru="Как">How to</span> <span class="accent" data-en="buy" data-ru="купить">buy</span></h2>
+      <p class="eyebrow">// four strokes and you are in</p>
+      <h2><span>How to</span> <span class="accent">buy</span></h2>
     </div>
 
     <div class="cards c4">
       <div class="card reveal">
         <div class="step-no">STEP 01</div>
-        <h3 data-en="Get a wallet" data-ru="Заведи кошелёк">Get a wallet</h3>
-        <p data-en="Install Phantom or Solflare — on desktop as a browser extension, or as a mobile app."
-           data-ru="Установи Phantom или Solflare — расширение для браузера на компьютере или приложение на телефоне.">
+        <h3>Get a wallet</h3>
+        <p>
           Install Phantom or Solflare — on desktop as a browser extension, or as a mobile app.
         </p>
       </div>
       <div class="card reveal">
         <div class="step-no">STEP 02</div>
-        <h3 data-en="Fund it with SOL" data-ru="Пополни его в SOL">Fund it with SOL</h3>
-        <p data-en="Buy SOL on any exchange and send it to your wallet address, or use the wallet's built-in on-ramp."
-           data-ru="Купи SOL на любой бирже и отправь на адрес своего кошелька, или используй встроенную покупку в кошельке.">
+        <h3>Fund it with SOL</h3>
+        <p>
           Buy SOL on any exchange and send it to your wallet address, or use the wallet's built-in on-ramp.
         </p>
       </div>
       <div class="card reveal">
         <div class="step-no">STEP 03</div>
-        <h3 data-en="Open the pool" data-ru="Открой пул">Open the pool</h3>
-        <p data-en="Go to pump.fun (or Jupiter) with the contract address below, connect your wallet and paste the CA."
-           data-ru="Зайди на pump.fun (или Jupiter) с адресом контракта ниже, подключи кошелёк и вставь CA.">
+        <h3>Open the pool</h3>
+        <p>
           Go to pump.fun (or Jupiter) with the contract address below, connect your wallet and paste the CA.
         </p>
       </div>
       <div class="card reveal">
         <div class="step-no">STEP 04</div>
-        <h3 data-en="Swap and swim" data-ru="Меняй и плыви">Swap and swim</h3>
-        <p data-en="Swap SOL for $BFISH, confirm the transaction, and welcome to the school. Keep some SOL for fees."
-           data-ru="Обменяй SOL на $BFISH, подтверди транзакцию — и добро пожаловать в стаю. Оставь немного SOL на комиссии.">
+        <h3>Swap and swim</h3>
+        <p>
           Swap SOL for $BFISH, confirm the transaction, and welcome to the school. Keep some SOL for fees.
         </p>
       </div>
     </div>
 
     <div class="ca reveal" style="margin:36px auto 22px; max-width:720px">
-      <span class="label" data-en="CONTRACT" data-ru="КОНТРАКТ">CONTRACT</span>
+      <span class="label">CONTRACT</span>
       <code id="caText2">AzoyECzeEbmi3bczngZZnZDj4M9EreNM93mDXqNcpump</code>
-      <button class="btn btn-ghost btn-sm" id="copyCa2" data-en="Copy" data-ru="Копировать">Copy</button>
+      <button class="btn btn-ghost btn-sm" id="copyCa2">Copy</button>
     </div>
 
     <div class="hero-cta reveal" style="justify-content:center">
-      <a class="btn btn-gold" id="buyPump2" href="#" target="_blank" rel="noopener"
-         data-en="Buy on pump.fun" data-ru="Купить на pump.fun">Buy on pump.fun</a>
-      <a class="btn btn-ghost" id="jupLink" href="#" target="_blank" rel="noopener"
-         data-en="Swap on Jupiter" data-ru="Обмен на Jupiter">Swap on Jupiter</a>
-      <a class="btn btn-ghost" id="solscanLink" href="#" target="_blank" rel="noopener"
-         data-en="View on Solscan" data-ru="Смотреть в Solscan">View on Solscan</a>
+      <a class="btn btn-gold" id="buyPump2" href="#" target="_blank" rel="noopener">Buy on pump.fun</a>
+      <a class="btn btn-ghost" id="jupLink" href="#" target="_blank" rel="noopener">Swap on Jupiter</a>
+      <a class="btn btn-ghost" id="solscanLink" href="#" target="_blank" rel="noopener">View on Solscan</a>
     </div>
   </div>
 </section>
@@ -849,20 +976,20 @@ footer {
 <section id="roadmap">
   <div class="wrap">
     <div class="reveal" style="text-align:center; margin-bottom:20px">
-      <p class="eyebrow" data-en="// diving deeper" data-ru="// погружаемся глубже">// diving deeper</p>
-      <h2><span class="accent" data-en="The dive plan" data-ru="План погружения">The dive plan</span></h2>
+      <p class="eyebrow">// diving deeper</p>
+      <h2><span class="accent">The dive plan</span></h2>
     </div>
 
     <div class="depths">
       <div class="depth done reveal">
         <div class="dot">0m</div>
         <div class="body">
-          <div class="status" data-en="COMPLETE" data-ru="ГОТОВО">COMPLETE</div>
-          <h3 data-en="Surface — the splash" data-ru="Поверхность — всплеск">Surface — the splash</h3>
+          <div class="status">COMPLETE</div>
+          <h3>Surface — the splash</h3>
           <ul>
-            <li data-en="Fair launch on pump.fun" data-ru="Честный запуск на pump.fun">Fair launch on pump.fun</li>
-            <li data-en="Pixel mascot and brand kit" data-ru="Пиксельный маскот и айдентика">Pixel mascot and brand kit</li>
-            <li data-en="Website and socials online" data-ru="Сайт и соцсети онлайн">Website and socials online</li>
+            <li>Fair launch on pump.fun</li>
+            <li>Pixel mascot and brand kit</li>
+            <li>Website, mini-game and socials online</li>
           </ul>
         </div>
       </div>
@@ -870,13 +997,14 @@ footer {
       <div class="depth reveal">
         <div class="dot">-200m</div>
         <div class="body">
-          <div class="status" data-en="IN PROGRESS" data-ru="В РАБОТЕ">IN PROGRESS</div>
-          <h3 data-en="The reef — first school" data-ru="Риф — первая стая">The reef — first school</h3>
+          <div class="status">IN PROGRESS</div>
+          <h3>The reef — first school</h3>
           <ul>
-            <li data-en="1,000 holders and an active chat" data-ru="1 000 холдеров и живой чат">1,000 holders and an active chat</li>
-            <li data-en="Meme contests and sticker packs" data-ru="Мем-конкурсы и стикерпаки">Meme contests and sticker packs</li>
-            <li data-en="DEX Screener profile + trending push" data-ru="Профиль на DEX Screener и попадание в тренды">DEX Screener profile + trending push</li>
-            <li data-en="Listings on CoinGecko / CMC" data-ru="Листинги на CoinGecko / CMC">Listings on CoinGecko / CMC</li>
+            <li>1,000 holders and an active chat</li>
+            <li>Meme contests and sticker packs</li>
+            <li>DEX Screener profile + trending push</li>
+            <li>Listings on CoinGecko / CMC</li>
+            <li>First sibling coin announced</li>
           </ul>
         </div>
       </div>
@@ -884,12 +1012,13 @@ footer {
       <div class="depth reveal">
         <div class="dot">-2km</div>
         <div class="body">
-          <div class="status" data-en="NEXT" data-ru="ДАЛЬШЕ">NEXT</div>
-          <h3 data-en="Twilight zone — momentum" data-ru="Сумеречная зона — импульс">Twilight zone — momentum</h3>
+          <div class="status">NEXT</div>
+          <h3>Twilight zone — momentum</h3>
           <ul>
-            <li data-en="Community raids and creator collabs" data-ru="Комьюнити-рейды и коллабы с креаторами">Community raids and creator collabs</li>
-            <li data-en="On-chain pixel aquarium: every holder gets a fish" data-ru="Ончейн-аквариум: у каждого холдера своя рыба">On-chain pixel aquarium: every holder gets a fish</li>
-            <li data-en="Mini-game: feed the fish, climb the leaderboard" data-ru="Мини-игра: покорми рыбу и поднимись в таблице лидеров">Mini-game: feed the fish, climb the leaderboard</li>
+            <li>Community raids and creator collabs</li>
+            <li>SOLFISH and ETHFISH launches — same pixels, new water</li>
+            <li>On-chain pixel aquarium: every holder gets a fish</li>
+            <li>Shared leaderboard for Deep Dive scores</li>
           </ul>
         </div>
       </div>
@@ -897,12 +1026,13 @@ footer {
       <div class="depth reveal">
         <div class="dot">-11km</div>
         <div class="body">
-          <div class="status" data-en="THE ABYSS" data-ru="БЕЗДНА">THE ABYSS</div>
-          <h3 data-en="Trench — where whales live" data-ru="Впадина — где живут киты">Trench — where whales live</h3>
+          <div class="status">THE ABYSS</div>
+          <h3>Trench — where whales live</h3>
           <ul>
-            <li data-en="CEX listings" data-ru="Листинги на централизованных биржах">CEX listings</li>
-            <li data-en="Merch drop: pixel hoodies and caps" data-ru="Дроп мерча: пиксельные худи и кепки">Merch drop: pixel hoodies and caps</li>
-            <li data-en="Community treasury voted on by holders" data-ru="Казна комьюнити с голосованием холдеров">Community treasury voted on by holders</li>
+            <li>CEX listings</li>
+            <li>Merch drop: pixel hoodies and caps</li>
+            <li>Community treasury voted on by holders</li>
+            <li>The whole family swimming: gold, silver, and whatever comes out of the dark</li>
           </ul>
         </div>
       </div>
@@ -914,43 +1044,46 @@ footer {
 <section id="faq">
   <div class="wrap">
     <div class="reveal" style="text-align:center">
-      <p class="eyebrow" data-en="// bubbles of doubt" data-ru="// пузыри сомнений">// bubbles of doubt</p>
-      <h2><span class="accent" data-en="FAQ" data-ru="Частые вопросы">FAQ</span></h2>
+      <p class="eyebrow">// bubbles of doubt</p>
+      <h2><span class="accent">FAQ</span></h2>
     </div>
 
     <div class="faq">
       <details class="reveal" open>
-        <summary data-en="What is BITFISH?" data-ru="Что такое BITFISH?">What is BITFISH?</summary>
-        <p data-en="A community memecoin on Solana with a pixel-art fish as its mascot. It has no utility promises, no roadmap of products you must buy — it is a meme, a brand and a community."
-           data-ru="Комьюнити-мемкоин на Solana с пиксельной рыбой в роли маскота. Без обещаний утилити и без продуктов, которые нужно покупать — это мем, бренд и сообщество.">
+        <summary>What is BITFISH?</summary>
+        <p>
           A community memecoin on Solana with a pixel-art fish as its mascot. It has no utility promises, no roadmap of products you must buy — it is a meme, a brand and a community.
         </p>
       </details>
       <details class="reveal">
-        <summary data-en="Is the liquidity safe?" data-ru="Ликвидность в безопасности?">Is the liquidity safe?</summary>
-        <p data-en="The token launched on pump.fun, where liquidity is burned once the bonding curve completes and mint authority is revoked. Do not take our word for it — check the contract on Solscan and DEX Screener yourself."
-           data-ru="Токен запущен на pump.fun, где ликвидность сжигается после завершения бондинг-кривой, а право эмиссии отзывается. Не верь на слово — проверь контракт в Solscan и на DEX Screener.">
+        <summary>Is the liquidity safe?</summary>
+        <p>
           The token launched on pump.fun, where liquidity is burned once the bonding curve completes and mint authority is revoked. Do not take our word for it — check the contract on Solscan and DEX Screener yourself.
         </p>
       </details>
       <details class="reveal">
-        <summary data-en="Where can I buy it?" data-ru="Где купить?">Where can I buy it?</summary>
-        <p data-en="On pump.fun with the contract address from this page, or through any Solana aggregator such as Jupiter. Always paste the CA — never trust a search result."
-           data-ru="На pump.fun по адресу контракта с этой страницы или через любой агрегатор Solana, например Jupiter. Всегда вставляй CA вручную — не доверяй результатам поиска.">
+        <summary>Where can I buy it?</summary>
+        <p>
           On pump.fun with the contract address from this page, or through any Solana aggregator such as Jupiter. Always paste the CA — never trust a search result.
         </p>
       </details>
       <details class="reveal">
-        <summary data-en="Are there fake tokens?" data-ru="Есть ли фейковые токены?">Are there fake tokens?</summary>
-        <p data-en="Yes — memecoins get cloned within minutes. The only real contract is the one printed on this site. If an address does not match character for character, it is not us."
-           data-ru="Да — мемкоины клонируют за минуты. Настоящий контракт только тот, что указан на этом сайте. Если адрес не совпадает символ в символ — это не мы.">
+        <summary>Are there fake tokens?</summary>
+        <p>
           Yes — memecoins get cloned within minutes. The only real contract is the one printed on this site. If an address does not match character for character, it is not us.
         </p>
       </details>
       <details class="reveal">
-        <summary data-en="Will it go up?" data-ru="Он вырастет?">Will it go up?</summary>
-        <p data-en="Nobody knows, and anyone who tells you otherwise is lying. Memecoins are extremely volatile and can go to zero. Never put in more than you can lose in the deep."
-           data-ru="Никто не знает, и любой, кто говорит иначе, врёт. Мемкоины крайне волатильны и могут обнулиться. Никогда не вкладывай больше, чем готов потерять в глубине.">
+        <summary>Are the other fish coins live?</summary>
+        <p>
+          No. BITFISH is the only one trading right now — everything else on the
+          fish family page is a plan. If somebody sells you a "SOLFISH presale"
+          or any other sibling before it is announced here, it is a scam.
+        </p>
+      </details>
+      <details class="reveal">
+        <summary>Will it go up?</summary>
+        <p>
           Nobody knows, and anyone who tells you otherwise is lying. Memecoins are extremely volatile and can go to zero. Never put in more than you can lose in the deep.
         </p>
       </details>
@@ -962,11 +1095,9 @@ footer {
 <section id="community" class="community">
   <div class="wrap">
     <div class="reveal">
-      <p class="eyebrow" data-en="// join the school" data-ru="// присоединяйся к стае">// join the school</p>
-      <h2><span data-en="Swim" data-ru="Плыви">Swim</span> <span class="accent" data-en="with us" data-ru="с нами">with us</span></h2>
-      <p class="lead" style="margin-inline:auto"
-         data-en="A fish alone gets eaten. A school moves the market. Come say hi."
-         data-ru="Одинокую рыбу съедают. Стая двигает рынок. Заходи поздороваться.">
+      <p class="eyebrow">// join the school</p>
+      <h2><span>Swim</span> <span class="accent">with us</span></h2>
+      <p class="lead" style="margin-inline:auto">
         A fish alone gets eaten. A school moves the market. Come say hi.
       </p>
     </div>
@@ -1003,18 +1134,16 @@ footer {
         <span data-token="name">BITFISH</span>
       </a>
       <nav class="nav-links" style="position:static; display:flex; background:none; border:0; padding:0">
-        <a href="#about" data-en="About" data-ru="О монете">About</a>
-        <a href="#tokenomics" data-en="Tokenomics" data-ru="Токеномика">Tokenomics</a>
-        <a href="#buy" data-en="How to buy" data-ru="Как купить">How to buy</a>
-        <a href="#faq" data-en="FAQ" data-ru="Вопросы">FAQ</a>
+        <a href="#about">About</a>
+        <a href="#tokenomics">Tokenomics</a>
+        <a href="#buy">How to buy</a>
+        <a href="#faq">FAQ</a>
       </nav>
     </div>
-    <p class="disclaimer"
-       data-en="$BFISH is a memecoin created for entertainment and community purposes. It is not an investment product, it has no intrinsic value and it promises no returns. Crypto assets are highly volatile — you can lose everything you put in. Nothing on this page is financial advice. Always verify the contract address before you trade, and do your own research."
-       data-ru="$BFISH — мемкоин, созданный для развлечения и комьюнити. Это не инвестиционный продукт, у него нет внутренней стоимости и он не обещает доходности. Криптоактивы крайне волатильны — можно потерять всё вложенное. Ничего на этой странице не является финансовой рекомендацией. Всегда проверяй адрес контракта перед покупкой и принимай решения сам.">
+    <p class="disclaimer">
       $BFISH is a memecoin created for entertainment and community purposes. It is not an investment product, it has no intrinsic value and it promises no returns. Crypto assets are highly volatile — you can lose everything you put in. Nothing on this page is financial advice. Always verify the contract address before you trade, and do your own research.
     </p>
-    <p class="disclaimer" style="border:0; padding-top:10px; opacity:0.7">© <span id="year">2026</span> BITFISH. <span data-en="Made by the school, for the school." data-ru="Сделано стаей для стаи.">Made by the school, for the school.</span></p>
+    <p class="disclaimer" style="border:0; padding-top:10px; opacity:0.7">© <span id="year">2026</span> BITFISH. <span>Made by the school, for the school.</span></p>
   </div>
 </footer>
 
@@ -1068,32 +1197,6 @@ function applyConfig() {
   if (year) year.textContent = new Date().getFullYear();
 }
 
-/* ------------------------------------------------------------ language -- */
-let statsState = null; // "live" | "pending" - so the note can follow the language
-
-function setLang(lang) {
-  document.documentElement.lang = lang;
-  $$("[data-en]").forEach((el) => {
-    const text = el.getAttribute(lang === "ru" ? "data-ru" : "data-en");
-    if (text !== null && text !== "") el.textContent = text;
-  });
-  $$(".lang button").forEach((b) =>
-    b.setAttribute("aria-pressed", String(b.dataset.lang === lang))
-  );
-  if (statsState) renderStatsNote(statsState.kind, statsState.time);
-  try { localStorage.setItem("bitfish-lang", lang); } catch (e) { /* private mode */ }
-}
-
-function initLang() {
-  let saved = null;
-  try { saved = localStorage.getItem("bitfish-lang"); } catch (e) { /* ignore */ }
-  const guess = /^(ru|uk|be|kk)/i.test(navigator.language || "") ? "ru" : "en";
-  setLang(saved || guess);
-  $$(".lang button").forEach((b) =>
-    b.addEventListener("click", () => setLang(b.dataset.lang))
-  );
-}
-
 /* ---------------------------------------------------------------- toast -- */
 let toastTimer;
 function toast(msg) {
@@ -1106,10 +1209,7 @@ function toast(msg) {
 
 /* ------------------------------------------------------------ copy CA --- */
 async function copyContract() {
-  const done = () =>
-    toast(document.documentElement.lang === "ru"
-      ? "Адрес контракта скопирован"
-      : "Contract address copied");
+  const done = () => toast("Contract address copied");
   try {
     await navigator.clipboard.writeText(CONFIG.contract);
     done();
@@ -1145,20 +1245,9 @@ const fmtPrice = (p) => {
 };
 
 function renderStatsNote(kind, time) {
-  const note = $("#statsNote");
-  const ru = document.documentElement.lang === "ru";
-  statsState = { kind, time };
-  note.removeAttribute("data-en");
-  note.removeAttribute("data-ru");
-  if (kind === "live") {
-    note.textContent = ru
-      ? "Данные DEX Screener · обновлено " + time
-      : "Live from DEX Screener · updated " + time;
-  } else {
-    note.textContent = ru
-      ? "Статистика появится, как только токен проиндексирует DEX Screener. Пока смотри график по ссылке выше."
-      : "Stats appear as soon as the token is indexed by DEX Screener. Until then, use the chart link above.";
-  }
+  $("#statsNote").textContent = kind === "live"
+    ? "Live from DEX Screener · updated " + time
+    : "Stats appear as soon as the token is indexed by DEX Screener. Until then, use the chart link above.";
 }
 
 async function loadStats() {
@@ -1319,7 +1408,6 @@ function initNav() {
 /* ----------------------------------------------------------------- boot -- */
 document.addEventListener("DOMContentLoaded", () => {
   applyConfig();
-  initLang();
   initNav();
   initReveal();
   initBubbles();
@@ -1332,6 +1420,515 @@ document.addEventListener("DOMContentLoaded", () => {
   loadStats();
   setInterval(loadStats, 60000);
 });
+</script>
+
+<script>
+/* =========================================================================
+   The fish family + Deep Dive, the mini-game
+   -------------------------------------------------------------------------
+   Every coin in the family is the same pixel fish with a different palette
+   and a different glyph on its flank, so adding a coin is one entry in
+   FAMILY below - no new artwork needed.
+   ========================================================================= */
+
+/* fishdata:start */
+const FISH_W = 46, FISH_H = 32;
+const FISH_GLYPH_POS = { x: 19, y: 10 };
+const FISH_MAP = [
+  "..............................................",
+  "..............................................",
+  ".....d..................ddd...................",
+  "....dCd...............ddcCCd..................",
+  "....dccd.............dccCCccd.................",
+  "....dcccd...........dccCCccccd................",
+  "....dcccCd.........dccCCcccccCd...............",
+  "....dccCCcd.......dccCCcccccCCcdd.............",
+  "....dcCCcccd....ddccCCcccccCCccccd............",
+  "....dCCcccccd..dcccCBBBBBBBBBBcccCd...........",
+  "....dCcccccCCd..ddBBBBBBBBBBBBBBdd............",
+  "....dcccccCCccddBBBBBBBBBBBBBBBBBBd...........",
+  ".....dcccCCccccBBBBBBBBBBBBBwwwwBBBd..........",
+  "......dddCccccBbbbbbbbbbBBbbwddwbbbbd.........",
+  ".........dddccBBbbbbbbbbbBBbwddwbbbbd.........",
+  "............ddbBBbbbbbbbbbBBwddwbbbbd.........",
+  "............ddbbBBbbbbbbbbbBBbbbbbbbd.........",
+  ".........dddCcbbbBBbbbbbbbbbBBbbbbbbd.........",
+  "......dddcCCccbbbbBBbbbbbbbbbBBbbbbbd.........",
+  ".....dcccCCccccbbbbBBbbbbbbbbbBBbbbrd.........",
+  "....dcccCCccccddssssbbsssssssssbsrrrd.........",
+  "....dccCCccccd..ddsssbbssssssssscccd..........",
+  "....dcCCccccd...ddddssbbssssssccccd...........",
+  "....dCCccccd...dcccCCcccccCCcccccd............",
+  "....dCccccd.....dcCCcccccCCcccccd.............",
+  "....dccccd.......dCcccccCCccddcd..............",
+  "....dcccd.........dccccCCccd..d...............",
+  "....dccd...........dccCCccd...................",
+  "....dcd.............ddCccd....................",
+  ".....d................ddd.....................",
+  "..............................................",
+  ".............................................."
+];
+const FISH_GLYPHS = {
+  btc: ["..##.##..", "..##.##..", ".#######.", ".##...##.", ".##...##.", ".#######.", ".##...##.", ".##...##.", ".#######.", "..##.##..", "..##.##.."],
+  sol: [".........", ".#######.", "..#######", ".........", "#######..", ".#######.", ".........", "..#######", ".#######.", ".........", "........."],
+  eth: ["....#....", "...###...", "..#####..", ".#######.", "#########", ".#######.", "..#####..", "...###...", "....#....", ".........", "........."],
+  au: [".........", ".........", ".........", ".##......", "#..#.#..#", "####.#..#", "#..#.#..#", "#..#..###", ".........", ".........", "........."],
+  ag: [".........", ".........", ".........", ".##......", "#..#..###", "####.#..#", "#..#..###", "#..#....#", "......##.", ".........", "........."],
+  usd: ["....#....", "..#####..", ".#..#..#.", ".#..#....", "..####...", "....#.##.", "....#..#.", ".#..#..#.", "..#####..", "....#....", "........."],
+  quest: ["..#####..", ".##...##.", "......##.", ".....##..", "....##...", "...##....", "...##....", ".........", "...##....", "...##....", "........."]
+};
+/* fishdata:end */
+
+/* ------------------------------------------------------------- palettes -- */
+const SKINS = {          // "g" is the colour of the coin glyph on the flank
+  bitfish:    { d: "#111d3a", b: "#e3a01e", B: "#f6cd5f", s: "#bd7a12", c: "#3fb2e6", C: "#8fe4ff", w: "#ffffff", r: "#e2564d", g: "#111d3a" },
+  solfish:    { d: "#0d1b30", b: "#14f195", B: "#8ef8d0", s: "#0a9e69", c: "#9945ff", C: "#c9a3ff", w: "#ffffff", r: "#e2564d", g: "#0d1b30" },
+  ethfish:    { d: "#101a33", b: "#627eea", B: "#a8baff", s: "#3b4fa0", c: "#c9d4f5", C: "#ffffff", w: "#ffffff", r: "#e2564d", g: "#101a33" },
+  goldfish:   { d: "#2a1e05", b: "#ffc32e", B: "#fff2a8", s: "#c98f0c", c: "#ffe08a", C: "#fffbe6", w: "#ffffff", r: "#e2564d", g: "#2a1e05" },
+  silverfish: { d: "#141d2e", b: "#c3ced9", B: "#f4f8fb", s: "#8695a5", c: "#7fd7ff", C: "#d9f4ff", w: "#ffffff", r: "#e2564d", g: "#141d2e" },
+  mystery:    { d: "#0b1425", b: "#2b3f66", B: "#43608f", s: "#1d2c4a", c: "#3a5f86", C: "#5f8fb5", w: "#c9dcea", r: "#7a4a52", g: "#9fd8f5" },
+};
+
+/* --------------------------------------------------------------- family -- */
+/* Add the next coin here: id, skin, glyph, and what it is. That is it -
+   the card and the in-game token appear on their own.                      */
+const FAMILY = [
+  {
+    id: "bitfish", skin: "bitfish", glyph: "btc",
+    name: "BITFISH", ticker: "$BFISH", chain: "Solana", status: "live",
+    line: "The first of the school. Gold scales, the bitcoin mark on its flank, " +
+          "and a fair launch behind it.",
+  },
+  {
+    id: "solfish", skin: "solfish", glyph: "sol",
+    name: "SOLFISH", ticker: "$SOLFISH", chain: "Solana", status: "soon",
+    line: "Green and violet, quick as a block. The one that never pays more " +
+          "than a cent to move.",
+  },
+  {
+    id: "ethfish", skin: "ethfish", glyph: "eth",
+    name: "ETHFISH", ticker: "$ETHFISH", chain: "Ethereum", status: "planned",
+    line: "Older, heavier, swims in colder water. Pays gas like it is rent " +
+          "and still shows up.",
+  },
+  {
+    id: "goldfish", skin: "goldfish", glyph: "au",
+    name: "GOLDFISH", ticker: "$GOLD", chain: "Solana", status: "planned",
+    line: "The one everybody keeps in a jar. Shiny, slow, and impossible to " +
+          "throw away.",
+  },
+  {
+    id: "silverfish", skin: "silverfish", glyph: "ag",
+    name: "SILVERFISH", ticker: "$SILVER", chain: "Solana", status: "planned",
+    line: "Gold's little brother. Cheaper scales, same appetite, twice as " +
+          "fast in a thin market.",
+  },
+  {
+    id: "mystery", skin: "mystery", glyph: "quest",
+    name: "???", ticker: "TBA", chain: "TBA", status: "planned",
+    line: "Something is moving down in the dark. The school finds out in the " +
+          "chat first.",
+  },
+];
+
+const STATUS_TEXT = {
+  live: ["LIVE", "Trading now"],
+  soon: ["SOON", "Launch pending"],
+  planned: ["PLANNED", "Not launched"],
+};
+
+/* ------------------------------------------------------- pixel drawing -- */
+function drawFishPixels(ctx, ox, oy, cell, skin, glyph) {
+  const stamp = glyph && FISH_GLYPHS[glyph];
+
+  // "G" marks a pixel the coin glyph covers, so it can take its own colour
+  const at = (col, row) => {
+    const ch = FISH_MAP[row][col];
+    if (!stamp || (ch !== "b" && ch !== "B" && ch !== "s")) return ch;
+    const gi = col - FISH_GLYPH_POS.x;
+    const gj = row - FISH_GLYPH_POS.y;
+    const on = gj >= 0 && gj < stamp.length && gi >= 0 &&
+               gi < stamp[gj].length && stamp[gj][gi] === "#";
+    return on ? "G" : ch;
+  };
+
+  for (let row = 0; row < FISH_H; row++) {
+    let col = 0;
+    while (col < FISH_W) {
+      const ch = at(col, row);
+      if (ch === ".") { col++; continue; }
+      let run = 1;                       // merge equal pixels into one rect
+      while (col + run < FISH_W && at(col + run, row) === ch) run++;
+      ctx.fillStyle = ch === "G" ? (skin.g || skin.d) : (skin[ch] || skin.d);
+      ctx.fillRect(ox + col * cell, oy + row * cell, cell * run, cell);
+      col += run;
+    }
+  }
+}
+
+function drawToken(ctx, x, y, radius, skin, glyph) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = skin.b;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, radius * 0.18);
+  ctx.strokeStyle = skin.B;
+  ctx.stroke();
+
+  const stamp = FISH_GLYPHS[glyph];
+  if (stamp) {
+    const cols = stamp[0].length;
+    const cell = (radius * 1.45) / cols;
+    const ox = -(cols * cell) / 2;
+    const oy = -(stamp.length * cell) / 2;
+    ctx.fillStyle = skin.d;
+    for (let j = 0; j < stamp.length; j++) {
+      for (let i = 0; i < stamp[j].length; i++) {
+        if (stamp[j][i] === "#") ctx.fillRect(ox + i * cell, oy + j * cell, cell, cell);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+/* ------------------------------------------------------- family gallery -- */
+(function buildFamily() {
+  const grid = document.getElementById("familyGrid");
+  if (!grid) return;
+  const CELL = 6;
+
+  FAMILY.forEach((fish) => {
+    const [badge, meta] = STATUS_TEXT[fish.status];
+    const card = document.createElement("article");
+    card.className = "fish-card reveal" + (fish.status === "live" ? "" : " locked");
+    card.innerHTML =
+      '<div class="tank">' +
+        '<span class="badge ' + fish.status + '">' + badge + '</span>' +
+        '<canvas width="' + FISH_W * CELL + '" height="' + FISH_H * CELL + '"></canvas>' +
+      '</div>' +
+      '<h3>' + fish.name + '</h3>' +
+      '<div class="tick">' + fish.ticker + ' &middot; ' + fish.chain + '</div>' +
+      '<p>' + fish.line + '</p>' +
+      '<div class="meta"><span>' + meta + '</span></div>';
+
+    const ctx = card.querySelector("canvas").getContext("2d");
+    drawFishPixels(ctx, 0, 0, CELL, SKINS[fish.skin], fish.glyph);
+
+    if (fish.status === "live") {
+      const a = document.createElement("a");
+      a.className = "btn btn-ghost btn-sm";
+      a.href = LINKS.pump;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = "Buy";
+      card.querySelector(".meta").appendChild(a);
+    }
+    grid.appendChild(card);
+  });
+})();
+
+/* ==================================================== DEEP DIVE (game) === */
+(function deepDive() {
+  const canvas = document.getElementById("gameCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+
+  const W = 480, H = 300;            // world units; the canvas scales to fit
+  const GRAVITY = 900, FLAP = -288, MAX_FALL = 420;
+  const PIPE_W = 46, PIPE_SPACING = 208;
+  const FISH_SCALE = 40 / FISH_W;    // the fish is 40 world units long
+
+  const overlay = document.getElementById("gOverlay");
+  const elTitle = document.getElementById("gTitle");
+  const elText = document.getElementById("gText");
+  const elBtn = document.getElementById("gStart");
+  const elScore = document.getElementById("gScore");
+  const elCoins = document.getElementById("gCoins");
+  const elBest = document.getElementById("gBest");
+
+  const tokens = FAMILY.filter((f) => f.id !== "mystery");
+
+  let scale = 1, state = "ready", inView = true, paused = false;
+  let player, pipes, coins, bubbles, pops, score, picked, speed, gap, spawnIn, shake, overAt, last;
+
+  const readBest = () => {
+    try { return parseInt(localStorage.getItem("bitfish-best") || "0", 10) || 0; }
+    catch (e) { return 0; }
+  };
+  let best = readBest();
+  elBest.textContent = best;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssW = canvas.clientWidth || 800;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round((cssW * H / W) * dpr);
+    scale = canvas.width / W;
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+  }
+
+  function reset(toState) {
+    player = { x: 112, y: H / 2, vy: 0 };
+    pipes = [];
+    coins = [];
+    pops = [];
+    bubbles = Array.from({ length: 26 }, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: 1 + Math.random() * 3.5,
+      sp: 12 + Math.random() * 26,
+    }));
+    score = 0; picked = 0;
+    speed = 138; gap = 122; spawnIn = 0.6;
+    shake = 0; overAt = 0;
+    state = toState;
+    elScore.textContent = "0";
+    elCoins.textContent = "0";
+  }
+
+  function show(title, text, button) {
+    elTitle.textContent = title;
+    elText.textContent = text;
+    elBtn.textContent = button;
+    overlay.classList.remove("hidden");
+  }
+
+  function start() {
+    reset("playing");
+    overlay.classList.add("hidden");
+    player.vy = FLAP;
+    paused = false;
+  }
+
+  function gameOver() {
+    state = "over";
+    overAt = 0;
+    shake = 0.45;
+    const isBest = score > best;
+    if (isBest) {
+      best = score;
+      elBest.textContent = best;
+      try { localStorage.setItem("bitfish-best", String(best)); } catch (e) { /* ignore */ }
+    }
+    show(
+      isBest ? "NEW BEST DEPTH" : "EATEN BY THE MARKET",
+      "Score " + score + " · " + picked + " token" + (picked === 1 ? "" : "s") +
+        " collected · best " + best + ".",
+      "Dive again"
+    );
+  }
+
+  function flap() {
+    if (state === "ready") { start(); return; }
+    if (state === "playing") { if (!paused) player.vy = FLAP; return; }
+    if (state === "over" && overAt > 0.5) start();
+  }
+
+  function spawnPipe() {
+    const margin = 46;
+    const gapY = margin + Math.random() * (H - gap - margin * 2);
+    pipes.push({ x: W + PIPE_W, gapY: gapY, gap: gap, passed: false });
+    if (Math.random() < 0.72) {
+      const t = tokens[Math.floor(Math.random() * tokens.length)];
+      coins.push({ x: W + PIPE_W + PIPE_W / 2, y: gapY + gap / 2, token: t, t: 0 });
+    }
+  }
+
+  function hits(box, pipe) {
+    if (box.x + box.w < pipe.x || box.x > pipe.x + PIPE_W) return false;
+    return box.y < pipe.gapY || box.y + box.h > pipe.gapY + pipe.gap;
+  }
+
+  function update(dt) {
+    // background drift runs in every state so the screen never looks frozen
+    for (const b of bubbles) {
+      b.x -= (b.sp + (state === "playing" ? speed * 0.25 : 10)) * dt;
+      b.y -= b.sp * 0.35 * dt;
+      if (b.x < -6 || b.y < -6) { b.x = W + Math.random() * 40; b.y = Math.random() * H; }
+    }
+    for (let i = pops.length - 1; i >= 0; i--) {
+      pops[i].t += dt;
+      pops[i].y -= 26 * dt;
+      if (pops[i].t > 0.9) pops.splice(i, 1);
+    }
+    if (shake > 0) shake = Math.max(0, shake - dt);
+    if (state === "over") { overAt += dt; return; }
+    if (state !== "playing" || paused) return;
+
+    player.vy = Math.min(player.vy + GRAVITY * dt, MAX_FALL);
+    player.y += player.vy * dt;
+    if (player.y < 12) { player.y = 12; player.vy = 0; }
+
+    spawnIn -= dt;
+    if (spawnIn <= 0) {
+      spawnPipe();
+      spawnIn = PIPE_SPACING / speed;
+    }
+
+    const box = { x: player.x - 15, y: player.y - 9, w: 30, h: 18 };
+
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      const p = pipes[i];
+      p.x -= speed * dt;
+      if (!p.passed && p.x + PIPE_W < player.x) {
+        p.passed = true;
+        score += 1;
+        elScore.textContent = score;
+        speed = Math.min(speed + 3.5, 232);
+        gap = Math.max(gap - 1.6, 86);
+      }
+      if (hits(box, p)) { gameOver(); return; }
+      if (p.x < -PIPE_W * 2) pipes.splice(i, 1);
+    }
+
+    for (let i = coins.length - 1; i >= 0; i--) {
+      const c = coins[i];
+      c.x -= speed * dt;
+      c.t += dt;
+      const dx = c.x - player.x, dy = c.y - player.y;
+      if (dx * dx + dy * dy < 22 * 22) {
+        picked += 1;
+        score += 5;
+        elScore.textContent = score;
+        elCoins.textContent = picked;
+        pops.push({ x: c.x, y: c.y, text: "+5 " + c.token.name, color: SKINS[c.token.skin].B, t: 0 });
+        coins.splice(i, 1);
+        continue;
+      }
+      if (c.x < -30) coins.splice(i, 1);
+    }
+
+    if (player.y > H - 10) { player.y = H - 10; gameOver(); }
+  }
+
+  function drawPipe(p) {
+    const body = (y, h) => {
+      ctx.fillStyle = "#e2564d";
+      ctx.fillRect(p.x, y, PIPE_W, h);
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.fillRect(p.x + 5, y, 7, h);                        // highlight
+      ctx.fillStyle = "#7d2723";
+      ctx.fillRect(p.x, y, PIPE_W, 3);
+      ctx.fillRect(p.x, y + h - 3, PIPE_W, 3);
+    };
+    const wick = (y, h) => {
+      ctx.fillStyle = "#a83b36";
+      ctx.fillRect(p.x + PIPE_W / 2 - 2, y, 4, h);
+    };
+    body(-6, p.gapY + 6);                                    // top candle
+    wick(p.gapY, 15);                                        // wick hangs into the gap
+    body(p.gapY + p.gap, H - p.gapY - p.gap + 6);            // bottom candle
+    wick(p.gapY + p.gap - 15, 15);
+  }
+
+  function draw() {
+    ctx.save();
+    if (shake > 0) {
+      ctx.translate((Math.random() - 0.5) * shake * 14, (Math.random() - 0.5) * shake * 14);
+    }
+
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, "#12558a");
+    sky.addColorStop(0.45, "#0a2f52");
+    sky.addColorStop(1, "#04162b");
+    ctx.fillStyle = sky;
+    ctx.fillRect(-20, -20, W + 40, H + 40);
+
+    ctx.fillStyle = "rgba(143,228,255,0.25)";
+    for (const b of bubbles) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    pipes.forEach(drawPipe);
+
+    for (const c of coins) {
+      const bob = Math.sin(c.t * 3.4) * 4;
+      drawToken(ctx, c.x, c.y + bob, 13, SKINS[c.token.skin], c.token.glyph);
+    }
+
+    // the fish itself
+    const tilt = Math.max(-0.42, Math.min(0.75, player.vy / 620));
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(state === "over" ? Math.PI * 0.55 : tilt);
+    drawFishPixels(ctx, -(FISH_W * FISH_SCALE) / 2, -(FISH_H * FISH_SCALE) / 2,
+                   FISH_SCALE, SKINS.bitfish, "btc");
+    ctx.restore();
+
+    for (const p of pops) {
+      ctx.globalAlpha = Math.max(0, 1 - p.t / 0.9);
+      ctx.fillStyle = p.color;
+      ctx.font = "bold 13px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(p.text, p.x, p.y);
+      ctx.globalAlpha = 1;
+    }
+
+    if (paused && state === "playing") {
+      ctx.fillStyle = "rgba(4,16,32,0.6)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#f6cd5f";
+      ctx.font = "bold 20px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("PAUSED", W / 2, H / 2);
+    }
+    ctx.restore();
+  }
+
+  function loop(ts) {
+    requestAnimationFrame(loop);
+    if (!last) last = ts;
+    const dt = Math.min((ts - last) / 1000, 0.05);
+    last = ts;
+    if (!inView) return;
+    update(dt);
+    draw();
+  }
+
+  /* ------------------------------------------------------------ input -- */
+  canvas.addEventListener("pointerdown", (e) => { e.preventDefault(); flap(); });
+  elBtn.addEventListener("click", () => (state === "playing" ? null : start()));
+  // tapping anywhere on the start / game-over card works too
+  overlay.addEventListener("pointerdown", (e) => {
+    if (e.target !== elBtn) { e.preventDefault(); flap(); }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (!inView) return;
+    if (e.code === "Space" || e.code === "ArrowUp" || e.key === "w" || e.key === "W") {
+      if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+      e.preventDefault();
+      flap();
+    } else if (e.key === "p" || e.key === "P") {
+      if (state === "playing") paused = !paused;
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && state === "playing") paused = true;
+  });
+
+  window.addEventListener("resize", resize);
+
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver((entries) => {
+      inView = entries[0].isIntersecting;
+      if (!inView && state === "playing") paused = true;
+    }, { threshold: 0.25 }).observe(canvas);
+  }
+
+  resize();
+  reset("ready");
+  show("DEEP DIVE",
+       "Tap, click or press Space to swim. Dodge the red candles, eat the family tokens.",
+       "Start swimming");
+  requestAnimationFrame(loop);
+})();
 </script>
 </body>
 </html>

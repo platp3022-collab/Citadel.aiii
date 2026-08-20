@@ -39,6 +39,91 @@ CX, CY = 25.0, 16.0
 RX, RY = 11.5, 7.2
 
 
+# Every coin in the family is the same fish with a different glyph on its
+# flank, so the glyphs live here and get exported to the page for the game.
+GLYPH_POS = (19, 10)
+
+GLYPHS = {
+    "btc": ["..##.##..",
+            "..##.##..",
+            ".#######.",
+            ".##...##.",
+            ".##...##.",
+            ".#######.",
+            ".##...##.",
+            ".##...##.",
+            ".#######.",
+            "..##.##..",
+            "..##.##.."],
+    "sol": [".........",
+            ".#######.",
+            "..#######",
+            ".........",
+            "#######..",
+            ".#######.",
+            ".........",
+            "..#######",
+            ".#######.",
+            ".........",
+            "........."],
+    "eth": ["....#....",
+            "...###...",
+            "..#####..",
+            ".#######.",
+            "#########",
+            ".#######.",
+            "..#####..",
+            "...###...",
+            "....#....",
+            ".........",
+            "........."],
+    "au":  [".........",
+            ".........",
+            ".........",
+            ".##......",
+            "#..#.#..#",
+            "####.#..#",
+            "#..#.#..#",
+            "#..#..###",
+            ".........",
+            ".........",
+            "........."],
+    "ag":  [".........",
+            ".........",
+            ".........",
+            ".##......",
+            "#..#..###",
+            "####.#..#",
+            "#..#..###",
+            "#..#....#",
+            "......##.",
+            ".........",
+            "........."],
+    "usd": ["....#....",
+            "..#####..",
+            ".#..#..#.",
+            ".#..#....",
+            "..####...",
+            "....#.##.",
+            "....#..#.",
+            ".#..#..#.",
+            "..#####..",
+            "....#....",
+            "........."],
+    "quest": ["..#####..",
+              ".##...##.",
+              "......##.",
+              ".....##..",
+              "....##...",
+              "...##....",
+              "...##....",
+              ".........",
+              "...##....",
+              "...##....",
+              "........."],
+}
+
+
 def blank(w=W, h=H):
     return [[None] * w for _ in range(h)]
 
@@ -53,7 +138,7 @@ def in_body(x, y):
     return ((x + 0.5 - CX) / RX) ** 2 + ((y + 0.5 - CY) / RY) ** 2 <= 1.0
 
 
-def draw_fish():
+def draw_fish(glyph="btc"):
     g = blank()
 
     # --- tail: forked V shape on the left ------------------------------
@@ -111,25 +196,13 @@ def draw_fish():
             if not in_body(x, y):
                 put(g, x, y, "c" if (x + y) % 7 else "C")
 
-    # --- bitcoin glyph on the flank -------------------------------------
-    glyph = [
-        "..##.##..",
-        "..##.##..",
-        ".#######.",
-        ".##...##.",
-        ".##...##.",
-        ".#######.",
-        ".##...##.",
-        ".##...##.",
-        ".#######.",
-        "..##.##..",
-        "..##.##..",
-    ]
-    gx, gy = 19, 10
-    for j, row in enumerate(glyph):
-        for i, ch in enumerate(row):
-            if ch == "#" and in_body(gx + i, gy + j):
-                put(g, gx + i, gy + j, "d")
+    # --- coin glyph on the flank ----------------------------------------
+    if glyph:
+        gx, gy = GLYPH_POS
+        for j, row in enumerate(GLYPHS[glyph]):
+            for i, ch in enumerate(row):
+                if ch == "#" and in_body(gx + i, gy + j):
+                    put(g, gx + i, gy + j, "d")
 
     # --- eye --------------------------------------------------------------
     for y in range(12, 16):
@@ -234,6 +307,33 @@ def to_png(g, path, scale=1):
         fh.write(png)
 
 
+def grid_rows(g):
+    """The grid as one string per row - the format the page's game reads."""
+    return ["".join(ch if ch else "." for ch in row) for row in g]
+
+
+def embed_game_data(page):
+    """Refresh the shared pixel data inside index.html (game + fish family)."""
+    plain = draw_fish(glyph=None)          # no glyph: the page stamps its own
+    rows = ",\n  ".join('"%s"' % r for r in grid_rows(plain))
+    glyphs = ",\n  ".join(
+        '%s: [%s]' % (k, ", ".join('"%s"' % r for r in v))
+        for k, v in GLYPHS.items()
+    )
+    block = ("/* fishdata:start */\n"
+             "const FISH_W = %d, FISH_H = %d;\n"
+             "const FISH_GLYPH_POS = { x: %d, y: %d };\n"
+             "const FISH_MAP = [\n  %s\n];\n"
+             "const FISH_GLYPHS = {\n  %s\n};\n"
+             "/* fishdata:end */") % (W, H, GLYPH_POS[0], GLYPH_POS[1], rows, glyphs)
+    html = open(page).read()
+    new = re.sub(r"/\* fishdata:start \*/.*?/\* fishdata:end \*/",
+                 lambda m: block, html, flags=re.S)
+    if new != html:
+        open(page, "w").write(new)
+        print("embedded pixel data into", page)
+
+
 def embed_in_page(fish):
     """Replace the <symbol id="fish"> block inside the single-file index.html."""
     page = os.path.normpath(os.path.join(HERE, "..", "index.html"))
@@ -266,6 +366,9 @@ def main():
     to_png(icon, os.path.join(OUT, "favicon.png"), scale=4)
 
     embed_in_page(fish)
+    page = os.path.normpath(os.path.join(HERE, "..", "index.html"))
+    if os.path.exists(page):
+        embed_game_data(page)
     print("wrote assets to", OUT)
 
 

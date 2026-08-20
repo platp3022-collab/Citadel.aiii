@@ -3,14 +3,15 @@
 One self-contained page for the Solana token
 `AzoyECzeEbmi3bczngZZnZDj4M9EreNM93mDXqNcpump`.
 
-**`index.html` is the whole site** — markup, styles, scripts and the pixel-art
-mascot (an inline SVG `<symbol>`) live in that single file. Nothing else is
+**`index.html` is the whole site** — markup, styles, scripts, the pixel-art
+mascot (an inline SVG `<symbol>`), the fish family and the mini-game all live
+in that single file. Nothing else is
 required to publish it: drop it on any host, open it from a USB stick, send it
 in a chat — it renders.
 
 ```
 website/
-├── index.html              # the site (~74 KB, no dependencies, no build step)
+├── index.html              # the site (~90 KB, no dependencies, no build step)
 ├── assets/img/             # standalone brand files, NOT needed by the page
 │   ├── og.png              #   share card for X / Telegram previews
 │   ├── fish.png            #   mascot at 16x for stickers and avatars
@@ -47,12 +48,46 @@ Renaming the coin: change `CONFIG`, then the plain-text mentions —
 `sed -i 's/BITFISH/YOURNAME/g; s/\$BFISH/\$YOURTICKER/g' index.html` covers the
 title, meta tags, hero copy and disclaimer.
 
-## Two languages
+## The fish family — adding the next coin
 
-Every translatable element carries `data-en` and `data-ru`. The EN/RU switch in
-the header swaps them and remembers the choice in `localStorage`; visitors with
-a Russian/Ukrainian browser locale get RU on the first visit. To add a phrase,
-give the element both attributes — the visible text stays as the fallback.
+Every coin in the family is the same pixel fish with a different palette and a
+different glyph on its flank, so a new coin is **one entry**, no artwork:
+
+```js
+// in the second <script>, near the top
+const FAMILY = [
+  { id: "solfish", skin: "solfish", glyph: "sol",
+    name: "SOLFISH", ticker: "$SOLFISH", chain: "Solana", status: "soon",
+    line: "Green and violet, quick as a block." },
+  ...
+];
+```
+
+- `skin` — a palette from `SKINS` above it (`d` outline, `b`/`B`/`s` body,
+  `c`/`C` fins, `w` eye, `r` lips, `g` glyph). Copy a line and change the
+  colours to add one.
+- `glyph` — a key from `FISH_GLYPHS`: `btc`, `sol`, `eth`, `au`, `ag`, `usd`,
+  `quest`. New glyphs are 9×11 pixel strings in `GLYPHS` inside
+  `tools/make_assets.py`; re-run it to push them into the page.
+- `status` — `live`, `soon` or `planned`. `live` also gets a Buy button
+  pointing at the contract in `CONFIG`.
+
+The card in the gallery and the token inside the game both come from that
+entry — the game hands out every coin except the `mystery` one.
+
+When a sibling coin actually launches it needs its own contract; the current
+`CONFIG.contract` belongs to BITFISH only.
+
+## The mini-game
+
+`Deep Dive` lives in the same file: swim the fish through red candles, eat the
+family tokens, 5 points each. Space / W / ↑ / click / tap to swim, `P` to
+pause; the best score is kept in `localStorage`. It pauses itself when it
+scrolls out of view or the tab is hidden.
+
+Tuning is at the top of the game block: `GRAVITY`, `FLAP`, `PIPE_SPACING`, and
+inside `reset()` the starting `speed` (138) and `gap` (122), which get harder
+by `+3.5` and `-1.6` per candle passed.
 
 ## Live price block
 
@@ -68,8 +103,10 @@ note underneath explains why — nothing breaks.
 ## Pixel art
 
 `tools/make_assets.py` draws the mascot on a 46×32 grid, writes the files in
-`assets/img/`, and rewrites the `<symbol id="fish">` block inside `index.html`
-between the `<!-- fish:start -->` / `<!-- fish:end -->` markers:
+`assets/img/`, and rewrites two blocks inside `index.html`: the
+`<symbol id="fish">` between the `<!-- fish:start -->` / `<!-- fish:end -->`
+markers, and the raw pixel data the game and the family cards read, between
+`/* fishdata:start */` and `/* fishdata:end */`:
 
 ```bash
 python3 tools/make_assets.py     # python3 only, no packages needed
@@ -95,4 +132,7 @@ uncomment the `og:image` meta tag in `<head>` with its absolute URL
   against the contract before publishing; if anything differs, edit those four
   cards.
 - The page respects `prefers-reduced-motion`: bubbles, the drifting school and
-  every transition switch off for visitors who ask for less motion.
+  every transition switch off for visitors who ask for less motion. The game
+  only runs after someone presses Start.
+- The page is English only. Text sits directly in the markup — no translation
+  layer to keep in sync.
