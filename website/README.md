@@ -152,10 +152,23 @@ the browser, which is why it costs nothing on a phone.
 depth — far ones are smaller, dimmer and blurred — and the page starts with 18
 of them (10 on phones), cycling through every coin in `FAMILY`.
 
-Every 15–40 seconds a shark crosses the page. While it is on screen the page
-checks the fish against its jaw (the leading 28% of the sprite) ten times a
-second; anything caught fades out with a bubble puff, and a replacement fish
-swims in 6–20 seconds later, so the school never empties.
+**Depth thins the school.** `thinTheSchool()` runs on scroll: at the top all
+18 fish are visible, at the bottom of the page 3 are — the rest fade out
+rather than being destroyed, so scrolling back up brings them home.
+
+**One big shark**, not a parade of them. It is a single element driven by
+`requestAnimationFrame`: it patrols left and right, eases toward whatever
+depth you have scrolled to (so it follows you all the way down), and every
+frame its jaw is tested against the fish. When it catches one the sprite
+swaps to an open-mouth variant for half a second, the fish fades behind a
+bubble puff, and a replacement swims in some seconds later.
+
+**Your pointer is a shark too** — a plain one in cold-water colours, drawn
+from the same shape with `dressed=False` and set as a data-URI cursor. Click
+the big shark with it and it bursts into bubbles, the count goes into
+`localStorage`, and it comes back from off-screen 12–26 seconds later. Clicks
+that land on a link, button or canvas are ignored, so popping never eats a
+real click.
 
 The shark is a caricature — spray-tan body, bleached comb-over, red tie — and
 deliberately nobody in particular. It carries no name anywhere on the page, and
@@ -163,9 +176,11 @@ that is on purpose: putting a real politician's name or face on a coin site
 reads as an endorsement nobody gave you, which is a much bigger problem than a
 joke is worth. Keep it unnamed.
 
-Tuning lives in `sharkPatrol()`: the first `setTimeout` (when it first shows
-up), the one inside `done()` (the gap between visits), `span` (its size) and
-`.shark { opacity }` in the CSS. Its pixels come from `draw_shark()` in
+Tuning lives in `bigShark()`: `measure()` (its size, 34% of the viewport up to
+470px), `speed()`, `depth()` (how it tracks the scroll), the `wait` in `pop()`
+(how long it stays burst) and `.shark { opacity }` in the CSS. `SCHOOL_SIZE`
+and the `3` in `thinTheSchool()` set how crowded the surface and the depths
+are. Its pixels come from `draw_shark()` in
 `tools/make_assets.py` — palette in `SHARK_PAL`, shape in the body/hair/tie
 sections.
 

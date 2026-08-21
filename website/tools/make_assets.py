@@ -257,6 +257,23 @@ SHARK_PAL = {
 }
 
 
+# The pointer shark: same shape, no costume, cold water colours. It is a
+# shark, not a portrait of anybody.
+HUNTER_PAL = {
+    "d": "#08182b",
+    "b": "#4a86b4",
+    "B": "#8dc6e6",
+    "s": "#2c5b80",
+    "y": "#d9eef8",
+    "w": "#ffffff",
+    "m": "#14232f",
+    "h": "#4a86b4",
+    "H": "#8dc6e6",
+    "r": "#4a86b4",
+    "R": "#2c5b80",
+}
+
+
 def shark_body(x):
     """Half-height of the body at column x - 0 outside the fish."""
     import math
@@ -269,7 +286,7 @@ def shark_body(x):
     return h
 
 
-def draw_shark():
+def draw_shark(gape=0.0, dressed=True):
     g = blank(SW, SH)
 
     # --- tail ------------------------------------------------------------
@@ -323,13 +340,16 @@ def draw_shark():
     # --- mouth and teeth ---------------------------------------------------
     for x in range(42, 59):
         t = x - 42
-        top = SCY + 2.2 + t * 0.14
+        top = SCY + 2.2 + t * 0.14 - gape * (0.6 + t * 0.18)
+        thick = 2.6 + gape * (1.2 + t * 0.55)      # the jaw drops as it opens
         for y in range(SH):
             inside = abs(y + 0.5 - SCY) <= shark_body(x) + 0.4
-            if inside and top <= y <= top + 2.6:
+            if inside and top <= y <= top + thick:
                 put(g, x, y, "m")
         if t % 2 == 0 and g[int(top) + 1][x] == "m":
-            put(g, x, int(top) + 1, "w")           # teeth inside the gap
+            put(g, x, int(top) + 1, "w")           # upper teeth
+        if gape > 0.3 and t % 2 == 1 and g[int(top + thick) - 1][x] == "m":
+            put(g, x, int(top + thick) - 1, "w")   # and the lower row
 
     # --- eye: small and dark, the way a shark's eye reads at this size -----
     for y in range(15, 17):
@@ -338,26 +358,28 @@ def draw_shark():
     put(g, 50, 15, "w")
 
     # --- the hair: a comb-over hugging the head, swept forward -------------
-    def hair(x, top, bottom):
-        for y in range(int(round(top)), int(round(bottom)) + 1):
-            put(g, x, y, "H" if (x + y) % 5 == 0 else "h")
+    if dressed:
+        def hair(x, top, bottom):
+            for y in range(int(round(top)), int(round(bottom)) + 1):
+                put(g, x, y, "H" if (x + y) % 5 == 0 else "h")
 
-    for x in range(40, 54):
-        bottom = SCY - shark_body(x) + 1.5         # bite slightly into the head
-        hair(x, bottom - (4.6 - (x - 40) * 0.06), bottom)
-    for x in range(53, 60):                        # the swoop, curling forward
-        t = x - 53
-        top = 12.0 - t * 0.42
-        hair(x, top, top + 2.8 - t * 0.30)
+        for x in range(40, 54):
+            bottom = SCY - shark_body(x) + 1.5     # bite slightly into the head
+            hair(x, bottom - (4.6 - (x - 40) * 0.06), bottom)
+        for x in range(53, 60):                    # the swoop, curling forward
+            t = x - 53
+            top = 12.0 - t * 0.42
+            hair(x, top, top + 2.8 - t * 0.30)
 
     # --- the tie -----------------------------------------------------------
-    for x in range(44, 48):
-        put(g, x, int(SCY) + 6, "R")               # the knot, under the chin
-        put(g, x, int(SCY) + 7, "R")
-    for y in range(int(SCY) + 8, SH - 1):
-        half = 0.8 + (y - int(SCY) - 8) * 0.42
-        for x in range(int(round(45.5 - half)), int(round(45.5 + half)) + 1):
-            put(g, x, y, "r" if (x + y) % 4 else "R")
+    if dressed:
+        for x in range(44, 48):
+            put(g, x, int(SCY) + 6, "R")           # the knot, under the chin
+            put(g, x, int(SCY) + 7, "R")
+        for y in range(int(SCY) + 8, SH - 1):
+            half = 0.8 + (y - int(SCY) - 8) * 0.42
+            for x in range(int(round(45.5 - half)), int(round(45.5 + half)) + 1):
+                put(g, x, y, "r" if (x + y) % 4 else "R")
 
     # --- outline -----------------------------------------------------------
     solid = [[g[y][x] is not None for x in range(SW)] for y in range(SH)]
@@ -459,17 +481,29 @@ def embed_game_data(page):
         '%s: [%s]' % (k, ", ".join('"%s"' % r for r in v))
         for k, v in GLYPHS.items()
     )
-    shark = ",\n  ".join('"%s"' % r for r in grid_rows(draw_shark()))
-    palette = ",\n  ".join('%s: "%s"' % (k, v) for k, v in SHARK_PAL.items())
+    def rows_of(grid):
+        return ",\n  ".join('"%s"' % r for r in grid_rows(grid))
+
+    def pal_of(palette):
+        return ",\n  ".join('%s: "%s"' % (k, v) for k, v in palette.items())
+
+    shark = rows_of(draw_shark())
+    shark_open = rows_of(draw_shark(gape=1.0))
+    hunter = rows_of(draw_shark(gape=0.7, dressed=False))
+    palette = pal_of(SHARK_PAL)
+    hunter_pal = pal_of(HUNTER_PAL)
     block = ("/* fishdata:start */\n"
              "const FISH_W = %d, FISH_H = %d;\n"
              "const FISH_GLYPH_POS = { x: %d, y: %d };\n"
              "const FISH_MAP = [\n  %s\n];\n"
              "const FISH_GLYPHS = {\n  %s\n};\n"
              "const SHARK_MAP = [\n  %s\n];\n"
+             "const SHARK_MAP_OPEN = [\n  %s\n];\n"
              "const SHARK_PAL = {\n  %s\n};\n"
+             "const HUNTER_MAP = [\n  %s\n];\n"
+             "const HUNTER_PAL = {\n  %s\n};\n"
              "/* fishdata:end */") % (W, H, GLYPH_POS[0], GLYPH_POS[1], rows, glyphs,
-                                      shark, palette)
+                                      shark, shark_open, palette, hunter, hunter_pal)
     html = open(page).read()
     new = re.sub(r"/\* fishdata:start \*/.*?/\* fishdata:end \*/",
                  lambda m: block, html, flags=re.S)

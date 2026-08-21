@@ -707,22 +707,18 @@ footer {
 /* ---------------------------------------------------------- the shark --- */
 .shark {
   position: absolute;
-  opacity: 0.62;
+  top: 0; left: 0;
+  opacity: 0.58;
   pointer-events: none;
-  animation-timing-function: linear;
-  animation-iteration-count: 1;
-  animation-fill-mode: both;
-  filter: drop-shadow(0 12px 28px rgba(2, 10, 22, 0.55));
+  will-change: transform;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 14px 32px rgba(2, 10, 22, 0.6));
 }
-@keyframes shark-swim {
-  from { transform: translateX(-45vw) translateY(0); }
-  50%  { transform: translateX(45vw) translateY(-16px); }
-  to   { transform: translateX(145vw) translateY(0); }
-}
-@keyframes shark-back {
-  from { transform: translateX(145vw) translateY(0) scaleX(-1); }
-  50%  { transform: translateX(45vw) translateY(-16px) scaleX(-1); }
-  to   { transform: translateX(-45vw) translateY(0) scaleX(-1); }
+
+/* fish that have sunk out of the picture as you scroll deeper */
+.school .fish.deep {
+  opacity: 0 !important;
+  transition: opacity 0.9s ease;
 }
 
 /* a fish that just got swallowed */
@@ -804,6 +800,10 @@ footer {
   touch-action: none;
 }
 .viewer-scene:active { cursor: grabbing; }
+
+/* the shark pointer is for the water - controls keep the usual cursor */
+a, button, summary, input, select, textarea, .swatch, .ca code { cursor: pointer; }
+input, textarea { cursor: text; }
 .viewer-model {
   position: relative;
   transform-style: preserve-3d;
@@ -1300,6 +1300,17 @@ footer {
         </p>
       </details>
       <details class="reveal">
+        <summary>What is that shark doing in the background?</summary>
+        <p>
+          Eating. It patrols the page, follows you down as you scroll and
+          swallows any fish that swims into its jaw — and the deeper you go,
+          the fewer fish there are to catch. Your pointer is a shark too: catch
+          the big one with it and it bursts into bubbles. It is a cartoon with
+          a bad haircut and nobody in particular, no matter who it reminds you
+          of.
+        </p>
+      </details>
+      <details class="reveal">
         <summary>Are the other fish coins live?</summary>
         <p>
           No. BITFISH is the only one trading right now — everything else on the
@@ -1748,6 +1759,42 @@ const SHARK_MAP = [
   ".........................................drrRrrrRrd.............",
   "..........................................dddddddd.............."
 ];
+const SHARK_MAP_OPEN = [
+  ".....................dddd.......................................",
+  "....................dbbbbd......................................",
+  "....................dbbbbbdd....................................",
+  "..d.................dbbbbbbbd...................................",
+  ".dbd................dbbbbbbbbdd.................................",
+  ".dbbd...............dbbbbbbbbbbd................................",
+  ".dbbbd...............dbbbbbbbbbbdd......ddd.....................",
+  ".dbbbbd..............dbbbbbbbbbbbbd....dhhhddd..................",
+  ".dbbbbd............dddbbbbBBBBBBbbbdddddhhHhhhddd..........d....",
+  ".dbbbbbd........dddBBBBBBBBBBBBBBBBBBBBdhHhhhhHhhdd......ddhd...",
+  ".dbbbbbbd.....ddBBBBBBBBBBBBBBBBBBBBBBBBHhhhhHhhhhHdd..ddhhhd...",
+  ".dbbbbbbbd..ddBBBBBBBBBBBBBBBBBBBBBBBBBBhhhhHhhhhHhhhddhhhhd....",
+  ".dbbbbbbbbddBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBhHhhhhHhhhhHhhhhd.....",
+  ".dbbbbbbbbBBBBBBBBBBBbbbbbbbbbbbbbbbbbBBsBBsBhhHhhhhHhhhhd......",
+  ".dbbbbbbbBBBBBbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsBhhhHhhhdd.......",
+  "..dddbbbBBbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbwhhhBBdd......",
+  ".....dddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbddbhbbbBd.....",
+  ".....dddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbbbbbbbbbd.....",
+  "..dddbbbyyybbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbbbbbbydd......",
+  ".dbbbbbbbyyyyyyyyyybbbbbbbbbbbbbbbbbbbbbyywmwmwmwmwmwmwd........",
+  ".dbbbbbbbbyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyymmmmmmmmmmmdd.........",
+  ".dbbbbbbbbddyyyyyyyyyyyyyyyyyyyyyyyyyyyyyymwmmmmmmmdd...........",
+  ".dbbbbbbbd..ddyyyyyyyyyyyyyyyyyyyyyyyyyyyymmmwmmddd.............",
+  ".dbbbbbbd.....ddyyyyyyyyyyyyyyyyyyyyyyyyyyyyRRRRd...............",
+  ".dbbbbbd........dddyyyyyyyyyyyyyyyyyyyybddddRRRRd...............",
+  ".dbbbbd............dddddddyyyyyybbbbbbbd....drrd................",
+  ".dbbbbd...................dddddddbbbbbd....drrRrd...............",
+  ".dbbbd...........................dbbbbd....drRrrd...............",
+  ".dbbd.............................dbbd....drRrrrRd..............",
+  ".dbd...............................dd.....dRrrrRrd..............",
+  "..d.......................................drrrRrrd..............",
+  ".........................................drrrRrrrRd.............",
+  ".........................................drrRrrrRrd.............",
+  "..........................................dddddddd.............."
+];
 const SHARK_PAL = {
   d: "#241a12",
   b: "#dd9257",
@@ -1760,6 +1807,55 @@ const SHARK_PAL = {
   m: "#2a0f14",
   r: "#c8352c",
   R: "#8e1f19"
+};
+const HUNTER_MAP = [
+  ".....................dddd.......................................",
+  "....................dbbbbd......................................",
+  "....................dbbbbbdd....................................",
+  "..d.................dbbbbbbbd...................................",
+  ".dbd................dbbbbbbbbdd.................................",
+  ".dbbd...............dbbbbbbbbbbd................................",
+  ".dbbbd...............dbbbbbbbbbbdd..............................",
+  ".dbbbbd..............dbbbbbbbbbbbbd.............................",
+  ".dbbbbd............dddbbbbBBBBBBbbbdddd.........................",
+  ".dbbbbbd........dddBBBBBBBBBBBBBBBBBBBBddddd....................",
+  ".dbbbbbbd.....ddBBBBBBBBBBBBBBBBBBBBBBBBBBBBddd.................",
+  ".dbbbbbbbd..ddBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBddd..............",
+  ".dbbbbbbbbddBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBdd............",
+  ".dbbbbbbbbBBBBBBBBBBBbbbbbbbbbbbbbbbbbBBsBBsBBsBBBBBdd..........",
+  ".dbbbbbbbBBBBBbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsBBBBBBBdd........",
+  "..dddbbbBBbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbwdBBBBdd......",
+  ".....dddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbddbbbbbBd.....",
+  ".....dddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbbbbbbbbbd.....",
+  "..dddbbbyyybbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbbbbbbydd......",
+  ".dbbbbbbbyyyyyyyyyybbbbbbbbbbbbbbbbbbbbbyywmwmwmwmwmwmwd........",
+  ".dbbbbbbbbyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyymmmmmmmmmmmdd.........",
+  ".dbbbbbbbbddyyyyyyyyyyyyyyyyyyyyyyyyyyyyyymwmmmmmmmdd...........",
+  ".dbbbbbbbd..ddyyyyyyyyyyyyyyyyyyyyyyyyyyyymmmwmmddd.............",
+  ".dbbbbbbd.....ddyyyyyyyyyyyyyyyyyyyyyyyyyyyymddd................",
+  ".dbbbbbd........dddyyyyyyyyyyyyyyyyyyyybddddd...................",
+  ".dbbbbd............dddddddyyyyyybbbbbbbd........................",
+  ".dbbbbd...................dddddddbbbbbd.........................",
+  ".dbbbd...........................dbbbbd.........................",
+  ".dbbd.............................dbbd..........................",
+  ".dbd...............................dd...........................",
+  "..d.............................................................",
+  "................................................................",
+  "................................................................",
+  "................................................................"
+];
+const HUNTER_PAL = {
+  d: "#08182b",
+  b: "#4a86b4",
+  B: "#8dc6e6",
+  s: "#2c5b80",
+  y: "#d9eef8",
+  w: "#ffffff",
+  m: "#14232f",
+  h: "#4a86b4",
+  H: "#8dc6e6",
+  r: "#4a86b4",
+  R: "#2c5b80"
 };
 /* fishdata:end */
 
@@ -2138,6 +2234,34 @@ function skinSprite(skin, glyph, cell) {
 const school = document.getElementById("school");
 const schoolSprites = reduced || !school ? [] : FAMILY.map((f) => skinSprite(f.skin, f.glyph, 3));
 
+/* ---------------------------------------------------------- deep water --- */
+/* The further down the page you are, the fewer fish there are - the school
+   thins out with depth instead of following you into the dark.              */
+const SCHOOL_SIZE = window.innerWidth < 700 ? 10 : 18;
+
+function scrollDepth() {
+  const doc = document.documentElement;
+  const max = Math.max(1, doc.scrollHeight - window.innerHeight);
+  return Math.min(1, Math.max(0, window.scrollY / max));
+}
+
+function thinTheSchool() {
+  if (!school) return;
+  const keep = Math.round(SCHOOL_SIZE - (SCHOOL_SIZE - 3) * scrollDepth());
+  school.querySelectorAll("img.fish").forEach((fish, i) => {
+    fish.classList.toggle("deep", i >= keep);
+  });
+}
+
+function puff(x, y) {
+  const dot = document.createElement("div");
+  dot.className = "puff";
+  dot.style.left = x + "px";
+  dot.style.top = y + "px";
+  document.body.appendChild(dot);
+  setTimeout(() => dot.remove(), 700);
+}
+
 function addFish(index) {
   if (!school || !schoolSprites.length) return;
   const depth = Math.random();                   // 0 = close by, 1 = far away
@@ -2159,78 +2283,147 @@ function addFish(index) {
 (function buildSchool() {
   if (!school || reduced) return;
   school.innerHTML = "";
-  const count = window.innerWidth < 700 ? 10 : 18;
-  for (let i = 0; i < count; i++) addFish(i);
+  for (let i = 0; i < SCHOOL_SIZE; i++) addFish(i);
+  thinTheSchool();
+  let queued = null;
+  window.addEventListener("scroll", () => {
+    if (queued) return;
+    queued = requestAnimationFrame(() => { queued = null; thinTheSchool(); });
+  }, { passive: true });
 })();
 
 /* ------------------------------------------------------------- the shark --
-   A big orange predator with a bleached comb-over patrols the background and
-   swallows whatever swims into its mouth. The school restocks itself, so the
-   page never empties out.                                                    */
-(function sharkPatrol() {
+   One big predator, always on screen. It patrols left and right, sinks to
+   whatever depth you have scrolled to, opens its jaw to swallow a fish, and
+   bursts into bubbles if you catch it with the pointer.                      */
+(function bigShark() {
   if (!school || reduced || typeof SHARK_MAP === "undefined") return;
-  const src = spriteUrl(SHARK_MAP, SHARK_PAL, 3);
 
-  function puff(x, y) {
-    const dot = document.createElement("div");
-    dot.className = "puff";
-    dot.style.left = x + "px";
-    dot.style.top = y + "px";
-    document.body.appendChild(dot);
-    setTimeout(() => dot.remove(), 700);
+  const shut = spriteUrl(SHARK_MAP, SHARK_PAL, 3);
+  const gaping = spriteUrl(SHARK_MAP_OPEN, SHARK_PAL, 3);
+  const ratio = SHARK_MAP.length / SHARK_MAP[0].length;
+
+  const shark = document.createElement("img");
+  shark.src = shut;
+  shark.alt = "";
+  shark.className = "shark";
+  school.appendChild(shark);
+
+  let width = 0, height = 0;
+  let x = -500, y = 120, dir = 1;
+  let chewing = 0, alive = true, wait = 0, last = 0;
+  const speed = () => 66 + Math.min(40, window.innerWidth / 40);
+
+  function measure() {
+    width = Math.max(230, Math.min(window.innerWidth * 0.34, 470));
+    height = width * ratio;
+    shark.style.width = Math.round(width) + "px";
+  }
+  measure();
+  window.addEventListener("resize", measure);
+
+  function depth() {                       // it follows you all the way down
+    const room = Math.max(60, window.innerHeight - height - 120);
+    return 70 + scrollDepth() * room;
   }
 
-  function swallow(fish, rect) {
-    fish.classList.add("eaten");
-    puff(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    setTimeout(() => {
-      fish.remove();
-      setTimeout(addFish, 6000 + Math.random() * 14000);   // it swims back later
-    }, 380);
+  function chomp() {
+    chewing = 0.5;
+    shark.src = gaping;
   }
 
-  function bite(shark, backwards) {
+  function bite() {
     const s = shark.getBoundingClientRect();
     if (!s.width) return;
     const jaw = {
-      left: backwards ? s.left : s.right - s.width * 0.28,
-      right: backwards ? s.left + s.width * 0.28 : s.right,
-      top: s.top + s.height * 0.34,
-      bottom: s.top + s.height * 0.86,
+      left: dir > 0 ? s.right - s.width * 0.26 : s.left,
+      right: dir > 0 ? s.right : s.left + s.width * 0.26,
+      top: s.top + s.height * 0.32,
+      bottom: s.top + s.height * 0.88,
     };
     school.querySelectorAll("img.fish:not(.eaten)").forEach((fish) => {
       const f = fish.getBoundingClientRect();
       if (f.right < jaw.left || f.left > jaw.right) return;
       if (f.bottom < jaw.top || f.top > jaw.bottom) return;
-      swallow(fish, f);
+      chomp();
+      fish.classList.add("eaten");
+      puff(f.left + f.width / 2, f.top + f.height / 2);
+      setTimeout(() => {
+        fish.remove();
+        setTimeout(() => { addFish(); thinTheSchool(); }, 5000 + Math.random() * 12000);
+      }, 380);
     });
   }
 
-  function patrol() {
-    const shark = document.createElement("img");
-    const backwards = Math.random() < 0.5;
-    const dur = 26 + Math.random() * 14;
-    shark.src = src;
-    shark.alt = "";
-    shark.className = "shark";
-    shark.style.top = (8 + Math.random() * 62).toFixed(1) + "vh";
-    const span = Math.min(180 + Math.random() * 90, window.innerWidth * 0.45);
-    shark.style.width = Math.round(span) + "px";
-    shark.style.animationName = backwards ? "shark-back" : "shark-swim";
-    shark.style.animationDuration = dur.toFixed(0) + "s";
-    school.appendChild(shark);
-
-    const hunting = setInterval(() => bite(shark, backwards), 130);
-    const done = () => {
-      clearInterval(hunting);
-      shark.remove();
-      setTimeout(patrol, 16000 + Math.random() * 26000);   // back on the prowl
-    };
-    shark.addEventListener("animationend", done, { once: true });
-    setTimeout(done, (dur + 2) * 1000);                     // belt and braces
+  function pop() {
+    alive = false;
+    wait = 12 + Math.random() * 14;
+    const s = shark.getBoundingClientRect();
+    for (let i = 0; i < 14; i++) {
+      setTimeout(() => puff(s.left + Math.random() * s.width,
+                            s.top + Math.random() * s.height), i * 28);
+    }
+    shark.style.transition = "opacity 0.3s ease";
+    shark.style.opacity = "0";
+    let count = 1;
+    try {
+      count = (parseInt(localStorage.getItem("bitfish-pops") || "0", 10) || 0) + 1;
+      localStorage.setItem("bitfish-pops", String(count));
+    } catch (e) { /* private mode - the number just does not stick */ }
+    toast(count === 1 ? "Shark popped" : "Sharks popped: " + count);
   }
 
-  setTimeout(patrol, 7000 + Math.random() * 6000);
+  function revive() {
+    alive = true;
+    dir = Math.random() < 0.5 ? 1 : -1;
+    x = dir > 0 ? -width - 40 : window.innerWidth + 40;
+    shark.style.opacity = "";
+    shark.src = shut;
+  }
+
+  document.addEventListener("pointerdown", (e) => {
+    if (!alive || viewerOpen) return;
+    if (e.target.closest("a, button, input, textarea, select, summary, canvas, code, .viewer")) return;
+    const s = shark.getBoundingClientRect();
+    if (e.clientX < s.left || e.clientX > s.right) return;
+    if (e.clientY < s.top || e.clientY > s.bottom) return;
+    pop();
+  });
+
+  function frame(ts) {
+    requestAnimationFrame(frame);
+    const dt = last ? Math.min((ts - last) / 1000, 0.05) : 0;
+    last = ts;
+
+    if (!alive) {
+      wait -= dt;
+      if (wait <= 0) revive();
+      return;
+    }
+
+    x += dir * speed() * dt;
+    if (dir > 0 && x > window.innerWidth + 60) { dir = -1; x = window.innerWidth + 60; }
+    if (dir < 0 && x < -width - 60) { dir = 1; x = -width - 60; }
+
+    const target = depth() + Math.sin(ts / 1600) * 16;
+    y += (target - y) * Math.min(1, dt * 1.4);
+
+    shark.style.transform =
+      "translate3d(" + x.toFixed(1) + "px," + y.toFixed(1) + "px,0) scaleX(" + (dir > 0 ? 1 : -1) + ")";
+
+    if (chewing > 0 && (chewing -= dt) <= 0) shark.src = shut;
+    bite();
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ------------------------------------------------------- pointer shark --- */
+/* Your cursor is a shark too - a plain one, in cold-water colours. Catch the
+   big one with it and it bursts.                                            */
+(function pointerShark() {
+  if (typeof HUNTER_MAP === "undefined" || reduced) return;
+  const url = spriteUrl(HUNTER_MAP, HUNTER_PAL, 2);
+  document.body.style.cursor = "url(" + url + ") 112 40, auto";
 })();
 
 /* ==================================================== DEEP DIVE (game) === */
