@@ -133,9 +133,14 @@ a:hover { color: var(--gold-bright); }
   filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
 }
 @keyframes swim {
-  from { transform: translateX(-30vw) translateY(0) scaleX(1); }
-  50%  { transform: translateX(50vw) translateY(-22px) scaleX(1); }
-  to   { transform: translateX(130vw) translateY(0) scaleX(1); }
+  from { transform: translateX(-30vw) translateY(0); }
+  50%  { transform: translateX(50vw) translateY(-22px); }
+  to   { transform: translateX(130vw) translateY(0); }
+}
+@keyframes swim-back {
+  from { transform: translateX(130vw) translateY(0) scaleX(-1); }
+  50%  { transform: translateX(50vw) translateY(-18px) scaleX(-1); }
+  to   { transform: translateX(-30vw) translateY(0) scaleX(-1); }
 }
 
 /* -------------------------------------------------------------- layout --- */
@@ -650,6 +655,55 @@ footer {
 .arcade-help { text-align: center; color: var(--muted); font-size: 13px; margin-top: 16px; }
 .arcade-help b { color: var(--cyan-bright); font-weight: 600; }
 
+.mode-pill {
+  color: #04121f;
+  background: linear-gradient(135deg, var(--gold-bright), var(--gold));
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 8px;
+}
+.holder-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: var(--glass);
+}
+.holder-bar.unlocked { border-style: solid; border-color: rgba(92, 224, 138, 0.45); }
+.holder-text { font-size: 14px; color: var(--muted); }
+.holder-text b { display: block; color: var(--foam); font-size: 15px; margin-bottom: 2px; }
+.holder-bar.unlocked .holder-text b { color: #5ce08a; }
+
+.claim {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: 46ch;
+}
+.claim code {
+  display: block;
+  width: 100%;
+  max-height: 92px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(3, 14, 28, 0.85);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cyan-bright);
+  word-break: break-all;
+  text-align: left;
+}
+.claim .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+.reward-note { max-width: 78ch; margin-inline: auto; font-size: 12.5px; opacity: 0.85; }
+
 /* ---------------------------------------------------------- responsive --- */
 @media (max-width: 980px) {
   .hero-grid, .about-grid { grid-template-columns: 1fr; }
@@ -679,6 +733,7 @@ footer {
   .cards.c3, .cards.c4, .cards.c2 { grid-template-columns: 1fr; }
   .family-grid { grid-template-columns: 1fr; }
   .arcade-hud { gap: 12px; font-size: 8px; }
+  .holder-bar { flex-direction: column; align-items: stretch; text-align: center; }
   .hero { padding-top: 104px; }
   .hero-art .fish { width: min(230px, 60%); }
   .ca { flex-wrap: wrap; }
@@ -858,6 +913,18 @@ footer {
         <span>SCORE <b id="gScore">0</b></span>
         <span>TOKENS <b id="gCoins">0</b></span>
         <span>BEST <b id="gBest">0</b></span>
+        <span class="mode-pill" id="gModePill" hidden>REWARD RUN</span>
+      </div>
+
+      <div class="holder-bar" id="holderBar">
+        <div class="holder-text">
+          <b id="holderTitle">Reward mode is locked</b>
+          <span id="holderStatus">
+            Hold <span id="holderMin">100,000</span> $BFISH and every run turns
+            into a claim you can send us.
+          </span>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="connectWallet" type="button">Connect wallet</button>
       </div>
       <div class="arcade-screen">
         <canvas id="gameCanvas" aria-label="Deep Dive - guide the pixel fish through the candles"></canvas>
@@ -865,11 +932,20 @@ footer {
           <h3 id="gTitle">DEEP DIVE</h3>
           <p id="gText">Tap, click or press Space to swim. Dodge the red candles.</p>
           <button class="btn btn-gold" id="gStart" type="button">Start swimming</button>
+          <div class="claim" id="gClaim" hidden></div>
         </div>
       </div>
       <p class="arcade-help">
         <b>Space</b> / <b>W</b> / <b>↑</b> / click / tap to swim ·
         <b>P</b> to pause · red candle = dead fish · tokens are worth 5 points
+      </p>
+      <p class="arcade-help reward-note">
+        Reward mode is read-only: the page checks your $BFISH balance and asks
+        your wallet to sign a plain text message. It never asks for a
+        transaction, an approval or your seed phrase — and it cannot move your
+        coins. Claims are paid out by hand from the community wallet in
+        batches, at the team's discretion; a claim ticket is a receipt, not a
+        guarantee.
       </p>
     </div>
   </div>
@@ -1163,6 +1239,17 @@ const CONFIG = {
   // Social links - replace with the real ones when they exist.
   twitter: "https://x.com/",
   telegram: "https://t.me/",
+
+  // Reward mode: play for $BFISH once you hold some.
+  // The page can only PROVE what someone holds and what they scored - it
+  // cannot send tokens. Payouts are made by hand from the community wallet.
+  rewards: {
+    minTokens: 100000,     // tokens you must hold before runs count
+    perPoint: 10,          // $BFISH per point of score
+    cap: 25000,            // most a single run can be worth
+    multiplier: 2,         // score multiplier while reward mode is on
+    rpc: "https://api.mainnet-beta.solana.com",  // any Solana RPC endpoint
+  },
 };
 
 const LINKS = {
@@ -1337,35 +1424,6 @@ function initBubbles() {
   frame();
 }
 
-/* ---------------------------------------------------------------- school -- */
-function initSchool() {
-  const box = $("#school");
-  if (!box || reduced) return;
-  const fish = [
-    { top: 12, size: 66, dur: 52, delay: -6, hue: -12, op: 0.22, blur: 1.2 },
-    { top: 45, size: 44, dur: 74, delay: -26, hue: 18, op: 0.16, blur: 1.8 },
-    { top: 68, size: 92, dur: 42, delay: -14, hue: -25, op: 0.26, blur: 0.6 },
-    { top: 88, size: 38, dur: 84, delay: -38, hue: 10, op: 0.14, blur: 2 },
-  ];
-  const NS = "http://www.w3.org/2000/svg";
-  fish.forEach((f) => {
-    const svg = document.createElementNS(NS, "svg");
-    svg.setAttribute("viewBox", "0 0 46 32");
-    svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("class", "fish");
-    const use = document.createElementNS(NS, "use");
-    use.setAttribute("href", "#fish");
-    svg.appendChild(use);
-    svg.style.top = f.top + "vh";
-    svg.style.width = f.size + "px";
-    svg.style.opacity = f.op;
-    svg.style.animationDuration = f.dur + "s";
-    svg.style.animationDelay = f.delay + "s";
-    svg.style.filter = `hue-rotate(${f.hue}deg) blur(${f.blur}px) drop-shadow(0 6px 18px rgba(0,0,0,.45))`;
-    box.appendChild(svg);
-  });
-}
-
 /* --------------------------------------------------------------- reveal -- */
 function initReveal() {
   const items = $$(".reveal");
@@ -1411,7 +1469,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initNav();
   initReveal();
   initBubbles();
-  initSchool();
   $$("#copyCa, #copyCa2").forEach((b) => b.addEventListener("click", copyContract));
   $$("#caText, #caText2").forEach((c) => {
     c.style.cursor = "pointer";
@@ -1629,6 +1686,256 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
   });
 })();
 
+/* ------------------------------------------------------- background school */
+/* One sprite per coin, reused by every fish, so a whole school costs six
+   canvases no matter how many fish are swimming.                            */
+function skinSprite(skin, glyph, cell) {
+  const c = document.createElement("canvas");
+  c.width = FISH_W * cell;
+  c.height = FISH_H * cell;
+  drawFishPixels(c.getContext("2d"), 0, 0, cell, SKINS[skin], glyph);
+  return c.toDataURL("image/png");
+}
+
+(function buildSchool() {
+  const box = document.getElementById("school");
+  if (!box || reduced) return;
+  box.innerHTML = "";
+
+  const sprites = FAMILY.map((f) => skinSprite(f.skin, f.glyph, 3));
+  const count = window.innerWidth < 700 ? 10 : 18;
+
+  for (let i = 0; i < count; i++) {
+    const depth = Math.random();                 // 0 = close by, 1 = far away
+    const img = document.createElement("img");
+    img.src = sprites[i % sprites.length];
+    img.alt = "";
+    img.className = "fish";
+    img.style.top = (3 + Math.random() * 90).toFixed(1) + "vh";
+    img.style.width = Math.round(110 - depth * 68) + "px";
+    img.style.opacity = (0.38 - depth * 0.21).toFixed(2);
+    img.style.filter = "blur(" + (depth * 2.1).toFixed(1) + "px)";
+    const dur = 34 + depth * 44 + Math.random() * 20;
+    img.style.animationName = Math.random() < 0.4 ? "swim-back" : "swim";
+    img.style.animationDuration = dur.toFixed(0) + "s";
+    img.style.animationDelay = "-" + (Math.random() * dur).toFixed(0) + "s";
+    box.appendChild(img);
+  }
+})();
+
+/* ===================================================== REWARD MODE ======= */
+/* Hold some $BFISH and your runs become claim tickets: the page reads your
+   balance from a Solana RPC and asks the wallet to sign a plain text receipt.
+   It never builds a transaction, and it cannot send tokens - payouts happen
+   by hand from the community wallet.                                        */
+const REWARD = Object.assign(
+  { minTokens: 100000, perPoint: 10, cap: 25000, multiplier: 2,
+    rpc: "https://api.mainnet-beta.solana.com" },
+  CONFIG.rewards || {}
+);
+
+const holder = { address: null, balance: 0, ok: false };
+
+const nf = new Intl.NumberFormat("en-US");
+const short = (a) => a.slice(0, 4) + "…" + a.slice(-4);
+
+function wallet() {
+  return (window.phantom && window.phantom.solana) || window.solana || window.solflare || null;
+}
+
+function holderUI(title, status, unlocked) {
+  const bar = $("#holderBar");
+  if (!bar) return;
+  $("#holderTitle").textContent = title;
+  $("#holderStatus").textContent = status;
+  bar.classList.toggle("unlocked", !!unlocked);
+  const pill = $("#gModePill");
+  if (pill) pill.hidden = !unlocked;
+}
+
+async function tokenBalance(owner) {
+  const res = await fetch(REWARD.rpc, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "getTokenAccountsByOwner",
+      params: [owner, { mint: CONFIG.contract }, { encoding: "jsonParsed" }],
+    }),
+  });
+  if (!res.ok) throw new Error("RPC " + res.status);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message || "RPC error");
+  return (json.result && json.result.value || []).reduce(
+    (sum, acc) => sum + (acc.account.data.parsed.info.tokenAmount.uiAmount || 0), 0);
+}
+
+async function checkHolder(provider) {
+  holderUI("Checking your balance…", "Reading the chain, one moment.", false);
+  try {
+    holder.balance = await tokenBalance(holder.address);
+  } catch (e) {
+    holderUI("Could not read your balance",
+      "The RPC endpoint refused the request (" + e.message + "). Try again, or " +
+      "put your own endpoint in CONFIG.rewards.rpc.", false);
+    return;
+  }
+  holder.ok = holder.balance >= REWARD.minTokens;
+  if (holder.ok) {
+    holderUI("Reward mode is on",
+      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " " +
+      CONFIG.ticker + ". Runs score ×" + REWARD.multiplier + " and end with a claim ticket.",
+      true);
+  } else {
+    holderUI("Not enough " + CONFIG.ticker + " yet",
+      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " of the " +
+      nf.format(REWARD.minTokens) + " needed. Top up and hit connect again — the game " +
+      "stays free either way.", false);
+  }
+  const btn = $("#connectWallet");
+  if (btn) btn.textContent = "Refresh balance";
+}
+
+async function connectWallet() {
+  const provider = wallet();
+  if (!provider) {
+    holderUI("No Solana wallet found",
+      "Install Phantom or Solflare in this browser, then reload the page.", false);
+    return;
+  }
+  try {
+    holderUI("Connecting…", "Approve the connection in your wallet.", false);
+    const res = await provider.connect();
+    const key = (res && res.publicKey) || provider.publicKey;
+    if (!key) throw new Error("no public key");
+    holder.address = key.toString();
+  } catch (e) {
+    holderUI("Wallet not connected",
+      "The connection was cancelled. Nothing was signed and nothing was sent.", false);
+    return;
+  }
+  await checkHolder(provider);
+}
+
+/* ------------------------------------------------------- the claim ticket */
+function claimAmount(score) {
+  return Math.min(score * REWARD.perPoint, REWARD.cap);
+}
+
+async function signClaim(score, amount, box, button) {
+  const provider = wallet();
+  button.disabled = true;
+  button.textContent = "Check your wallet…";
+
+  const payload = {
+    v: 1, game: "deep-dive", coin: CONFIG.ticker,
+    wallet: holder.address, score: score, reward: amount, at: Date.now(),
+  };
+  const text = CONFIG.name + " reward claim\n" +
+    "wallet: " + payload.wallet + "\n" +
+    "score: " + payload.score + "\n" +
+    "reward: " + payload.reward + " " + CONFIG.ticker + "\n" +
+    "time: " + new Date(payload.at).toISOString();
+
+  try {
+    if (provider && provider.signMessage) {
+      const signed = await provider.signMessage(new TextEncoder().encode(text), "utf8");
+      const bytes = signed.signature || signed;
+      payload.sig = btoa(String.fromCharCode.apply(null, Array.from(bytes)));
+    }
+  } catch (e) {
+    button.disabled = false;
+    button.textContent = "Sign claim";
+    return;                       // the player refused - no ticket, no drama
+  }
+
+  const ticket = btoa(JSON.stringify(payload));
+  box.innerHTML = "";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Claim ticket for " + nf.format(amount) + " " + CONFIG.ticker +
+    ". Copy it and post it in the chat — it is signed by your wallet, so we can " +
+    "verify it without you sending anything.";
+
+  const code = document.createElement("code");
+  code.textContent = ticket;
+
+  const row = document.createElement("div");
+  const copy = document.createElement("button");
+  copy.className = "btn btn-gold btn-sm";
+  copy.type = "button";
+  copy.textContent = "Copy ticket";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(ticket);
+      toast("Claim ticket copied");
+    } catch (e) {
+      toast("Select the ticket text and copy it manually");
+    }
+  });
+  const chat = document.createElement("a");
+  chat.className = "btn btn-ghost btn-sm";
+  chat.href = CONFIG.telegram;
+  chat.target = "_blank";
+  chat.rel = "noopener";
+  chat.textContent = "Open the chat";
+  chat.style.marginLeft = "8px";
+  row.append(copy, chat);
+
+  box.append(hint, code, row);
+}
+
+function renderClaim(score) {
+  const box = $("#gClaim");
+  if (!box) return;
+  box.innerHTML = "";
+  if (score <= 0) { box.hidden = true; return; }
+
+  if (!holder.ok) {
+    box.hidden = false;
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = "Reward mode is off: hold " + nf.format(REWARD.minTokens) + " " +
+      CONFIG.ticker + " and a run like this would be worth " +
+      nf.format(claimAmount(score * REWARD.multiplier)) + ".";
+    box.append(hint);
+    return;
+  }
+
+  const amount = claimAmount(score);
+  box.hidden = false;
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "This run is worth " + nf.format(amount) + " " + CONFIG.ticker + ".";
+  const btn = document.createElement("button");
+  btn.className = "btn btn-ghost btn-sm";
+  btn.type = "button";
+  btn.textContent = "Sign claim";
+  btn.addEventListener("click", () => signClaim(score, amount, box, btn));
+  box.append(hint, btn);
+}
+
+(function initRewards() {
+  const btn = $("#connectWallet");
+  if (!btn) return;
+  const min = $("#holderMin");
+  if (min) min.textContent = nf.format(REWARD.minTokens);
+  btn.addEventListener("click", connectWallet);
+
+  // A wallet the player already approved for this site reconnects silently.
+  const provider = wallet();
+  if (provider && provider.connect) {
+    provider.connect({ onlyIfTrusted: true })
+      .then((res) => {
+        const key = (res && res.publicKey) || provider.publicKey;
+        if (!key) return;
+        holder.address = key.toString();
+        return checkHolder(provider);
+      })
+      .catch(() => { /* not trusted yet - the button is right there */ });
+  }
+})();
+
 /* ==================================================== DEEP DIVE (game) === */
 (function deepDive() {
   const canvas = document.getElementById("gameCanvas");
@@ -1649,6 +1956,7 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
   const elBest = document.getElementById("gBest");
 
   const tokens = FAMILY.filter((f) => f.id !== "mystery");
+  const mult = () => (holder.ok ? REWARD.multiplier : 1);
 
   let scale = 1, state = "ready", inView = true, paused = false;
   let player, pipes, coins, bubbles, pops, score, picked, speed, gap, spawnIn, shake, overAt, last;
@@ -1698,6 +2006,8 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
 
   function start() {
     reset("playing");
+    const claim = $("#gClaim");
+    if (claim) { claim.hidden = true; claim.innerHTML = ""; }
     overlay.classList.add("hidden");
     player.vy = FLAP;
     paused = false;
@@ -1719,6 +2029,7 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
         " collected · best " + best + ".",
       "Dive again"
     );
+    renderClaim(score);
   }
 
   function flap() {
@@ -1731,7 +2042,7 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
     const margin = 46;
     const gapY = margin + Math.random() * (H - gap - margin * 2);
     pipes.push({ x: W + PIPE_W, gapY: gapY, gap: gap, passed: false });
-    if (Math.random() < 0.72) {
+    if (Math.random() < (holder.ok ? 0.92 : 0.72)) {
       const t = tokens[Math.floor(Math.random() * tokens.length)];
       coins.push({ x: W + PIPE_W + PIPE_W / 2, y: gapY + gap / 2, token: t, t: 0 });
     }
@@ -1775,7 +2086,7 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
       p.x -= speed * dt;
       if (!p.passed && p.x + PIPE_W < player.x) {
         p.passed = true;
-        score += 1;
+        score += 1 * mult();
         elScore.textContent = score;
         speed = Math.min(speed + 3.5, 232);
         gap = Math.max(gap - 1.6, 86);
@@ -1791,7 +2102,7 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
       const dx = c.x - player.x, dy = c.y - player.y;
       if (dx * dx + dy * dy < 22 * 22) {
         picked += 1;
-        score += 5;
+        score += 5 * mult();
         elScore.textContent = score;
         elCoins.textContent = picked;
         pops.push({ x: c.x, y: c.y, text: "+5 " + c.token.name, color: SKINS[c.token.skin].B, t: 0 });
