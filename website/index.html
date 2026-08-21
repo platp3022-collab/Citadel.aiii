@@ -1451,7 +1451,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // phones and low-core machines get a thinner version of the same scene
-const lowPower = (navigator.hardwareConcurrency || 8) <= 4 || window.innerWidth < 760;
+const lowPower = (navigator.hardwareConcurrency || 8) <= 2 || window.innerWidth < 760;
 
 /* ------------------------------------------------------------- content -- */
 function applyConfig() {
@@ -2383,6 +2383,219 @@ function addFish(index) {
   if (reduced) return;
   const url = skinSprite("bitfish", "btc", 1);        // 46x32 - a small one
   document.body.style.cursor = "url(" + url + ") 36 17, auto";
+})();
+
+/* ===================================================== REWARD MODE ======= */
+/* Hold some $BFISH and your runs become claim tickets: the page reads your
+   balance from a Solana RPC and asks the wallet to sign a plain text receipt.
+   It never builds a transaction, and it cannot send tokens - payouts happen
+   by hand from the community wallet.                                        */
+const REWARD = Object.assign(
+  { minTokens: 100000, perPoint: 10, cap: 25000, multiplier: 2,
+    rpc: "https://api.mainnet-beta.solana.com" },
+  CONFIG.rewards || {}
+);
+
+const holder = { address: null, balance: 0, ok: false };
+
+const nf = new Intl.NumberFormat("en-US");
+const short = (a) => a.slice(0, 4) + "…" + a.slice(-4);
+
+function wallet() {
+  return (window.phantom && window.phantom.solana) || window.solana || window.solflare || null;
+}
+
+function holderUI(title, status, unlocked) {
+  const bar = $("#holderBar");
+  if (!bar) return;
+  $("#holderTitle").textContent = title;
+  $("#holderStatus").textContent = status;
+  bar.classList.toggle("unlocked", !!unlocked);
+  const pill = $("#gModePill");
+  if (pill) pill.hidden = !unlocked;
+}
+
+async function tokenBalance(owner) {
+  const res = await fetch(REWARD.rpc, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "getTokenAccountsByOwner",
+      params: [owner, { mint: CONFIG.contract }, { encoding: "jsonParsed" }],
+    }),
+  });
+  if (!res.ok) throw new Error("RPC " + res.status);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message || "RPC error");
+  return (json.result && json.result.value || []).reduce(
+    (sum, acc) => sum + (acc.account.data.parsed.info.tokenAmount.uiAmount || 0), 0);
+}
+
+async function checkHolder(provider) {
+  holderUI("Checking your balance…", "Reading the chain, one moment.", false);
+  try {
+    holder.balance = await tokenBalance(holder.address);
+  } catch (e) {
+    holderUI("Could not read your balance",
+      "The RPC endpoint refused the request (" + e.message + "). Try again, or " +
+      "put your own endpoint in CONFIG.rewards.rpc.", false);
+    return;
+  }
+  holder.ok = holder.balance >= REWARD.minTokens;
+  if (holder.ok) {
+    holderUI("Reward mode is on",
+      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " " +
+      CONFIG.ticker + ". Runs score ×" + REWARD.multiplier + " and end with a claim ticket.",
+      true);
+  } else {
+    holderUI("Not enough " + CONFIG.ticker + " yet",
+      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " of the " +
+      nf.format(REWARD.minTokens) + " needed. Top up and hit connect again — the game " +
+      "stays free either way.", false);
+  }
+  const btn = $("#connectWallet");
+  if (btn) btn.textContent = "Refresh balance";
+}
+
+async function connectWallet() {
+  const provider = wallet();
+  if (!provider) {
+    holderUI("No Solana wallet found",
+      "Install Phantom or Solflare in this browser, then reload the page.", false);
+    return;
+  }
+  try {
+    holderUI("Connecting…", "Approve the connection in your wallet.", false);
+    const res = await provider.connect();
+    const key = (res && res.publicKey) || provider.publicKey;
+    if (!key) throw new Error("no public key");
+    holder.address = key.toString();
+  } catch (e) {
+    holderUI("Wallet not connected",
+      "The connection was cancelled. Nothing was signed and nothing was sent.", false);
+    return;
+  }
+  await checkHolder(provider);
+}
+
+/* ------------------------------------------------------- the claim ticket */
+function claimAmount(score) {
+  return Math.min(score * REWARD.perPoint, REWARD.cap);
+}
+
+async function signClaim(score, amount, box, button) {
+  const provider = wallet();
+  button.disabled = true;
+  button.textContent = "Check your wallet…";
+
+  const payload = {
+    v: 1, game: "deep-dive", coin: CONFIG.ticker,
+    wallet: holder.address, score: score, reward: amount, at: Date.now(),
+  };
+  const text = CONFIG.name + " reward claim\n" +
+    "wallet: " + payload.wallet + "\n" +
+    "score: " + payload.score + "\n" +
+    "reward: " + payload.reward + " " + CONFIG.ticker + "\n" +
+    "time: " + new Date(payload.at).toISOString();
+
+  try {
+    if (provider && provider.signMessage) {
+      const signed = await provider.signMessage(new TextEncoder().encode(text), "utf8");
+      const bytes = signed.signature || signed;
+      payload.sig = btoa(String.fromCharCode.apply(null, Array.from(bytes)));
+    }
+  } catch (e) {
+    button.disabled = false;
+    button.textContent = "Sign claim";
+    return;                       // the player refused - no ticket, no drama
+  }
+
+  const ticket = btoa(JSON.stringify(payload));
+  box.innerHTML = "";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Claim ticket for " + nf.format(amount) + " " + CONFIG.ticker +
+    ". Copy it and post it in the chat — it is signed by your wallet, so we can " +
+    "verify it without you sending anything.";
+
+  const code = document.createElement("code");
+  code.textContent = ticket;
+
+  const row = document.createElement("div");
+  const copy = document.createElement("button");
+  copy.className = "btn btn-gold btn-sm";
+  copy.type = "button";
+  copy.textContent = "Copy ticket";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(ticket);
+      toast("Claim ticket copied");
+    } catch (e) {
+      toast("Select the ticket text and copy it manually");
+    }
+  });
+  const chat = document.createElement("a");
+  chat.className = "btn btn-ghost btn-sm";
+  chat.href = CONFIG.telegram;
+  chat.target = "_blank";
+  chat.rel = "noopener";
+  chat.textContent = "Open the chat";
+  chat.style.marginLeft = "8px";
+  row.append(copy, chat);
+
+  box.append(hint, code, row);
+}
+
+function renderClaim(score) {
+  const box = $("#gClaim");
+  if (!box) return;
+  box.innerHTML = "";
+  if (score <= 0) { box.hidden = true; return; }
+
+  if (!holder.ok) {
+    box.hidden = false;
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = "Reward mode is off: hold " + nf.format(REWARD.minTokens) + " " +
+      CONFIG.ticker + " and a run like this would be worth " +
+      nf.format(claimAmount(score * REWARD.multiplier)) + ".";
+    box.append(hint);
+    return;
+  }
+
+  const amount = claimAmount(score);
+  box.hidden = false;
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "This run is worth " + nf.format(amount) + " " + CONFIG.ticker + ".";
+  const btn = document.createElement("button");
+  btn.className = "btn btn-ghost btn-sm";
+  btn.type = "button";
+  btn.textContent = "Sign claim";
+  btn.addEventListener("click", () => signClaim(score, amount, box, btn));
+  box.append(hint, btn);
+}
+
+(function initRewards() {
+  const btn = $("#connectWallet");
+  if (!btn) return;
+  const min = $("#holderMin");
+  if (min) min.textContent = nf.format(REWARD.minTokens);
+  btn.addEventListener("click", connectWallet);
+
+  // A wallet the player already approved for this site reconnects silently.
+  const provider = wallet();
+  if (provider && provider.connect) {
+    provider.connect({ onlyIfTrusted: true })
+      .then((res) => {
+        const key = (res && res.publicKey) || provider.publicKey;
+        if (!key) return;
+        holder.address = key.toString();
+        return checkHolder(provider);
+      })
+      .catch(() => { /* not trusted yet - the button is right there */ });
+  }
 })();
 
 /* ==================================================== DEEP DIVE (game) === */
