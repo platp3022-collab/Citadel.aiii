@@ -168,3 +168,14 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         say("\nОстановлено.")
         sys.exit(0)
+    except Exception as exc:
+        import traceback
+
+        log_file = BASE_DIR / "data" / "polybot.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as fh:
+            fh.write("\n--- падение start.py ---\n")
+            traceback.print_exc(file=fh)
+        say(f"\nОшибка: {type(exc).__name__}: {exc}")
+        say(f"Подробности дописаны в {log_file}")
+        sys.exit(1)

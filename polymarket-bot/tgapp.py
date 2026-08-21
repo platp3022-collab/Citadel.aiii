@@ -725,6 +725,67 @@ def build_web_app(engine: pb.Engine, token: str,
 # --------------------------------------------------------------------------------------
 # Запуск
 # --------------------------------------------------------------------------------------
+async def start_web(app: web.Application, host: str, port: int) -> tuple[web.AppRunner | None, int]:
+    """Поднять сервер панели. Занятый или запрещённый порт — берём следующий.
+
+    На Windows порт 8080 часто занят или зарезервирован системой, и раньше это
+    роняло весь бот на старте. Теперь это просто означает другой порт.
+    """
+    runner = web.AppRunner(app)
+    await runner.setup()
+    for candidate in (port, port + 1, port + 2, 8123, 8765, 8880):
+        try:
+            await web.TCPSite(runner, host, candidate).start()
+            if candidate != port:
+                log.warning("порт %s занят, панель слушает %s", port, candidate)
+            return runner, candidate
+        except OSError as exc:
+            log.debug("порт %s не подошёл: %s", candidate, exc)
+    log.error("не удалось занять ни один порт — панель отключена, бот работает командами")
+    await runner.cleanup()
+    return None, 0
+
+
+async def supervise(name: str, factory: "Callable[[], Any]", stopping: "Callable[[], bool]") -> None:
+    """Перезапускать фоновую задачу, если она упала: бот не должен умирать целиком."""
+    delay = 2.0
+    while not stopping():
+        try:
+            await factory()
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.exception("%s: сбой (%s), перезапуск через %.0f с", name, exc, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+
+
+async def open_tunnel(bot: TgBot, tg: Telegram, link: "tunnel.Tunnel") -> None:
+    """Поднять публичный адрес в фоне и включить кнопку панели, когда он готов."""
+    try:
+        url = await link.start()
+    except Exception as exc:
+        log.exception("туннель не поднялся: %s", exc)
+        url = ""
+    if not url:
+        log.warning("публичного адреса нет — панель доступна только локально, "
+                    "команды бота работают как обычно")
+        return
+    bot.public_url = url
+    log.info("панель доступна: %s", url)
+    if not bot.owner:
+        return
+    try:
+        await tg.set_menu_button(bot.owner, url)
+        await tg.send(bot.owner, "🖥 <b>Панель готова.</b> Открывай кнопкой ниже "
+                                 "или командой /app.",
+                      {"inline_keyboard": [[{"text": "Открыть панель",
+                                             "web_app": {"url": url}}]]})
+    except Exception as exc:
+        log.warning("не вышло включить кнопку панели: %s", exc)
+
+
 async def main_async(args: argparse.Namespace) -> int:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
@@ -751,44 +812,43 @@ async def main_async(args: argparse.Namespace) -> int:
         runner: web.AppRunner | None = None
         link: tunnel.Tunnel | None = None
         if not args.no_web:
-            runner = web.AppRunner(build_web_app(engine, token, lambda: bot.owner))
-            await runner.setup()
-            await web.TCPSite(runner, host, port).start()
-            log.info("Mini App слушает http://%s:%s", host, port)
+            runner, port = await start_web(build_web_app(engine, token, lambda: bot.owner),
+                                           host, port)
+            if runner:
+                log.info("панель слушает http://localhost:%s", port)
 
-            # Telegram открывает Mini App только по https, поэтому локальный порт
-            # выводим наружу туннелем. Свой домен в WEBAPP_PUBLIC_URL это отключает.
-            if not public_url and not args.no_tunnel and tunnel.auto_tunnel_enabled():
-                log.info("поднимаю публичный адрес для панели (cloudflared)…")
-                link = tunnel.Tunnel(port, pb.DATA_DIR)
-                public_url = await link.start()
-                if public_url:
-                    log.info("панель доступна: %s", public_url)
-                else:
-                    log.warning("туннель не поднялся — панель будет только локально, "
-                                "команды бота работают как обычно")
-                bot.public_url = public_url
+        # Сначала поднимаем бота, потом всё остальное: команды должны отвечать сразу,
+        # не дожидаясь туннеля (он может думать до минуты или не подняться вовсе).
+        stopping = lambda: engine.stopping                      # noqa: E731
+        tasks = [
+            asyncio.create_task(supervise("движок", lambda: engine.run(None), stopping)),
+            asyncio.create_task(supervise("опрос Telegram", bot.poll_loop, stopping)),
+            asyncio.create_task(supervise("уведомления", bot.alert_loop, stopping)),
+            asyncio.create_task(supervise("панель-сообщение", bot.panel_loop, stopping)),
+        ]
 
         mode = "БОЕВОЙ" if cfg.live else "бумажный"
         if owner:
-            await tg.set_menu_button(owner, bot.public_url)
-            panel_line = ("🖥 Панель открывается кнопкой ниже или командой /app"
-                          if bot.public_url else
-                          "🖥 Панель недоступна: публичный адрес не поднялся, /app расскажет почему")
-            await tg.send(owner,
-                          f"🚀 <b>Polybot запущен</b> · режим {mode}\n"
-                          f"банк ${cfg.bankroll:,.0f}\n{panel_line}\n\n"
-                          "/pnl — сколько в плюсе, /panel — живая панель, /help — команды",
-                          panel_markup(engine, bot.public_url))
+            try:
+                await tg.set_menu_button(owner, bot.public_url)
+                await tg.send(owner,
+                              f"🚀 <b>Polybot запущен</b> · режим {mode}\n"
+                              f"банк ${cfg.bankroll:,.0f}\n\n"
+                              "/pnl — сколько в плюсе, /panel — живая панель, "
+                              "/app — терминал, /help — команды",
+                              panel_markup(engine, bot.public_url))
+            except Exception as exc:
+                log.warning("не вышло отправить приветствие: %s", exc)
         else:
             log.info("Владелец не назначен: напиши боту /start — он тебя запомнит")
 
-        tasks = [
-            asyncio.create_task(engine.run(None, once=False)),
-            asyncio.create_task(bot.poll_loop()),
-            asyncio.create_task(bot.alert_loop()),
-            asyncio.create_task(bot.panel_loop()),
-        ]
+        # Telegram открывает Mini App только по https, поэтому локальный порт выводим
+        # наружу туннелем — в фоне. Свой домен в WEBAPP_PUBLIC_URL это отключает.
+        if runner and not public_url and not args.no_tunnel and tunnel.auto_tunnel_enabled():
+            log.info("поднимаю публичный адрес для панели (cloudflared)…")
+            link = tunnel.Tunnel(port, pb.DATA_DIR)
+            tasks.append(asyncio.create_task(open_tunnel(bot, tg, link)))
+
         try:
             await asyncio.gather(*tasks)
         except (KeyboardInterrupt, asyncio.CancelledError):
@@ -826,6 +886,13 @@ def main() -> int:
         return asyncio.run(main_async(args))
     except KeyboardInterrupt:
         return 0
+    except Exception as exc:
+        # Полный трейсбек — в файл, человеку — одна понятная строка.
+        log.exception("бот остановился с ошибкой")
+        print(f"\nБот остановился с ошибкой: {type(exc).__name__}: {exc}")
+        print(f"Подробности записаны в {pb.DATA_DIR / 'polybot.log'}")
+        print("Покажи последние строки этого файла — по ним видно причину.")
+        return 1
 
 
 if __name__ == "__main__":

@@ -151,7 +151,9 @@ class Tunnel:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-        except (OSError, ValueError) as exc:
+        except Exception as exc:
+            # сюда попадает и NotImplementedError, если у asyncio нет поддержки
+            # подпроцессов в текущем цикле событий — бот от этого падать не должен
             log.warning("cloudflared не запустился: %s", exc)
             return ""
 
