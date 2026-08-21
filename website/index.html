@@ -746,6 +746,112 @@ footer {
   to   { transform: scale(2.4); opacity: 0; }
 }
 
+/* --------------------------------------------------------- skin viewer -- */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 10, 22, 0.82);
+  backdrop-filter: blur(6px);
+}
+.viewer[hidden] { display: none; }
+.viewer-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  width: min(920px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 28px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(143, 228, 255, 0.3);
+  background: linear-gradient(180deg, #0c2947, #061a31);
+  box-shadow: 0 30px 80px rgba(1, 6, 14, 0.7);
+}
+.viewer-close {
+  position: absolute;
+  top: 12px; right: 14px;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(4, 18, 36, 0.7);
+  color: var(--foam);
+  font-size: 14px;
+  cursor: pointer;
+}
+.viewer-close:hover { background: rgba(63, 178, 230, 0.2); }
+.viewer-stage {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(31, 111, 168, 0.32), rgba(4, 20, 39, 0.9)),
+    repeating-linear-gradient(90deg, transparent 0 30px, rgba(143, 228, 255, 0.05) 30px 31px),
+    repeating-linear-gradient(0deg, transparent 0 30px, rgba(143, 228, 255, 0.05) 30px 31px);
+}
+/* the skin viewer's 3D stage: the sprite extruded into a stack of slices */
+.viewer-scene {
+  perspective: 1100px;
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  cursor: grab;
+  touch-action: none;
+}
+.viewer-scene:active { cursor: grabbing; }
+.viewer-model {
+  position: relative;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.viewer-model img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.viewer-stage.flat .viewer-scene { display: none; }
+.viewer-stage:not(.flat) canvas { display: none; }
+
+.viewer-stage canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+.viewer-info .badge { position: static; display: inline-block; margin-bottom: 14px; }
+.viewer-info h3 { font-size: 24px; margin: 0 0 4px; }
+.viewer-info p { color: var(--muted); font-size: 15px; margin: 14px 0 0; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.swatch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px 5px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(3, 14, 28, 0.6);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.swatch:hover { border-color: rgba(143, 228, 255, 0.45); color: var(--foam); }
+.swatch i {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.viewer-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.viewer-hint { font-size: 12px; opacity: 0.7; }
+.fish-card .tank { cursor: zoom-in; }
+
 /* ---------------------------------------------------------- responsive --- */
 @media (max-width: 980px) {
   .hero-grid, .about-grid { grid-template-columns: 1fr; }
@@ -774,6 +880,7 @@ footer {
   .nav-links a::after { display: none; }
   .cards.c3, .cards.c4, .cards.c2 { grid-template-columns: 1fr; }
   .family-grid { grid-template-columns: 1fr; }
+  .viewer-card { grid-template-columns: 1fr; gap: 20px; padding: 20px; }
   .arcade-hud { gap: 12px; font-size: 8px; }
   .holder-bar { flex-direction: column; align-items: stretch; text-align: center; }
   .hero { padding-top: 104px; }
@@ -931,7 +1038,8 @@ footer {
     <div class="family-grid" id="familyGrid"></div>
 
     <p class="family-note reveal">
-      Only the coins marked <b>LIVE</b> exist on-chain today. Everything else is
+      Tap any tank to spin that skin around in 3D, flip through the whole
+      school and save it as a PNG. Only the coins marked <b>LIVE</b> exist on-chain today. Everything else is
       a plan, not a promise — never buy a "presale" of a fish that has not
       launched yet.
     </p>
@@ -1264,6 +1372,34 @@ footer {
     <p class="disclaimer" style="border:0; padding-top:10px; opacity:0.7">© <span id="year">2026</span> BITFISH. <span>Made by the school, for the school.</span></p>
   </div>
 </footer>
+
+<div class="viewer" id="viewer" hidden>
+  <div class="viewer-card" role="dialog" aria-modal="true" aria-labelledby="viewerName">
+    <button class="viewer-close" id="viewerClose" type="button" aria-label="Close">✕</button>
+    <div class="viewer-stage" id="viewerStage">
+      <div class="viewer-scene" id="viewerScene">
+        <div class="viewer-model" id="viewerModel"></div>
+      </div>
+      <canvas id="viewerCanvas"></canvas>
+    </div>
+    <div class="viewer-info">
+      <span class="badge" id="viewerBadge"></span>
+      <h3 id="viewerName">—</h3>
+      <div class="tick" id="viewerTick"></div>
+      <p id="viewerLine"></p>
+      <div class="swatches" id="viewerSwatches"></div>
+      <div class="viewer-actions">
+        <button class="btn btn-ghost btn-sm" id="viewerPrev" type="button">← Prev</button>
+        <button class="btn btn-ghost btn-sm" id="viewerNext" type="button">Next →</button>
+        <button class="btn btn-ghost btn-sm" id="viewerMode" type="button">Flat view</button>
+        <a class="btn btn-gold btn-sm" id="viewerSave" download>Save PNG</a>
+      </div>
+      <p class="viewer-hint">
+        Drag the model to turn it · ← → to flip through the school · Esc to close
+      </p>
+    </div>
+  </div>
+</div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -1763,7 +1899,7 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
   if (!grid) return;
   const CELL = 6;
 
-  FAMILY.forEach((fish) => {
+  FAMILY.forEach((fish, i) => {
     const [badge, meta] = STATUS_TEXT[fish.status];
     const card = document.createElement("article");
     card.className = "fish-card reveal" + (fish.status === "live" ? "" : " locked");
@@ -1780,6 +1916,14 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
     const ctx = card.querySelector("canvas").getContext("2d");
     drawFishPixels(ctx, 0, 0, CELL, SKINS[fish.skin], fish.glyph);
 
+    const look = document.createElement("button");
+    look.type = "button";
+    look.className = "btn btn-ghost btn-sm";
+    look.textContent = "Inspect";
+    look.addEventListener("click", () => window.openSkinViewer(i, look));
+    card.querySelector(".meta").appendChild(look);
+    card.querySelector(".tank").addEventListener("click", () => window.openSkinViewer(i, look));
+
     if (fish.status === "live") {
       const a = document.createElement("a");
       a.className = "btn btn-ghost btn-sm";
@@ -1791,6 +1935,185 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
     }
     grid.appendChild(card);
   });
+})();
+
+/* ------------------------------------------------------------ skin viewer */
+/* Click any tank (or its Inspect button) to see the sprite big, read its
+   palette and save a PNG. The shark rides along at the end of the list.     */
+let viewerOpen = false;
+
+const SWATCH_LABELS = {
+  d: "outline", b: "body", B: "highlight", s: "shadow", c: "fin",
+  C: "fin light", w: "eye", r: "lips", g: "glyph", y: "belly",
+  h: "hair", H: "hair light", m: "mouth", R: "tie shadow",
+};
+
+const VIEWABLE = FAMILY.concat(
+  typeof SHARK_MAP === "undefined" ? [] : [{
+    id: "shark", name: "THE SHARK", ticker: "NOT A COIN", chain: "background",
+    status: "planned", shark: true,
+    line: "The thing that eats the school. It patrols the page every half " +
+          "minute or so, swallows whatever swims into its jaw, and cannot be " +
+          "bought — no ticker, no contract, no relation to anyone real.",
+  }]
+);
+
+(function skinViewer() {
+  const box = document.getElementById("viewer");
+  if (!box) return;
+
+  const canvas = document.getElementById("viewerCanvas");
+  const ctx = canvas.getContext("2d");
+  const elName = document.getElementById("viewerName");
+  const elTick = document.getElementById("viewerTick");
+  const elLine = document.getElementById("viewerLine");
+  const elBadge = document.getElementById("viewerBadge");
+  const elSwatches = document.getElementById("viewerSwatches");
+  const elSave = document.getElementById("viewerSave");
+  const stage = document.getElementById("viewerStage");
+  const scene = document.getElementById("viewerScene");
+  const model = document.getElementById("viewerModel");
+  const elMode = document.getElementById("viewerMode");
+
+  const SLICES = 26;                 // slices of the sprite stacked in depth
+  let index = 0, opener = null;
+  let rotY = -26, rotX = 12, drag = null, frame = null;
+
+  function buildModel(entry, url, wide, tall) {
+    const shownW = 360;
+    model.innerHTML = "";
+    model.style.width = shownW + "px";
+    model.style.height = Math.round(shownW * tall / wide) + "px";
+    const depth = shownW * (entry.shark ? 0.13 : 0.17);
+    const step = depth / (SLICES - 1);
+    for (let i = 0; i < SLICES; i++) {
+      const slice = document.createElement("img");
+      slice.src = url;
+      slice.alt = "";
+      slice.style.transform =
+        "translateZ(" + ((i - (SLICES - 1) / 2) * step).toFixed(2) + "px)";
+      slice.style.filter =
+        "brightness(" + (0.4 + 0.6 * (i / (SLICES - 1))).toFixed(3) + ")";
+      model.appendChild(slice);
+    }
+  }
+
+  function turn() {
+    if (!viewerOpen) { frame = null; return; }
+    if (!drag && !reduced && !stage.classList.contains("flat")) rotY += 0.32;
+    model.style.transform = "rotateX(" + rotX.toFixed(2) + "deg) rotateY(" + rotY.toFixed(2) + "deg)";
+    frame = requestAnimationFrame(turn);
+  }
+
+  scene.addEventListener("pointerdown", (e) => {
+    drag = { x: e.clientX, y: e.clientY, rotY: rotY, rotX: rotX };
+    scene.setPointerCapture(e.pointerId);
+  });
+  scene.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    rotY = drag.rotY + (e.clientX - drag.x) * 0.45;
+    rotX = Math.max(-40, Math.min(40, drag.rotX - (e.clientY - drag.y) * 0.35));
+  });
+  const dropDrag = () => { drag = null; };
+  scene.addEventListener("pointerup", dropDrag);
+  scene.addEventListener("pointercancel", dropDrag);
+
+  elMode.addEventListener("click", () => {
+    const flat = stage.classList.toggle("flat");
+    elMode.textContent = flat ? "3D view" : "Flat view";
+  });
+
+  function paint(entry, cell) {
+    const w = entry.shark ? SHARK_MAP[0].length : FISH_W;
+    const h = entry.shark ? SHARK_MAP.length : FISH_H;
+    const c = document.createElement("canvas");
+    c.width = w * cell;
+    c.height = h * cell;
+    const g = c.getContext("2d");
+    if (entry.shark) drawMap(g, SHARK_MAP, 0, 0, cell, SHARK_PAL);
+    else drawFishPixels(g, 0, 0, cell, SKINS[entry.skin], entry.glyph);
+    return c;
+  }
+
+  function render() {
+    const entry = VIEWABLE[index];
+    const palette = entry.shark ? SHARK_PAL : SKINS[entry.skin];
+    const wide = entry.shark ? SHARK_MAP[0].length : FISH_W;
+    const cell = Math.max(4, Math.round(560 / wide));
+
+    const art = paint(entry, cell);
+    canvas.width = art.width;
+    canvas.height = art.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(art, 0, 0);
+
+    const tall = entry.shark ? SHARK_MAP.length : FISH_H;
+    buildModel(entry, art.toDataURL("image/png"), wide, tall);
+    rotY = -26;
+    rotX = 12;
+
+    const [badge] = STATUS_TEXT[entry.status];
+    elBadge.textContent = entry.shark ? "BACKGROUND" : badge;
+    elBadge.className = "badge " + entry.status;
+    elName.textContent = entry.name;
+    elTick.textContent = entry.ticker + " · " + entry.chain;
+    elLine.textContent = entry.line;
+
+    elSwatches.innerHTML = "";
+    Object.keys(palette).forEach((key) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "swatch";
+      chip.title = "Copy " + palette[key];
+      chip.innerHTML = '<i style="background:' + palette[key] + '"></i>';
+      chip.append((SWATCH_LABELS[key] || key) + " " + palette[key]);
+      chip.addEventListener("click", () => {
+        navigator.clipboard && navigator.clipboard.writeText(palette[key])
+          .then(() => toast(palette[key] + " copied"))
+          .catch(() => toast(palette[key]));
+      });
+      elSwatches.appendChild(chip);
+    });
+
+    const big = paint(entry, entry.shark ? 12 : 16);      // a fat sprite to save
+    elSave.href = big.toDataURL("image/png");
+    elSave.download = (CONFIG.name + "-" + entry.id + ".png").toLowerCase();
+    elSave.textContent = "Save PNG " + big.width + "×" + big.height;
+  }
+
+  function open(i, trigger) {
+    index = (i + VIEWABLE.length) % VIEWABLE.length;
+    opener = trigger || null;
+    box.hidden = false;
+    viewerOpen = true;
+    document.body.style.overflow = "hidden";
+    render();
+    if (!frame) frame = requestAnimationFrame(turn);
+    document.getElementById("viewerClose").focus();
+  }
+
+  function close() {
+    box.hidden = true;
+    viewerOpen = false;
+    if (frame) { cancelAnimationFrame(frame); frame = null; }
+    document.body.style.overflow = "";
+    if (opener) opener.focus();
+  }
+
+  const step = (by) => { index = (index + by + VIEWABLE.length) % VIEWABLE.length; render(); };
+
+  document.getElementById("viewerClose").addEventListener("click", close);
+  document.getElementById("viewerPrev").addEventListener("click", () => step(-1));
+  document.getElementById("viewerNext").addEventListener("click", () => step(1));
+  box.addEventListener("pointerdown", (e) => { if (e.target === box) close(); });
+  document.addEventListener("keydown", (e) => {
+    if (!viewerOpen) return;
+    if (e.key === "Escape") close();
+    else if (e.key === "ArrowLeft") step(-1);
+    else if (e.key === "ArrowRight") step(1);
+  });
+
+  window.openSkinViewer = open;
 })();
 
 /* ------------------------------------------------------- background school */
@@ -2184,7 +2507,7 @@ function addFish(index) {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (!inView) return;
+    if (!inView || viewerOpen) return;
     if (e.code === "Space" || e.code === "ArrowUp" || e.key === "w" || e.key === "W") {
       if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
       e.preventDefault();

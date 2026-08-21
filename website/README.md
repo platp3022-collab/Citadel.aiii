@@ -126,6 +126,26 @@ promotional scheme, and in some jurisdictions that shape (paid entry, prize
 out) is regulated. Keep the payouts discretionary — the copy on the page
 already says so — and take advice before you scale it up.
 
+## The skin viewer
+
+Every card has an **Inspect** button (the tank itself is clickable too) that
+opens a full-screen viewer:
+
+- the sprite **extruded into 3D** — 26 copies of it stacked along Z inside a
+  `transform-style: preserve-3d` container, each slice a little darker toward
+  the back, so the pixel art reads as a chunky voxel model;
+- a turntable that spins on its own and follows a drag (pointer events, so a
+  finger works the same as a mouse); `Flat view` switches back to the crisp 2D
+  sprite;
+- the palette as clickable chips — click one to copy the hex;
+- `Save PNG` for the flat sprite at 16× (12× for the shark);
+- `←` / `→` to walk through the whole school, `Esc` to close.
+
+The list is `VIEWABLE` — `FAMILY` plus the shark, which is labelled
+`NOT A COIN` so nobody mistakes the background predator for something to buy.
+No 3D library is involved: it is the same PNG drawn 26 times and rotated by
+the browser, which is why it costs nothing on a phone.
+
 ## The background: a school and a predator
 
 `addFish()` drops one pixel fish into the fixed `#school` layer with a random
