@@ -495,9 +495,7 @@ def embed_game_data(page):
 
     shark = rows_of(draw_shark())
     shark_open = rows_of(draw_shark(gape=1.0))
-    hunter = rows_of(draw_shark(gape=0.7, costume="suit"))
     palette = pal_of(SHARK_PAL)
-    hunter_pal = pal_of(HUNTER_PAL)
     block = ("/* fishdata:start */\n"
              "const FISH_W = %d, FISH_H = %d;\n"
              "const FISH_GLYPH_POS = { x: %d, y: %d };\n"
@@ -506,10 +504,8 @@ def embed_game_data(page):
              "const SHARK_MAP = [\n  %s\n];\n"
              "const SHARK_MAP_OPEN = [\n  %s\n];\n"
              "const SHARK_PAL = {\n  %s\n};\n"
-             "const HUNTER_MAP = [\n  %s\n];\n"
-             "const HUNTER_PAL = {\n  %s\n};\n"
              "/* fishdata:end */") % (W, H, GLYPH_POS[0], GLYPH_POS[1], rows, glyphs,
-                                      shark, shark_open, palette, hunter, hunter_pal)
+                                      shark, shark_open, palette)
     html = open(page).read()
     new = re.sub(r"/\* fishdata:start \*/.*?/\* fishdata:end \*/",
                  lambda m: block, html, flags=re.S)

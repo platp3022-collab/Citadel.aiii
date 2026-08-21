@@ -163,10 +163,8 @@ frame its jaw is tested against the fish. When it catches one the sprite
 swaps to an open-mouth variant for half a second, the fish fades behind a
 bubble puff, and a replacement swims in some seconds later.
 
-**Your pointer is a shark too** — the challenger: same shape, cold-water
-colours, a suit tie and a flat cut greying at the temples
-(`draw_shark(costume="suit")`), set as a data-URI cursor. Click
-the big shark with it and it bursts into bubbles, the count goes into
+**Your pointer is a small BITFISH** — the 46×32 sprite set as a data-URI
+cursor. Click the big shark with it and it bursts into bubbles, the count goes into
 `localStorage`, and it comes back from off-screen 12–26 seconds later. Clicks
 that land on a link, button or canvas are ignored, so popping never eats a
 real click.
@@ -234,6 +232,27 @@ Colors are in the `PAL` dict, the shape in `draw_fish()`.
 For link previews in X and Telegram, upload `assets/img/og.png` too and
 uncomment the `og:image` meta tag in `<head>` with its absolute URL
 (`https://yourdomain/og.png`) — scrapers need a real URL, not an embedded image.
+
+## Keeping it smooth
+
+The scene is deliberately cheap to run, and it is easy to make it expensive
+again. What matters, in rough order of cost:
+
+- **`backdrop-filter` is the big one.** Blurring what is behind an element
+  means re-blurring it whenever the background moves — and this background is
+  always moving. Only the nav, the arcade overlay and the viewer use it (and
+  the nav drops it on phones). Do not put it back on cards.
+- **Reading element boxes forces layout.** The shark hunts by comparing
+  `getBoundingClientRect()`, so it does that ten times a second, not sixty.
+- **Filters on moving sprites cost per frame.** No drop-shadows on the school;
+  blur only on the far half, and none at all on phones.
+- **Canvas work scales with pixels.** The bubble layer runs at ~30fps with a
+  device-pixel-ratio capped at 1.5 and one filled circle per bubble.
+- **Nothing runs off-screen or in a background tab.** The game loop is
+  cancelled when the cabinet scrolls out of view, and every loop bails on
+  `document.hidden`.
+- `lowPower` (≤4 cores or a screen under 760px) thins the school, the bubbles
+  and the blurs automatically.
 
 ## Notes
 
