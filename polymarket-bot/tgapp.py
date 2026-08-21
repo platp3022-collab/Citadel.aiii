@@ -121,6 +121,40 @@ class Telegram:
 # --------------------------------------------------------------------------------------
 # Состояние движка → JSON для Mini App и текст для сообщений
 # --------------------------------------------------------------------------------------
+STOP_WORDS = {"will", "the", "a", "an", "in", "on", "at", "of", "to", "be", "is", "by",
+              "for", "before", "after", "and", "or", "any", "this", "that", "his", "her",
+              "their", "its", "have", "has", "do", "does", "than", "with", "who", "what"}
+
+
+def ticker_label(market: pb.Market) -> str:
+    """Короткий тикер рынка для бегущей строки: BTC-120K вместо всего вопроса."""
+    words = [w for w in (market.slug or market.question).replace("_", "-").split("-")
+             if w and w.lower() not in STOP_WORDS]
+    label = "-".join(words[:3]).upper()[:18]
+    return label or market.slug[:12].upper() or "MARKET"
+
+
+def _ticker(engine: pb.Engine) -> list[dict[str, Any]]:
+    """Бегущая строка: рынки в работе, цена и движение за последний час."""
+    rows: list[dict[str, Any]] = []
+    snapshots = sorted(engine.snapshots.values(),
+                       key=lambda s: s.market.volume_24h, reverse=True)
+    for snap in snapshots[:14]:
+        price = snap.mid or snap.market.price
+        change = 0.0
+        cutoff = pb.now() - 3600
+        past = [p for ts, p in snap.prices if ts >= cutoff]
+        if past:
+            change = price - past[0]
+        rows.append({
+            "label": ticker_label(snap.market),
+            "price": round(price, 3),
+            "change": round(change, 3),
+            "held": snap.market.token_id in engine.portfolio.positions,
+        })
+    return rows
+
+
 def state_dict(engine: pb.Engine) -> dict[str, Any]:
     pf = engine.portfolio
     cfg = engine.cfg
@@ -184,6 +218,11 @@ def state_dict(engine: pb.Engine) -> dict[str, Any]:
                 "notes": s.notes[-4:][::-1],
             }
             for s in engine.strategies
+        ],
+        "ticker": _ticker(engine),
+        "log": [
+            {"ts": ts, "level": level, "text": text}
+            for ts, level, text in engine.events[-60:][::-1]
         ],
         "limits": {
             "risk_per_trade": cfg.risk_per_trade * 100,

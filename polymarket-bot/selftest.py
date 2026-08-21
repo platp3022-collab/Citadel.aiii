@@ -294,6 +294,22 @@ async def test_telegram() -> bool:
     ok &= check("баланс в состоянии сходится",
                 abs(state["cash"] + state["exposure"] - state["equity"]) < 0.02)
     ok &= check("лимиты уехали в панель", state["limits"]["max_positions"] == cfg.max_positions)
+    ok &= check("тикер собран по рынкам в работе",
+                len(state["ticker"]) == len(engine.snapshots),
+                f"{len(state['ticker'])} строк")
+    ok &= check("в тикере есть цена и движение",
+                all(0 < t["price"] < 1 and "change" in t for t in state["ticker"]))
+    ok &= check("тикер помечает рынки с позицией",
+                sum(1 for t in state["ticker"] if t["held"]) == len(engine.portfolio.positions))
+    ok &= check("ярлык тикера короткий и без служебных слов",
+                all(t["label"] and len(t["label"]) <= 18 and " " not in t["label"]
+                    for t in state["ticker"]),
+                ", ".join(t["label"] for t in state["ticker"][:3]))
+    ok &= check("лента событий пишется", len(state["log"]) > 0, f"{len(state['log'])} записей")
+    ok &= check("вход попал в ленту",
+                any(e["level"] == "buy" for e in state["log"]))
+    ok &= check("лента отсортирована свежим вперёд",
+                all(a["ts"] >= b["ts"] for a, b in zip(state["log"], state["log"][1:])))
 
     pf = engine.portfolio
     pf.cash += 40.0                                   # изображаем зафиксированную прибыль

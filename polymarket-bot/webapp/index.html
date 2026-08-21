@@ -3,127 +3,200 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Polybot</title>
+<title>POLYBOT TERMINAL</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
+  /* Терминал: тёмный экран, моноширинный шрифт, всё выровнено по колонкам.
+     Тема Telegram намеренно игнорируется — это консоль, она всегда чёрная. */
   :root {
-    --bg: var(--tg-theme-bg-color, #0f1115);
-    --card: var(--tg-theme-secondary-bg-color, #171a21);
-    --text: var(--tg-theme-text-color, #e8eaed);
-    --muted: var(--tg-theme-hint-color, #8b93a1);
-    --accent: var(--tg-theme-button-color, #4c8bf5);
-    --accent-text: var(--tg-theme-button-text-color, #fff);
-    --up: #43c98a;
-    --down: #f0616d;
-    --line: rgba(140, 150, 170, .18);
+    --bg: #07080b;
+    --panel: #0c0e13;
+    --line: #1b2029;
+    --text: #c9d1d9;
+    --dim: #6b7280;
+    --up: #35d07f;
+    --down: #ff5c6c;
+    --accent: #f0b429;
+    --blue: #58a6ff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+            "Liberation Mono", "Courier New", monospace;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); }
   body {
-    margin: 0; padding: 12px 12px 96px;
-    background: var(--bg); color: var(--text);
-    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif;
+    margin: 0; padding: 0 0 78px;
+    color: var(--text); font-family: var(--mono);
+    font-size: 12px; line-height: 1.45;
+    letter-spacing: .2px;
+    -webkit-font-smoothing: antialiased;
   }
-  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
-  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-  .equity { font-size: 30px; font-weight: 650; letter-spacing: -.5px; }
-  .pnl { font-size: 15px; font-weight: 600; }
+  /* лёгкая развёртка старого монитора — только фон, текст не трогает */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background: repeating-linear-gradient(to bottom,
+      rgba(255,255,255,.018) 0 1px, transparent 1px 3px);
+  }
   .up { color: var(--up); } .down { color: var(--down); }
-  .muted { color: var(--muted); }
-  .tiny { font-size: 12px; }
-  .mode {
-    font-size: 11px; font-weight: 700; letter-spacing: .6px;
-    padding: 3px 8px; border-radius: 999px; background: rgba(76,139,245,.16); color: var(--accent);
+  .dim { color: var(--dim); } .acc { color: var(--accent); }
+
+  /* --- бегущая строка ------------------------------------------------------ */
+  .tape {
+    position: sticky; top: 0; z-index: 4;
+    background: #05060a; border-bottom: 1px solid var(--line);
+    overflow: hidden; white-space: nowrap; padding: 5px 0; font-size: 11px;
   }
-  .mode.live { background: rgba(240,97,109,.18); color: var(--down); }
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
-  .stat { text-align: center; }
-  .stat b { display: block; font-size: 15px; font-weight: 620; }
-  .stat span { font-size: 11px; color: var(--muted); }
-  h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px;
-       text-transform: uppercase; letter-spacing: .7px; }
-  .pos { padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .pos:last-child { border-bottom: 0; padding-bottom: 0; }
-  .pos:first-of-type { padding-top: 0; }
-  .q { font-size: 14px; font-weight: 550; margin-bottom: 4px; }
-  .tag { font-size: 11px; padding: 2px 6px; border-radius: 6px;
-         background: rgba(140,150,170,.14); color: var(--muted); margin-right: 6px; }
-  .fill { display: flex; justify-content: space-between; gap: 10px;
-          padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-  .fill:last-child { border-bottom: 0; }
-  .side { font-weight: 700; font-size: 11px; padding: 2px 6px; border-radius: 6px; }
-  .side.BUY { background: rgba(67,201,138,.16); color: var(--up); }
-  .side.SELL { background: rgba(240,97,109,.16); color: var(--down); }
-  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
-  .bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px;
-         padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-         background: linear-gradient(to top, var(--bg) 72%, transparent); }
-  button { flex: 1; border: 0; border-radius: 12px; padding: 13px 10px;
-           font: inherit; font-weight: 620; color: var(--accent-text);
-           background: var(--accent); cursor: pointer; }
-  button.ghost { background: rgba(140,150,170,.16); color: var(--text); }
-  button:active { opacity: .7; }
-  button:disabled { opacity: .45; }
-  .banner { background: rgba(240,97,109,.14); color: var(--down);
-            border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
-  svg { display: block; width: 100%; height: 64px; margin-top: 12px; overflow: visible; }
+  /* содержимое дублируется в JS, поэтому сдвиг ровно на половину зацикливается без шва */
+  .tape-inner { display: inline-block; padding-left: 8px; animation: scroll 40s linear infinite; }
+  .tape span { margin-right: 18px; }
+  .tape b { font-weight: 600; color: var(--text); }
+  @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  @media (prefers-reduced-motion: reduce) { .tape-inner { animation: none; } }
+
+  /* --- панели -------------------------------------------------------------- */
+  .wrap { padding: 8px; display: grid; gap: 8px; }
+  /* min-width:0 обязателен: иначе неразрывный текст внутри грида растягивает страницу */
+  .wrap, .wrap > *, .cols > *, .panel, .body { min-width: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); }
+  .head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 8px; border-bottom: 1px solid var(--line);
+    font-size: 10px; letter-spacing: 1.2px; color: var(--dim); text-transform: uppercase;
+  }
+  .body { padding: 8px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .big { font-size: 26px; font-weight: 600; letter-spacing: -.5px; color: #fff; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; min-width: 0; }
+  .kv span:first-child { color: var(--dim); }
+  .kv > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* фиксированная раскладка: колонки никогда не выталкивают страницу за экран */
+  table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+  th {
+    text-align: left; font-weight: 500; color: var(--dim); font-size: 10px;
+    letter-spacing: .8px; padding: 0 6px 4px 0; border-bottom: 1px solid var(--line);
+  }
+  th, td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td { padding: 3px 6px 3px 0; border-bottom: 1px solid rgba(27,32,41,.5); }
+  tr:last-child td { border-bottom: 0; }
+  col.c-q { width: 30%; } col.c-tag { width: 10%; } col.c-num { width: 14%; }
+  col.c-pnl { width: 18%; } col.c-time { width: 13%; } col.c-side { width: 10%; }
+  /* третья стратегия в двухколоночной сетке занимает всю ширину, а не половину */
+  .cols > .panel:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .log { max-height: 190px; overflow-y: auto; }
+  .log div { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log .t { color: #4b5563; margin-right: 6px; }
+  .tag { font-size: 10px; padding: 0 4px; border: 1px solid currentColor; margin-right: 6px; }
+
+  .empty { color: var(--dim); padding: 4px 0; }
+  .bar-wrap { height: 3px; background: #12151c; margin-top: 6px; }
+  .bar-fill { height: 100%; background: var(--blue); }
+
+  svg { display: block; width: 100%; height: 88px; }
+
+  /* --- кнопки -------------------------------------------------------------- */
+  .keys {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    background: var(--line); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .keys button {
+    border: 0; background: #0c0e13; color: var(--text);
+    font-family: var(--mono); font-size: 11px; padding: 12px 4px; cursor: pointer;
+    letter-spacing: .5px;
+  }
+  .keys button:active { background: #151922; }
+  .keys button:disabled { color: #3f4650; }
+  .keys .danger { color: var(--down); }
+  .cursor::after {
+    content: "▌"; color: var(--up); animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .alert { border-color: var(--down); color: var(--down); }
 </style>
 </head>
 <body>
 
-<div id="banner" class="banner" hidden></div>
+<div class="tape"><div class="tape-inner" id="tape"></div></div>
 
-<div class="card">
-  <div class="row">
-    <span class="mode" id="mode">PAPER</span>
-    <span class="muted tiny" id="clock"></span>
+<div class="wrap">
+
+  <div class="panel" id="head-panel">
+    <div class="head">
+      <span>polybot · <span id="mode">paper</span></span>
+      <span id="uptime" class="dim"></span>
+    </div>
+    <div class="body">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px">
+        <div>
+          <div class="big" id="equity">$0.00</div>
+          <div id="pnl" class="dim">—</div>
+        </div>
+        <div style="text-align:right;min-width:38%">
+          <div class="kv"><span>сегодня</span><b id="day">—</b></div>
+          <div class="kv"><span>кэш</span><b id="cash">—</b></div>
+          <div class="kv"><span>в рынке</span><b id="exposure">—</b></div>
+        </div>
+      </div>
+      <svg id="chart" viewBox="0 0 320 88" preserveAspectRatio="none"></svg>
+      <div class="kv" style="margin-top:6px">
+        <span id="status" class="dim cursor"></span>
+      </div>
+    </div>
   </div>
-  <div class="row" style="margin-top:8px">
-    <span class="equity" id="equity">—</span>
-    <span class="pnl" id="pnl"></span>
+
+  <div class="panel">
+    <div class="head"><span>позиции</span><span id="pos-count" class="dim">0</span></div>
+    <div class="body" id="positions"></div>
   </div>
-  <svg id="chart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-hidden="true"></svg>
-  <div class="grid">
-    <div class="stat"><b id="cash">—</b><span>кэш</span></div>
-    <div class="stat"><b id="exposure">—</b><span>в рынке</span></div>
-    <div class="stat"><b id="winrate">—</b><span>win rate</span></div>
-    <div class="stat"><b id="pf">—</b><span>profit factor</span></div>
+
+  <div class="cols" id="strategies"></div>
+
+  <div class="panel">
+    <div class="head"><span>исполнения</span><span class="dim">последние</span></div>
+    <div class="body" id="fills"></div>
   </div>
-  <div class="muted tiny" id="status" style="margin-top:12px"></div>
+
+  <div class="panel">
+    <div class="head"><span>лента движка</span><span class="dim" id="cycles"></span></div>
+    <div class="body log" id="log"></div>
+  </div>
+
+  <div class="panel">
+    <div class="head"><span>метрики</span><span class="dim">риск</span></div>
+    <div class="body" id="metrics"></div>
+  </div>
+
 </div>
 
-<div class="card">
-  <h2>Позиции</h2>
-  <div id="positions"><div class="empty">загружаю…</div></div>
-</div>
-
-<div class="card">
-  <h2>Стратегии</h2>
-  <div id="strategies"></div>
-</div>
-
-<div class="card">
-  <h2>Последние сделки</h2>
-  <div id="fills"></div>
-</div>
-
-<div class="bar">
-  <button id="pause" class="ghost">⏸ Пауза</button>
-  <button id="flat" class="ghost">📉 Закрыть всё</button>
-  <button id="refresh">🔄 Обновить</button>
+<div class="keys">
+  <button id="refresh">[R] СКАН</button>
+  <button id="pause">[P] ПАУЗА</button>
+  <button id="flat" class="danger">[F] ЗАКРЫТЬ</button>
+  <button id="mode-btn">[?] ИНФО</button>
 </div>
 
 <script>
 const tg = window.Telegram ? window.Telegram.WebApp : null;
-if (tg) { tg.ready(); tg.expand(); }
+if (tg) {
+  tg.ready(); tg.expand();
+  try { tg.setHeaderColor("#07080b"); tg.setBackgroundColor("#07080b"); } catch (e) {}
+}
 const initData = tg ? tg.initData : "";
-let state = null, busy = false;
+let state = null, busy = false, started = Date.now();
 
 const $ = (id) => document.getElementById(id);
-const money = (v) => (v >= 0 ? "+$" : "−$") + Math.abs(v).toLocaleString("ru-RU",
-  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const dollars = (v) => "$" + Math.round(v).toLocaleString("ru-RU");
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const sign = (v) => (v >= 0 ? "+" : "−");
+const money = (v) => sign(v) + "$" + Math.abs(v).toFixed(2);
+const short$ = (v) => "$" + Math.round(Math.abs(v)).toLocaleString("en-US");
+const cls = (v) => (v > 0 ? "up" : v < 0 ? "down" : "dim");
+const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 8);
+const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
 async function call(path, extra) {
   const res = await fetch(path, {
@@ -133,128 +206,217 @@ async function call(path, extra) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || ("HTTP " + res.status));
+    throw new Error(body.error || "HTTP " + res.status);
   }
   return res.json();
-}
-
-function banner(text) {
-  const el = $("banner");
-  el.hidden = !text;
-  el.textContent = text || "";
 }
 
 function chart(values) {
   const svg = $("chart");
   if (!values || values.length < 2) { svg.innerHTML = ""; return; }
   const lo = Math.min(...values), hi = Math.max(...values), span = (hi - lo) || 1;
-  const step = 300 / (values.length - 1);
-  const pts = values.map((v, i) => [i * step, 60 - ((v - lo) / span) * 56]);
+  const step = 320 / (values.length - 1);
+  const pts = values.map((v, i) => [i * step, 84 - ((v - lo) / span) * 76]);
   const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
-  const area = line + ` L300 64 L0 64 Z`;
   const up = values[values.length - 1] >= values[0];
   const color = up ? "var(--up)" : "var(--down)";
+  const last = pts[pts.length - 1];
   svg.innerHTML =
-    `<path d="${area}" fill="${color}" opacity=".12"></path>` +
-    `<path d="${line}" fill="none" stroke="${color}" stroke-width="2"
-       stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></path>`;
+    `<path d="${line} L320 88 L0 88 Z" fill="${color}" opacity=".08"></path>` +
+    `<path d="${line}" fill="none" stroke="${color}" stroke-width="1.4"
+       vector-effect="non-scaling-stroke" stroke-linejoin="round"></path>` +
+    `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2" fill="${color}"></circle>`;
+}
+
+function renderTape(rows) {
+  if (!rows || !rows.length) {
+    $("tape").innerHTML = `<span class="dim">ожидание данных рынка…</span>`;
+    return;
+  }
+  const html = rows.map((t) => {
+    const c = cls(t.change);
+    const mark = t.held ? `<span class="acc">◆</span> ` : "";
+    return `<span>${mark}<b>${esc(t.label)}</b> ${t.price.toFixed(2)}
+      <span class="${c}">${sign(t.change)}${Math.abs(t.change * 100).toFixed(1)}c</span></span>`;
+  }).join("");
+  $("tape").innerHTML = html + html;      // дубль, чтобы лента шла без разрыва
+}
+
+function renderPositions(rows) {
+  $("pos-count").textContent = rows.length + " / " + (state.limits.max_positions || "—");
+  if (!rows.length) {
+    $("positions").innerHTML = `<div class="empty">нет открытых позиций — движок ждёт сигнал</div>`;
+    return;
+  }
+  $("positions").innerHTML = `<table>
+    <col class="c-q"><col class="c-tag"><col class="c-num"><col class="c-num">
+    <col class="c-num"><col class="c-pnl">
+    <tr><th>РЫНОК</th><th>ИСХ</th><th class="num">ВХОД</th><th class="num">ЦЕНА</th>
+        <th class="num">РАЗМЕР</th><th class="num">P&L</th></tr>
+    ${rows.map((p) => `<tr>
+      <td class="q">${esc(cut(p.question, 40))}</td>
+      <td class="acc">${esc(cut(p.outcome, 6))}</td>
+      <td class="num">${p.entry.toFixed(3)}</td>
+      <td class="num ${cls(p.mark - p.entry)}">${p.mark.toFixed(3)}</td>
+      <td class="num dim">${short$(p.cost)}</td>
+      <td class="num ${cls(p.upnl)}">${money(p.upnl)}</td>
+    </tr>`).join("")}
+  </table>`;
+}
+
+function renderStrategies(rows) {
+  $("strategies").innerHTML = rows.map((s) => `
+    <div class="panel">
+      <div class="head"><span>${esc(s.title)}</span>
+        <span class="${cls(s.pnl)}">${money(s.pnl)}</span></div>
+      <div class="body">
+        <div class="kv"><span>сигналов</span><b>${s.signals}</b></div>
+        <div class="kv"><span>сделок</span><b>${s.trades}</b></div>
+        ${s.notes.length
+          ? s.notes.map((n) => `<div class="dim" style="overflow:hidden;text-overflow:ellipsis;
+              white-space:nowrap">${esc(n)}</div>`).join("")
+          : `<div class="empty">тихо</div>`}
+      </div>
+    </div>`).join("");
+}
+
+function renderFills(rows) {
+  if (!rows.length) {
+    $("fills").innerHTML = `<div class="empty">сделок пока не было</div>`;
+    return;
+  }
+  $("fills").innerHTML = `<table>
+    <col class="c-time"><col class="c-side"><col class="c-q"><col class="c-num">
+    <col class="c-num"><col class="c-pnl">
+    <tr><th>ВРЕМЯ</th><th>СТОР</th><th>РЫНОК</th><th class="num">ОБЪЁМ</th>
+        <th class="num">ЦЕНА</th><th class="num">P&L</th></tr>
+    ${rows.slice(0, 14).map((f) => `<tr>
+      <td class="dim">${hhmm(f.ts).slice(0, 5)}</td>
+      <td class="${f.side === "BUY" ? "up" : "down"}">${f.side}</td>
+      <td class="q">${esc(cut(f.question, 34))}</td>
+      <td class="num dim">${f.size.toFixed(0)}</td>
+      <td class="num">${f.price.toFixed(3)}</td>
+      <td class="num ${f.pnl ? cls(f.pnl) : "dim"}">${f.pnl ? money(f.pnl) : "—"}</td>
+    </tr>`).join("")}
+  </table>`;
+}
+
+const LEVELS = {
+  buy:  ["ВХОД", "up"], win: ["ПРОФИТ", "up"], loss: ["УБЫТОК", "down"],
+  risk: ["РИСК", "down"], scan: ["СКАН", "dim"], info: ["ИНФО", "dim"],
+};
+
+function renderLog(rows) {
+  if (!rows.length) {
+    $("log").innerHTML = `<div class="empty">лента пуста — движок только запустился</div>`;
+    return;
+  }
+  $("log").innerHTML = rows.map((e) => {
+    const [tag, c] = LEVELS[e.level] || LEVELS.info;
+    return `<div><span class="t">${hhmm(e.ts)}</span>
+      <span class="tag ${c}">${tag}</span>${esc(e.text)}</div>`;
+  }).join("");
+}
+
+function renderMetrics(s) {
+  const dd = s.max_dd, ddCap = s.limits.max_drawdown || 20;
+  $("metrics").innerHTML = `
+    <div class="cols" style="gap:4px 14px">
+      <div class="kv"><span>win rate</span><b>${s.win_rate.toFixed(0)}%</b></div>
+      <div class="kv"><span>profit factor</span><b>${s.profit_factor.toFixed(2)}</b></div>
+      <div class="kv"><span>реализовано</span><b class="${cls(s.realized)}">${money(s.realized)}</b></div>
+      <div class="kv"><span>плавающий</span><b class="${cls(s.unrealized)}">${money(s.unrealized)}</b></div>
+      <div class="kv"><span>sharpe</span><b>${s.sharpe.toFixed(2)}</b></div>
+      <div class="kv"><span>рынков</span><b>${s.markets}</b></div>
+    </div>
+    <div class="kv" style="margin-top:8px"><span>просадка</span>
+      <b class="${dd > ddCap * 0.7 ? "down" : ""}">${dd.toFixed(1)}% из ${ddCap.toFixed(0)}%</b></div>
+    <div class="bar-wrap"><div class="bar-fill" style="width:${Math.min(100, dd / ddCap * 100)}%;
+      background:${dd > ddCap * 0.7 ? "var(--down)" : "var(--blue)"}"></div></div>
+    <div class="kv" style="margin-top:8px"><span>риск на сделку</span>
+      <b>${s.limits.risk_per_trade.toFixed(1)}%</b></div>
+    <div class="kv"><span>тейк / стоп</span>
+      <b>+${(s.limits.take_profit * 100).toFixed(0)}c / −${(s.limits.stop_loss * 100).toFixed(0)}c</b></div>`;
 }
 
 function render(s) {
   state = s;
-  $("mode").textContent = s.mode;
-  $("mode").className = "mode" + (s.mode === "LIVE" ? " live" : "");
-  $("clock").textContent = "цикл " + s.cycles + " · рынков " + s.markets;
-  $("equity").textContent = "$" + s.equity.toLocaleString("ru-RU",
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const up = s.pnl >= 0;
-  $("pnl").textContent = money(s.pnl) + " (" + (up ? "+" : "") + s.pnl_pct.toFixed(2) + "%)";
-  $("pnl").className = "pnl " + (up ? "up" : "down");
-  $("cash").textContent = dollars(s.cash);
-  $("exposure").textContent = dollars(s.exposure);
-  $("winrate").textContent = s.win_rate.toFixed(0) + "%";
-  $("pf").textContent = s.profit_factor.toFixed(2);
-  $("status").textContent = s.status;
-  $("pause").textContent = s.paused ? "▶️ Продолжить" : "⏸ Пауза";
-  banner(s.blocked ? "🛑 " + s.blocked : "");
+  $("mode").textContent = s.mode.toLowerCase();
+  $("mode").className = s.mode === "LIVE" ? "down" : "blue";
+  $("equity").textContent = "$" + s.equity.toFixed(2);
+  $("pnl").innerHTML = `<span class="${cls(s.pnl)}">${money(s.pnl)}
+    (${sign(s.pnl)}${Math.abs(s.pnl_pct).toFixed(2)}%)</span>
+    <span class="dim">от $${s.bankroll.toFixed(0)}</span>`;
+  $("day").innerHTML = `<span class="${cls(s.day_pnl)}">${money(s.day_pnl)}</span>`;
+  $("cash").textContent = short$(s.cash);
+  $("exposure").textContent = short$(s.exposure);
+  $("cycles").textContent = "цикл " + s.cycles;
+  $("uptime").textContent = new Date().toTimeString().slice(0, 5) +
+    (s.paused ? " · ПАУЗА" : "");
+  $("status").textContent = s.status + " ";
+  $("head-panel").className = "panel" + (s.blocked ? " alert" : "");
+  $("pause").textContent = s.paused ? "[P] ПУСК" : "[P] ПАУЗА";
   chart(s.equity_curve);
-
-  $("positions").innerHTML = s.positions.length ? s.positions.map((p) => `
-    <div class="pos">
-      <div class="q">${esc(p.question)}</div>
-      <div class="row">
-        <div class="tiny muted">
-          <span class="tag">${esc(p.outcome)}</span>
-          <span class="tag">${esc(p.strategy)}</span>
-          ${p.entry.toFixed(3)} → ${p.mark.toFixed(3)} · ${dollars(p.cost)}
-        </div>
-        <b class="${p.upnl >= 0 ? "up" : "down"}">${money(p.upnl)}</b>
-      </div>
-      <button class="ghost tiny" style="margin-top:8px;padding:8px"
-              onclick="closePosition('${esc(p.token_id)}')">Закрыть позицию</button>
-    </div>`).join("") : `<div class="empty">Позиций нет — движок ждёт сигнал.</div>`;
-
-  $("strategies").innerHTML = s.strategies.map((st) => `
-    <div class="pos">
-      <div class="row">
-        <b class="tiny">${esc(st.title)}</b>
-        <b class="tiny ${st.pnl >= 0 ? "up" : "down"}">${money(st.pnl)}</b>
-      </div>
-      <div class="tiny muted">сигналов ${st.signals} · сделок ${st.trades}</div>
-      ${st.notes.map((n) => `<div class="tiny muted">${esc(n)}</div>`).join("")}
-    </div>`).join("");
-
-  $("fills").innerHTML = s.fills.length ? s.fills.slice(0, 12).map((f) => {
-    const when = new Date(f.ts * 1000).toLocaleTimeString("ru-RU",
-      { hour: "2-digit", minute: "2-digit" });
-    const pnl = f.pnl ? `<b class="${f.pnl > 0 ? "up" : "down"}">${money(f.pnl)}</b>` : "";
-    return `<div class="fill">
-        <span><span class="side ${f.side}">${f.side}</span> ${esc(f.question.slice(0, 34))}</span>
-        <span class="muted">${f.price.toFixed(3)} · ${when} ${pnl}</span>
-      </div>`;
-  }).join("") : `<div class="empty">Сделок пока не было.</div>`;
+  renderTape(s.ticker);
+  renderPositions(s.positions);
+  renderStrategies(s.strategies);
+  renderFills(s.fills);
+  renderLog(s.log);
+  renderMetrics(s);
 }
 
 async function refresh() {
   try {
     render(await call("/api/state"));
-    banner(state && state.blocked ? "🛑 " + state.blocked : "");
   } catch (err) {
-    banner("Нет связи с ботом: " + err.message);
+    $("status").textContent = "нет связи с движком: " + err.message + " ";
   }
 }
 
 async function act(action, extra) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  document.querySelectorAll(".keys button").forEach((b) => (b.disabled = true));
   try {
     render(await call("/api/action", Object.assign({ action }, extra || {})));
-    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
   } catch (err) {
-    banner("Не вышло: " + err.message);
+    $("status").textContent = "отказано: " + err.message + " ";
   } finally {
     busy = false;
-    document.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    document.querySelectorAll(".keys button").forEach((b) => (b.disabled = false));
   }
 }
 
-function closePosition(tokenId) {
-  const run = () => act("close", { token_id: tokenId });
-  if (tg && tg.showConfirm) tg.showConfirm("Закрыть эту позицию по рынку?", (ok) => ok && run());
-  else if (confirm("Закрыть эту позицию по рынку?")) run();
+function confirmThen(text, run) {
+  if (tg && tg.showConfirm) tg.showConfirm(text, (ok) => ok && run());
+  else if (confirm(text)) run();
 }
 
 $("refresh").onclick = refresh;
 $("pause").onclick = () => act(state && state.paused ? "resume" : "pause");
-$("flat").onclick = () => {
-  const run = () => act("flat");
-  if (tg && tg.showConfirm) tg.showConfirm("Закрыть все позиции по рынку?", (ok) => ok && run());
-  else if (confirm("Закрыть все позиции по рынку?")) run();
+$("flat").onclick = () => confirmThen("Закрыть все позиции по рынку?", () => act("flat"));
+$("mode-btn").onclick = () => {
+  const s = state;
+  const text = !s ? "Данные ещё не загружены." :
+    `Режим: ${s.mode === "LIVE" ? "боевой — ордера уходят на биржу" : "бумажный — деньги виртуальные"}
+Банк: $${s.bankroll.toFixed(2)}, эквити $${s.equity.toFixed(2)}
+Лимиты: риск ${s.limits.risk_per_trade.toFixed(1)}% на сделку, до ${s.limits.max_positions} позиций,
+дневной стоп ${s.limits.daily_loss_limit.toFixed(0)}%, стоп по просадке ${s.limits.max_drawdown.toFixed(0)}%
+Тейк +${(s.limits.take_profit * 100).toFixed(0)}c, стоп −${(s.limits.stop_loss * 100).toFixed(0)}c`;
+  if (tg && tg.showPopup) tg.showPopup({ title: "POLYBOT", message: text });
+  else alert(text);
 };
 
+document.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (k === "r") refresh();
+  if (k === "p") $("pause").click();
+  if (k === "f") $("flat").click();
+});
+
 refresh();
-setInterval(refresh, 5000);
+setInterval(refresh, 3000);
 </script>
 </body>
 </html>

@@ -1347,6 +1347,12 @@ class Engine:
         self.stopping = False
         self.paused = False           # ручная пауза: позиции ведём, новые не открываем
         self.message = "старт"
+        self.events: list[tuple[float, str, str]] = []   # (время, уровень, текст)
+
+    def event(self, level: str, text: str) -> None:
+        """Лента событий движка: её показывает терминал в Mini App."""
+        self.events.append((now(), level, text))
+        del self.events[:-200]
 
     def status_line(self) -> str:
         if self.paused:
@@ -1380,6 +1386,7 @@ class Engine:
         results = await asyncio.gather(*(one(m) for m in self.universe))
         self.snapshots = {tid: snap for tid, snap in results if snap}
         self.message = f"снимков рынка: {len(self.snapshots)}"
+        self.event("scan", f"скан вселенной: {len(self.snapshots)} рынков со стаканом")
         self.last_scan = now()
 
     # --- торговые решения -------------------------------------------------------------
@@ -1410,6 +1417,7 @@ class Engine:
             return
         blocked = self.risk.check_portfolio(pf.equity, pf.peak, pf.day_start_equity)
         if blocked:
+            self.event("risk", blocked)
             return
         held = self.held_markets()
         for signal in signals:
@@ -1454,6 +1462,8 @@ class Engine:
                     continue
             pf.open(signal, shares, price, fee, token_id, outcome, fair)
             held.add(market.condition_id)
+            self.event("buy", f"вход {outcome} · {short(market.question, 38)} @ {price:.3f} "
+                              f"· ${shares * price:,.0f} · {signal.strategy}")
             log.info("ENTRY %s %s [%s] @ %.3f  $%.0f  (%s)", signal.strategy,
                      short(market.question, 40), outcome, price, shares * price, signal.reason)
 
@@ -1508,7 +1518,11 @@ class Engine:
             except Exception as exc:
                 log.error("выход не прошёл: %s", exc)
                 return False
-        self.portfolio.close(token_id, price, fee, reason)
+        fill = self.portfolio.close(token_id, price, fee, reason)
+        if fill:
+            self.event("win" if fill.pnl > 0 else "loss",
+                       f"выход {short(pos.question, 34)} @ {price:.3f} · "
+                       f"{money(fill.pnl)} · {reason}")
         return True
 
     async def flatten(self, reason: str = "ручное закрытие") -> int:
