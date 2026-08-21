@@ -346,6 +346,38 @@ async def test_telegram() -> bool:
     return bool(ok)
 
 
+def test_launcher() -> bool:
+    """Запускалка start.py: распознавание токена и запись в .env без потери строк."""
+    import tempfile
+
+    import start
+
+    ok = check("настоящий токен принимается",
+               start.valid_token("123456789:AAFakeTokenForTestsOnly-0123456789abc"))
+    ok &= check("мусор вместо токена отклоняется",
+                not any(start.valid_token(x) for x in
+                        ("непонятночто", "", "123", "12345:short", "--live",
+                         "123456789 AAFakeTokenForTestsOnly-0123456789abc")))
+    ok &= check("флаги не принимаются за токен", not start.valid_token("--terminal"))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        env = pb.Path(tmp) / ".env"
+        env.write_text("BANKROLL=500\nTELEGRAM_BOT_TOKEN=\nMAX_POSITIONS=4\n", encoding="utf-8")
+        original = start.ENV_FILE
+        try:
+            start.ENV_FILE = env
+            start.save_token("111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+            text = env.read_text(encoding="utf-8")
+        finally:
+            start.ENV_FILE = original
+    ok &= check("токен записан в .env",
+                "TELEGRAM_BOT_TOKEN=111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in text)
+    ok &= check("остальные настройки не пострадали",
+                "BANKROLL=500" in text and "MAX_POSITIONS=4" in text)
+    ok &= check("строка токена не задвоилась", text.count("TELEGRAM_BOT_TOKEN=") == 1)
+    return bool(ok)
+
+
 def test_dashboard() -> bool:
     cfg = pb.Config()
     api = FakeApi()
@@ -387,6 +419,8 @@ async def main() -> int:
     results["short"] = await test_short_side()
     print("\nTelegram (подпись Mini App, состояние, сообщения):")
     results["telegram"] = await test_telegram()
+    print("\nЗапуск одной командой (start.py):")
+    results["запуск"] = test_launcher()
     print("\nДашборд:")
     results["дашборд"] = test_dashboard()
 
