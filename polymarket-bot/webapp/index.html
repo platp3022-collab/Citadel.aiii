@@ -6,116 +6,181 @@
 <title>POLYBOT TERMINAL</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  /* Терминал: тёмный экран, моноширинный шрифт, всё выровнено по колонкам.
-     Тема Telegram намеренно игнорируется — это консоль, она всегда чёрная. */
+  /* Терминал в металле: всё оттенками серого, объём даётся фасками и тенями.
+     Прибыль и убыток различаются яркостью и стрелкой, а не цветом — палитра
+     намеренно монохромная. Тема Telegram игнорируется: это прибор. */
   :root {
-    --bg: #07080b;
-    --panel: #0c0e13;
-    --line: #1b2029;
-    --text: #c9d1d9;
-    --dim: #6b7280;
-    --up: #35d07f;
-    --down: #ff5c6c;
-    --accent: #f0b429;
-    --blue: #58a6ff;
+    --ink:      #0a0a0b;   /* самый тёмный: щели и провалы */
+    --panel:    #131418;
+    --panel-hi: #1c1e23;
+    --screen:   #0d0e11;   /* «стекло» экранов */
+    --edge-hi:  rgba(255,255,255,.075);  /* верхняя фаска */
+    --edge-lo:  rgba(0,0,0,.72);         /* нижняя фаска */
+    --text:     #d8d9dd;
+    --bright:   #f4f5f7;   /* прибыль, акцент */
+    --mid:      #9a9ca3;
+    --dim:      #6a6c74;
+    --faint:    #494b52;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
             "Liberation Mono", "Courier New", monospace;
+    --bevel: inset 0 1px 0 var(--edge-hi), inset 0 -1px 0 var(--edge-lo),
+             0 6px 14px rgba(0,0,0,.5);
+    --groove: inset 0 2px 5px rgba(0,0,0,.85), inset 0 -1px 0 var(--edge-hi);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { background: var(--bg); }
+  html, body { background: var(--ink); }
   body {
-    margin: 0; padding: 0 0 78px;
-    color: var(--text); font-family: var(--mono);
-    font-size: 12px; line-height: 1.45;
-    letter-spacing: .2px;
+    margin: 0; padding: 0 0 84px;
+    color: var(--text);
+    font-family: var(--mono); font-size: 12px; line-height: 1.45; letter-spacing: .2px;
     -webkit-font-smoothing: antialiased;
+    background: radial-gradient(120% 60% at 50% -10%, #26282e 0%, #131416 55%, #0a0a0b 100%);
+    background-attachment: fixed;
   }
-  /* лёгкая развёртка старого монитора — только фон, текст не трогает */
+  /* стеклянный блик, виньетка корпуса и лёгкая развёртка — только фон */
   body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 5;
-    background: repeating-linear-gradient(to bottom,
-      rgba(255,255,255,.018) 0 1px, transparent 1px 3px);
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9;
+    background:
+      linear-gradient(160deg, rgba(255,255,255,.05) 0%, transparent 34%),
+      radial-gradient(130% 90% at 50% 50%, transparent 58%, rgba(0,0,0,.55) 100%),
+      repeating-linear-gradient(to bottom, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
   }
-  .up { color: var(--up); } .down { color: var(--down); }
-  .dim { color: var(--dim); } .acc { color: var(--accent); }
 
-  /* --- бегущая строка ------------------------------------------------------ */
+  .pos { color: var(--bright); }
+  .neg { color: #8b8d95; }
+  .zero, .dim { color: var(--dim); }
+  .mid { color: var(--mid); }
+  b, .strong { font-weight: 600; color: var(--text); }
+
+  /* --- бегущая строка: утопленный в корпус жёлоб --------------------------- */
   .tape {
-    position: sticky; top: 0; z-index: 4;
-    background: #05060a; border-bottom: 1px solid var(--line);
-    overflow: hidden; white-space: nowrap; padding: 5px 0; font-size: 11px;
+    position: sticky; top: 0; z-index: 6;
+    background: linear-gradient(180deg, #0c0d10, #131417);
+    box-shadow: var(--groove);
+    overflow: hidden; white-space: nowrap; padding: 6px 0; font-size: 11px;
+    color: var(--mid);
   }
-  /* содержимое дублируется в JS, поэтому сдвиг ровно на половину зацикливается без шва */
-  .tape-inner { display: inline-block; padding-left: 8px; animation: scroll 40s linear infinite; }
-  .tape span { margin-right: 18px; }
-  .tape b { font-weight: 600; color: var(--text); }
+  .tape-inner { display: inline-block; padding-left: 8px; animation: scroll 44s linear infinite; }
+  .tape span { margin-right: 20px; }
+  .tape b { color: var(--text); text-shadow: 0 1px 0 #000; }
   @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) { .tape-inner { animation: none; } }
 
-  /* --- панели -------------------------------------------------------------- */
-  .wrap { padding: 8px; display: grid; gap: 8px; }
+  /* --- корпус и панели ------------------------------------------------------ */
+  .wrap { padding: 10px; display: grid; gap: 10px; }
   /* min-width:0 обязателен: иначе неразрывный текст внутри грида растягивает страницу */
   .wrap, .wrap > *, .cols > *, .panel, .body { min-width: 0; }
-  .panel { background: var(--panel); border: 1px solid var(--line); }
+  .panel {
+    background: linear-gradient(180deg, var(--panel-hi) 0%, var(--panel) 42%, #101115 100%);
+    border-radius: 7px;
+    box-shadow: var(--bevel);
+  }
   .head {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 5px 8px; border-bottom: 1px solid var(--line);
-    font-size: 10px; letter-spacing: 1.2px; color: var(--dim); text-transform: uppercase;
+    padding: 7px 10px;
+    font-size: 10px; letter-spacing: 1.3px; color: var(--dim); text-transform: uppercase;
+    text-shadow: 0 1px 0 rgba(0,0,0,.9);
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,0));
+    border-radius: 7px 7px 0 0;
+    box-shadow: inset 0 -1px 0 rgba(0,0,0,.6), 0 1px 0 var(--edge-hi);
   }
-  .body { padding: 8px; }
-  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .body { padding: 10px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-  .big { font-size: 26px; font-weight: 600; letter-spacing: -.5px; color: #fff; }
+  /* --- показания ------------------------------------------------------------ */
+  .big {
+    font-size: 27px; font-weight: 600; letter-spacing: -.6px; color: #fff;
+    text-shadow: 0 1px 0 #000, 0 0 18px rgba(255,255,255,.16);
+  }
   .kv { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; min-width: 0; }
-  .kv span:first-child { color: var(--dim); }
   .kv > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kv span:first-child { color: var(--dim); }
 
+  /* экран графика — утопленное стекло */
+  .glass {
+    margin-top: 10px; border-radius: 5px; padding: 6px 4px 2px;
+    background: linear-gradient(180deg, var(--screen), #0a0b0d);
+    box-shadow: var(--groove);
+  }
+  svg { display: block; width: 100%; height: 88px; }
+
+  /* --- таблицы -------------------------------------------------------------- */
   /* фиксированная раскладка: колонки никогда не выталкивают страницу за экран */
   table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
   th {
-    text-align: left; font-weight: 500; color: var(--dim); font-size: 10px;
-    letter-spacing: .8px; padding: 0 6px 4px 0; border-bottom: 1px solid var(--line);
+    text-align: left; font-weight: 500; color: var(--faint); font-size: 10px;
+    letter-spacing: .9px; padding: 0 6px 5px 0;
+    box-shadow: inset 0 -1px 0 rgba(0,0,0,.7), inset 0 -2px 0 var(--edge-hi);
   }
   th, td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  td { padding: 3px 6px 3px 0; border-bottom: 1px solid rgba(27,32,41,.5); }
-  tr:last-child td { border-bottom: 0; }
+  td { padding: 4px 6px 4px 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,.35); }
+  tbody tr:nth-child(even) td { background: rgba(255,255,255,.018); }
+  tbody tr:last-child td { box-shadow: none; }
   col.c-q { width: 30%; } col.c-tag { width: 10%; } col.c-num { width: 14%; }
   col.c-pnl { width: 18%; } col.c-time { width: 13%; } col.c-side { width: 10%; }
   /* третья стратегия в двухколоночной сетке занимает всю ширину, а не половину */
   .cols > .panel:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
 
-  .log { max-height: 190px; overflow-y: auto; }
-  .log div { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .log .t { color: #4b5563; margin-right: 6px; }
-  .tag { font-size: 10px; padding: 0 4px; border: 1px solid currentColor; margin-right: 6px; }
+  /* ярлык исхода — выпуклая шильда */
+  .chip {
+    display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 10px;
+    color: var(--text); background: linear-gradient(180deg, #2a2d33, #1a1c20);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 1px 2px rgba(0,0,0,.7);
+  }
 
-  .empty { color: var(--dim); padding: 4px 0; }
-  .bar-wrap { height: 3px; background: #12151c; margin-top: 6px; }
-  .bar-fill { height: 100%; background: var(--blue); }
+  /* --- лента событий -------------------------------------------------------- */
+  .log { max-height: 200px; overflow-y: auto; }
+  .log div { padding: 1.5px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log .t { color: var(--faint); margin-right: 6px; }
+  .tag {
+    display: inline-block; min-width: 62px; text-align: center; font-size: 9px;
+    letter-spacing: .8px; padding: 1px 4px; margin-right: 7px; border-radius: 3px;
+    background: linear-gradient(180deg, #23262c, #16181c);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 1px 2px rgba(0,0,0,.75);
+  }
+  .tag.hi { color: var(--bright);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.2),
+                        0 0 10px rgba(255,255,255,.09), 0 1px 2px rgba(0,0,0,.75); }
+  .tag.lo { color: var(--faint); }
 
-  svg { display: block; width: 100%; height: 88px; }
+  .empty { color: var(--dim); padding: 5px 0; }
 
-  /* --- кнопки -------------------------------------------------------------- */
+  /* индикатор просадки — утопленный жёлоб с выпуклым ползунком */
+  .gauge { height: 6px; border-radius: 3px; margin-top: 7px;
+           background: #0b0c0e; box-shadow: var(--groove); overflow: hidden; }
+  .gauge > i { display: block; height: 100%;
+               background: linear-gradient(180deg, #b9bcc4, #6e727a);
+               box-shadow: 0 0 8px rgba(255,255,255,.18); }
+
+  /* --- клавиатура ----------------------------------------------------------- */
   .keys {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
-    background: var(--line); border-top: 1px solid var(--line);
-    padding-bottom: env(safe-area-inset-bottom);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 8;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, #101114, #08090a);
+    box-shadow: 0 -1px 0 var(--edge-hi), 0 -10px 24px rgba(0,0,0,.6);
   }
   .keys button {
-    border: 0; background: #0c0e13; color: var(--text);
-    font-family: var(--mono); font-size: 11px; padding: 12px 4px; cursor: pointer;
-    letter-spacing: .5px;
+    border: 0; border-radius: 6px; cursor: pointer;
+    font-family: var(--mono); font-size: 11px; letter-spacing: .6px; padding: 12px 4px;
+    color: var(--text);
+    background: linear-gradient(180deg, #2b2e34 0%, #1c1e23 55%, #16181c 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 -2px 0 rgba(0,0,0,.75),
+                0 3px 0 #0c0d0f, 0 5px 10px rgba(0,0,0,.55);
+    text-shadow: 0 1px 0 rgba(0,0,0,.85);
+    transition: transform .05s, box-shadow .05s;
   }
-  .keys button:active { background: #151922; }
-  .keys button:disabled { color: #3f4650; }
-  .keys .danger { color: var(--down); }
-  .cursor::after {
-    content: "▌"; color: var(--up); animation: blink 1.1s steps(1) infinite;
+  .keys button:active {
+    transform: translateY(3px);
+    box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 0 0 #0c0d0f;
   }
+  .keys button:disabled { color: var(--faint); }
+  .keys .lit { color: var(--bright); text-shadow: 0 0 10px rgba(255,255,255,.35); }
+
+  .cursor::after { content: "▌"; color: var(--mid); animation: blink 1.1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
-  .alert { border-color: var(--down); color: var(--down); }
+  .alert { box-shadow: var(--bevel), 0 0 0 1px rgba(255,255,255,.22); }
 </style>
 </head>
 <body>
@@ -127,46 +192,46 @@
   <div class="panel" id="head-panel">
     <div class="head">
       <span>polybot · <span id="mode">paper</span></span>
-      <span id="uptime" class="dim"></span>
+      <span id="uptime"></span>
     </div>
     <div class="body">
       <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px">
-        <div>
+        <div style="min-width:0">
           <div class="big" id="equity">$0.00</div>
           <div id="pnl" class="dim">—</div>
         </div>
-        <div style="text-align:right;min-width:38%">
+        <div style="text-align:right;min-width:40%">
           <div class="kv"><span>сегодня</span><b id="day">—</b></div>
           <div class="kv"><span>кэш</span><b id="cash">—</b></div>
           <div class="kv"><span>в рынке</span><b id="exposure">—</b></div>
         </div>
       </div>
-      <svg id="chart" viewBox="0 0 320 88" preserveAspectRatio="none"></svg>
-      <div class="kv" style="margin-top:6px">
+      <div class="glass"><svg id="chart" viewBox="0 0 320 88" preserveAspectRatio="none"></svg></div>
+      <div class="kv" style="margin-top:8px">
         <span id="status" class="dim cursor"></span>
       </div>
     </div>
   </div>
 
   <div class="panel">
-    <div class="head"><span>позиции</span><span id="pos-count" class="dim">0</span></div>
+    <div class="head"><span>позиции</span><span id="pos-count"></span></div>
     <div class="body" id="positions"></div>
   </div>
 
   <div class="cols" id="strategies"></div>
 
   <div class="panel">
-    <div class="head"><span>исполнения</span><span class="dim">последние</span></div>
+    <div class="head"><span>исполнения</span><span>последние</span></div>
     <div class="body" id="fills"></div>
   </div>
 
   <div class="panel">
-    <div class="head"><span>лента движка</span><span class="dim" id="cycles"></span></div>
+    <div class="head"><span>лента движка</span><span id="cycles"></span></div>
     <div class="body log" id="log"></div>
   </div>
 
   <div class="panel">
-    <div class="head"><span>метрики</span><span class="dim">риск</span></div>
+    <div class="head"><span>метрики</span><span>риск</span></div>
     <div class="body" id="metrics"></div>
   </div>
 
@@ -175,7 +240,7 @@
 <div class="keys">
   <button id="refresh">[R] СКАН</button>
   <button id="pause">[P] ПАУЗА</button>
-  <button id="flat" class="danger">[F] ЗАКРЫТЬ</button>
+  <button id="flat" class="lit">[F] ЗАКРЫТЬ</button>
   <button id="mode-btn">[?] ИНФО</button>
 </div>
 
@@ -183,19 +248,20 @@
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if (tg) {
   tg.ready(); tg.expand();
-  try { tg.setHeaderColor("#07080b"); tg.setBackgroundColor("#07080b"); } catch (e) {}
+  try { tg.setHeaderColor("#0a0a0b"); tg.setBackgroundColor("#0a0a0b"); } catch (e) {}
 }
 const initData = tg ? tg.initData : "";
-let state = null, busy = false, started = Date.now();
+let state = null, busy = false;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const sign = (v) => (v >= 0 ? "+" : "−");
-const money = (v) => sign(v) + "$" + Math.abs(v).toFixed(2);
+// монохром: направление показывают стрелка и яркость, а не цвет
+const arrow = (v) => (v > 0 ? "▲" : v < 0 ? "▼" : "·");
+const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "zero");
+const money = (v) => arrow(v) + "$" + Math.abs(v).toFixed(2);
 const short$ = (v) => "$" + Math.round(Math.abs(v)).toLocaleString("en-US");
-const cls = (v) => (v > 0 ? "up" : v < 0 ? "down" : "dim");
-const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 8);
+const hhmmss = (ts) => new Date(ts * 1000).toTimeString().slice(0, 8);
 const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
 async function call(path, extra) {
@@ -216,16 +282,25 @@ function chart(values) {
   if (!values || values.length < 2) { svg.innerHTML = ""; return; }
   const lo = Math.min(...values), hi = Math.max(...values), span = (hi - lo) || 1;
   const step = 320 / (values.length - 1);
-  const pts = values.map((v, i) => [i * step, 84 - ((v - lo) / span) * 76]);
+  const pts = values.map((v, i) => [i * step, 82 - ((v - lo) / span) * 72]);
   const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
-  const up = values[values.length - 1] >= values[0];
-  const color = up ? "var(--up)" : "var(--down)";
   const last = pts[pts.length - 1];
-  svg.innerHTML =
-    `<path d="${line} L320 88 L0 88 Z" fill="${color}" opacity=".08"></path>` +
-    `<path d="${line}" fill="none" stroke="${color}" stroke-width="1.4"
-       vector-effect="non-scaling-stroke" stroke-linejoin="round"></path>` +
-    `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2" fill="${color}"></circle>`;
+  const grid = [22, 44, 66].map((y) =>
+    `<line x1="0" y1="${y}" x2="320" y2="${y}" stroke="#fff" stroke-opacity=".05"></line>`).join("");
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffffff" stop-opacity=".16"></stop>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop>
+      </linearGradient>
+    </defs>
+    ${grid}
+    <path d="${line} L320 88 L0 88 Z" fill="url(#fade)"></path>
+    <path d="${line}" fill="none" stroke="#0a0a0b" stroke-width="3" opacity=".85"
+      vector-effect="non-scaling-stroke"></path>
+    <path d="${line}" fill="none" stroke="#e9eaee" stroke-width="1.4"
+      vector-effect="non-scaling-stroke" stroke-linejoin="round"></path>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="#fff"></circle>`;
 }
 
 function renderTape(rows) {
@@ -233,12 +308,9 @@ function renderTape(rows) {
     $("tape").innerHTML = `<span class="dim">ожидание данных рынка…</span>`;
     return;
   }
-  const html = rows.map((t) => {
-    const c = cls(t.change);
-    const mark = t.held ? `<span class="acc">◆</span> ` : "";
-    return `<span>${mark}<b>${esc(t.label)}</b> ${t.price.toFixed(2)}
-      <span class="${c}">${sign(t.change)}${Math.abs(t.change * 100).toFixed(1)}c</span></span>`;
-  }).join("");
+  const html = rows.map((t) => `<span>${t.held ? "◆ " : ""}<b>${esc(t.label)}</b>
+    ${t.price.toFixed(2)} <span class="${cls(t.change)}">${arrow(t.change)}${
+      Math.abs(t.change * 100).toFixed(1)}c</span></span>`).join("");
   $("tape").innerHTML = html + html;      // дубль, чтобы лента шла без разрыва
 }
 
@@ -251,16 +323,16 @@ function renderPositions(rows) {
   $("positions").innerHTML = `<table>
     <col class="c-q"><col class="c-tag"><col class="c-num"><col class="c-num">
     <col class="c-num"><col class="c-pnl">
-    <tr><th>РЫНОК</th><th>ИСХ</th><th class="num">ВХОД</th><th class="num">ЦЕНА</th>
-        <th class="num">РАЗМЕР</th><th class="num">P&L</th></tr>
-    ${rows.map((p) => `<tr>
-      <td class="q">${esc(cut(p.question, 40))}</td>
-      <td class="acc">${esc(cut(p.outcome, 6))}</td>
-      <td class="num">${p.entry.toFixed(3)}</td>
+    <thead><tr><th>РЫНОК</th><th>ИСХ</th><th class="num">ВХОД</th><th class="num">ЦЕНА</th>
+      <th class="num">СУММА</th><th class="num">P&L</th></tr></thead>
+    <tbody>${rows.map((p) => `<tr>
+      <td>${esc(cut(p.question, 40))}</td>
+      <td><span class="chip">${esc(cut(p.outcome, 5))}</span></td>
+      <td class="num mid">${p.entry.toFixed(3)}</td>
       <td class="num ${cls(p.mark - p.entry)}">${p.mark.toFixed(3)}</td>
       <td class="num dim">${short$(p.cost)}</td>
       <td class="num ${cls(p.upnl)}">${money(p.upnl)}</td>
-    </tr>`).join("")}
+    </tr>`).join("")}</tbody>
   </table>`;
 }
 
@@ -288,22 +360,22 @@ function renderFills(rows) {
   $("fills").innerHTML = `<table>
     <col class="c-time"><col class="c-side"><col class="c-q"><col class="c-num">
     <col class="c-num"><col class="c-pnl">
-    <tr><th>ВРЕМЯ</th><th>СТОР</th><th>РЫНОК</th><th class="num">ОБЪЁМ</th>
-        <th class="num">ЦЕНА</th><th class="num">P&L</th></tr>
-    ${rows.slice(0, 14).map((f) => `<tr>
-      <td class="dim">${hhmm(f.ts).slice(0, 5)}</td>
-      <td class="${f.side === "BUY" ? "up" : "down"}">${f.side}</td>
-      <td class="q">${esc(cut(f.question, 34))}</td>
+    <thead><tr><th>ВРЕМЯ</th><th>СТОР</th><th>РЫНОК</th><th class="num">ОБЪЁМ</th>
+      <th class="num">ЦЕНА</th><th class="num">P&L</th></tr></thead>
+    <tbody>${rows.slice(0, 14).map((f) => `<tr>
+      <td class="dim">${hhmmss(f.ts).slice(0, 5)}</td>
+      <td class="${f.side === "BUY" ? "strong" : "mid"}">${f.side}</td>
+      <td>${esc(cut(f.question, 34))}</td>
       <td class="num dim">${f.size.toFixed(0)}</td>
-      <td class="num">${f.price.toFixed(3)}</td>
+      <td class="num mid">${f.price.toFixed(3)}</td>
       <td class="num ${f.pnl ? cls(f.pnl) : "dim"}">${f.pnl ? money(f.pnl) : "—"}</td>
-    </tr>`).join("")}
+    </tr>`).join("")}</tbody>
   </table>`;
 }
 
 const LEVELS = {
-  buy:  ["ВХОД", "up"], win: ["ПРОФИТ", "up"], loss: ["УБЫТОК", "down"],
-  risk: ["РИСК", "down"], scan: ["СКАН", "dim"], info: ["ИНФО", "dim"],
+  buy:  ["ВХОД", ""], win: ["ПРОФИТ", "hi"], loss: ["УБЫТОК", "lo"],
+  risk: ["РИСК", "hi"], scan: ["СКАН", "lo"], info: ["ИНФО", "lo"],
 };
 
 function renderLog(rows) {
@@ -312,50 +384,52 @@ function renderLog(rows) {
     return;
   }
   $("log").innerHTML = rows.map((e) => {
-    const [tag, c] = LEVELS[e.level] || LEVELS.info;
-    return `<div><span class="t">${hhmm(e.ts)}</span>
-      <span class="tag ${c}">${tag}</span>${esc(e.text)}</div>`;
+    const [tag, mod] = LEVELS[e.level] || LEVELS.info;
+    return `<div><span class="t">${hhmmss(e.ts)}</span>
+      <span class="tag ${mod}">${tag}</span>${esc(e.text)}</div>`;
   }).join("");
 }
 
 function renderMetrics(s) {
   const dd = s.max_dd, ddCap = s.limits.max_drawdown || 20;
   $("metrics").innerHTML = `
-    <div class="cols" style="gap:4px 14px">
+    <div class="cols" style="gap:2px 16px">
       <div class="kv"><span>win rate</span><b>${s.win_rate.toFixed(0)}%</b></div>
       <div class="kv"><span>profit factor</span><b>${s.profit_factor.toFixed(2)}</b></div>
-      <div class="kv"><span>реализовано</span><b class="${cls(s.realized)}">${money(s.realized)}</b></div>
-      <div class="kv"><span>плавающий</span><b class="${cls(s.unrealized)}">${money(s.unrealized)}</b></div>
+      <div class="kv"><span>реализовано</span>
+        <b class="${cls(s.realized)}">${money(s.realized)}</b></div>
+      <div class="kv"><span>плавающий</span>
+        <b class="${cls(s.unrealized)}">${money(s.unrealized)}</b></div>
       <div class="kv"><span>sharpe</span><b>${s.sharpe.toFixed(2)}</b></div>
       <div class="kv"><span>рынков</span><b>${s.markets}</b></div>
     </div>
-    <div class="kv" style="margin-top:8px"><span>просадка</span>
-      <b class="${dd > ddCap * 0.7 ? "down" : ""}">${dd.toFixed(1)}% из ${ddCap.toFixed(0)}%</b></div>
-    <div class="bar-wrap"><div class="bar-fill" style="width:${Math.min(100, dd / ddCap * 100)}%;
-      background:${dd > ddCap * 0.7 ? "var(--down)" : "var(--blue)"}"></div></div>
-    <div class="kv" style="margin-top:8px"><span>риск на сделку</span>
+    <div class="kv" style="margin-top:10px"><span>просадка</span>
+      <b>${dd.toFixed(1)}% из ${ddCap.toFixed(0)}%</b></div>
+    <div class="gauge"><i style="width:${Math.min(100, dd / ddCap * 100).toFixed(1)}%"></i></div>
+    <div class="kv" style="margin-top:10px"><span>риск на сделку</span>
       <b>${s.limits.risk_per_trade.toFixed(1)}%</b></div>
     <div class="kv"><span>тейк / стоп</span>
-      <b>+${(s.limits.take_profit * 100).toFixed(0)}c / −${(s.limits.stop_loss * 100).toFixed(0)}c</b></div>`;
+      <b>+${(s.limits.take_profit * 100).toFixed(0)}c / −${
+        (s.limits.stop_loss * 100).toFixed(0)}c</b></div>`;
 }
 
 function render(s) {
   state = s;
   $("mode").textContent = s.mode.toLowerCase();
-  $("mode").className = s.mode === "LIVE" ? "down" : "blue";
+  $("mode").className = s.mode === "LIVE" ? "pos" : "mid";
   $("equity").textContent = "$" + s.equity.toFixed(2);
   $("pnl").innerHTML = `<span class="${cls(s.pnl)}">${money(s.pnl)}
-    (${sign(s.pnl)}${Math.abs(s.pnl_pct).toFixed(2)}%)</span>
+    (${arrow(s.pnl)}${Math.abs(s.pnl_pct).toFixed(2)}%)</span>
     <span class="dim">от $${s.bankroll.toFixed(0)}</span>`;
   $("day").innerHTML = `<span class="${cls(s.day_pnl)}">${money(s.day_pnl)}</span>`;
   $("cash").textContent = short$(s.cash);
   $("exposure").textContent = short$(s.exposure);
   $("cycles").textContent = "цикл " + s.cycles;
-  $("uptime").textContent = new Date().toTimeString().slice(0, 5) +
-    (s.paused ? " · ПАУЗА" : "");
+  $("uptime").textContent = new Date().toTimeString().slice(0, 5) + (s.paused ? " · пауза" : "");
   $("status").textContent = s.status + " ";
   $("head-panel").className = "panel" + (s.blocked ? " alert" : "");
   $("pause").textContent = s.paused ? "[P] ПУСК" : "[P] ПАУЗА";
+  $("pause").classList.toggle("lit", !!s.paused);
   chart(s.equity_curve);
   renderTape(s.ticker);
   renderPositions(s.positions);
