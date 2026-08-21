@@ -163,18 +163,22 @@ frame its jaw is tested against the fish. When it catches one the sprite
 swaps to an open-mouth variant for half a second, the fish fades behind a
 bubble puff, and a replacement swims in some seconds later.
 
-**Your pointer is a shark too** — a plain one in cold-water colours, drawn
-from the same shape with `dressed=False` and set as a data-URI cursor. Click
+**Your pointer is a shark too** — the challenger: same shape, cold-water
+colours, a suit tie and a flat cut greying at the temples
+(`draw_shark(costume="suit")`), set as a data-URI cursor. Click
 the big shark with it and it bursts into bubbles, the count goes into
 `localStorage`, and it comes back from off-screen 12–26 seconds later. Clicks
 that land on a link, button or canvas are ignored, so popping never eats a
 real click.
 
-The shark is a caricature — spray-tan body, bleached comb-over, red tie — and
-deliberately nobody in particular. It carries no name anywhere on the page, and
-that is on purpose: putting a real politician's name or face on a coin site
-reads as an endorsement nobody gave you, which is a much bigger problem than a
-joke is worth. Keep it unnamed.
+Both sharks are political caricature, and neither is named on the page: the
+big one is spray tan, comb-over and red tie; the pointer is a suit and a flat
+cut going grey. That is deliberate. Caricature is fair game — a real person's
+**name** on a coin site is the part that reads as an endorsement they never
+gave, and that is a legal problem, not a joke. The drawings do the joke; the
+FAQ and the footer say in plain words that they are parody and that nobody
+depicted is affiliated with the coin. If you type real names in anyway, that is
+your call and your risk — but keep the disclaimers.
 
 Tuning lives in `bigShark()`: `measure()` (its size, 34% of the viewport up to
 470px), `speed()`, `depth()` (how it tracks the scroll), the `wait` in `pop()`

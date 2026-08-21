@@ -265,12 +265,12 @@ HUNTER_PAL = {
     "B": "#8dc6e6",
     "s": "#2c5b80",
     "y": "#d9eef8",
-    "w": "#ffffff",
+    "w": "#f2f7fb",   # shirt collar
     "m": "#14232f",
-    "h": "#4a86b4",
-    "H": "#8dc6e6",
-    "r": "#4a86b4",
-    "R": "#2c5b80",
+    "h": "#2b2f36",   # hair
+    "H": "#9aa9b5",   # going grey at the temples
+    "r": "#2f5fa8",   # tie
+    "R": "#1d3f74",
 }
 
 
@@ -286,7 +286,7 @@ def shark_body(x):
     return h
 
 
-def draw_shark(gape=0.0, dressed=True):
+def draw_shark(gape=0.0, dressed=True, costume="tan"):
     g = blank(SW, SH)
 
     # --- tail ------------------------------------------------------------
@@ -357,19 +357,25 @@ def draw_shark(gape=0.0, dressed=True):
             put(g, x, y, "d")
     put(g, 50, 15, "w")
 
-    # --- the hair: a comb-over hugging the head, swept forward -------------
+    # --- the hair ----------------------------------------------------------
     if dressed:
-        def hair(x, top, bottom):
+        def hair(x, top, bottom, shade="h"):
             for y in range(int(round(top)), int(round(bottom)) + 1):
-                put(g, x, y, "H" if (x + y) % 5 == 0 else "h")
+                put(g, x, y, "H" if (shade == "H" or (x + y) % 5 == 0) else "h")
 
-        for x in range(40, 54):
-            bottom = SCY - shark_body(x) + 1.5     # bite slightly into the head
-            hair(x, bottom - (4.6 - (x - 40) * 0.06), bottom)
-        for x in range(53, 60):                    # the swoop, curling forward
-            t = x - 53
-            top = 12.0 - t * 0.42
-            hair(x, top, top + 2.8 - t * 0.30)
+        if costume == "suit":
+            # a short flat cut, grey coming in at the temples
+            for x in range(38, 55):
+                bottom = SCY - shark_body(x) + 1.2
+                hair(x, bottom - 2.6, bottom, "H" if x < 43 else "h")
+        else:
+            for x in range(40, 54):
+                bottom = SCY - shark_body(x) + 1.5  # bite slightly into the head
+                hair(x, bottom - (4.6 - (x - 40) * 0.06), bottom)
+            for x in range(53, 60):                 # the swoop, curling forward
+                t = x - 53
+                top = 12.0 - t * 0.42
+                hair(x, top, top + 2.8 - t * 0.30)
 
     # --- the tie -----------------------------------------------------------
     if dressed:
@@ -489,7 +495,7 @@ def embed_game_data(page):
 
     shark = rows_of(draw_shark())
     shark_open = rows_of(draw_shark(gape=1.0))
-    hunter = rows_of(draw_shark(gape=0.7, dressed=False))
+    hunter = rows_of(draw_shark(gape=0.7, costume="suit"))
     palette = pal_of(SHARK_PAL)
     hunter_pal = pal_of(HUNTER_PAL)
     block = ("/* fishdata:start */\n"
