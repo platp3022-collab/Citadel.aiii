@@ -362,6 +362,69 @@ async def test_telegram() -> bool:
     return bool(ok)
 
 
+async def test_tunnel() -> bool:
+    """Публичный адрес для Mini App: разбор вывода cloudflared и запуск процесса.
+
+    Настоящий cloudflared здесь не качается — вместо него подставной скрипт,
+    который печатает такой же баннер. Проверяем всё, кроме самой сети.
+    """
+    import os
+    import stat
+    import tempfile
+
+    import tunnel
+
+    ok = check("адрес туннеля вылавливается из баннера",
+               bool(tunnel.TUNNEL_RE.search(
+                   "|  https://calm-river-1234.trycloudflare.com   |")),
+               "trycloudflare")
+    ok &= check("посторонние ссылки не принимаются",
+                not tunnel.TUNNEL_RE.search("https://example.com/trycloudflare"))
+    ok &= check("есть сборка под эту систему", bool(tunnel.asset_name()),
+                f"{'/'.join(tunnel.platform_key())} → {tunnel.asset_name()}")
+    ok &= check("автотуннель включён по умолчанию", tunnel.auto_tunnel_enabled())
+    os.environ["AUTO_TUNNEL"] = "0"
+    ok &= check("AUTO_TUNNEL=0 выключает автотуннель", not tunnel.auto_tunnel_enabled())
+    os.environ.pop("AUTO_TUNNEL")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data = pb.Path(tmp)
+        fake = data / "cloudflared"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys, time\n"
+            "print('cloudflared: starting tunnel for', sys.argv[-1], flush=True)\n"
+            "print('|  https://fake-tunnel-9999.trycloudflare.com  |', flush=True)\n"
+            "time.sleep(30)\n", encoding="utf-8")
+        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+
+        link = tunnel.Tunnel(8080, data)
+        url = await link.start(timeout=10)
+        ok &= check("туннель поднимается и отдаёт адрес",
+                    url == "https://fake-tunnel-9999.trycloudflare.com", url or "пусто")
+        ok &= check("процесс туннеля живёт", link.proc is not None
+                    and link.proc.returncode is None)
+        await link.stop()
+        ok &= check("после остановки процесс убран", link.proc is None and link.url == "")
+
+        # молчащий бинарник не должен подвесить запуск бота
+        mute = data / "mute"
+        mute.write_text("#!/usr/bin/env python3\nimport time\ntime.sleep(30)\n", encoding="utf-8")
+        mute.chmod(mute.stat().st_mode | stat.S_IXUSR)
+        (data / "cloudflared").unlink()
+        (data / "cloudflared").write_text(mute.read_text(encoding="utf-8"), encoding="utf-8")
+        (data / "cloudflared").chmod(mute.stat().st_mode | stat.S_IXUSR)
+        silent = tunnel.Tunnel(8080, data)
+        url2 = await silent.start(timeout=2)
+        ok &= check("молчащий cloudflared не вешает бота", url2 == "")
+
+    import tgapp
+    with_url = tgapp.Telegram("t", None)   # type: ignore[arg-type]
+    ok &= check("кнопка меню собирается для https-адреса",
+                callable(with_url.set_menu_button))
+    return bool(ok)
+
+
 def test_launcher() -> bool:
     """Запускалка start.py: распознавание токена и запись в .env без потери строк."""
     import tempfile
@@ -435,6 +498,8 @@ async def main() -> int:
     results["short"] = await test_short_side()
     print("\nTelegram (подпись Mini App, состояние, сообщения):")
     results["telegram"] = await test_telegram()
+    print("\nПубличный адрес для панели (tunnel.py):")
+    results["туннель"] = await test_tunnel()
     print("\nЗапуск одной командой (start.py):")
     results["запуск"] = test_launcher()
     print("\nДашборд:")

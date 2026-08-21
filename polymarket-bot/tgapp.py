@@ -10,20 +10,21 @@ Polybot в Telegram: тот же движок из polybot.py, но управл
        «Открыть панель»: позиции, кривая эквити, метрики, кнопки паузы и закрытия.
 
 Настройка (.env рядом со скриптом):
-    TELEGRAM_BOT_TOKEN=123456:AA...     # токен от @BotFather
-    TELEGRAM_CHAT_ID=123456789          # ТВОЙ chat_id — только он управляет ботом
-    WEBAPP_PUBLIC_URL=                  # https-адрес панели; без него работают команды
+    TELEGRAM_BOT_TOKEN=123456:AA...     # токен от @BotFather — это всё, что обязательно
+    TELEGRAM_CHAT_ID=                   # можно пусто: владельцем станет первый /start
+    WEBAPP_PUBLIC_URL=                  # свой домен для панели; пусто — поднимем туннель
     WEBAPP_HOST=0.0.0.0
     WEBAPP_PORT=8080
+    AUTO_TUNNEL=1                       # 0 — не поднимать публичный адрес самому
 
-Как получить https-адрес для Mini App (Telegram не открывает http):
-    - на своём сервере: домен + сертификат (nginx/caddy перед портом 8080), или
-    - на домашнем компьютере: cloudflared tunnel --url http://localhost:8080
-      и вставить выданный https-адрес в WEBAPP_PUBLIC_URL.
+Telegram открывает Mini App только по https, а бот живёт на localhost. Поэтому при
+старте бот сам поднимает быстрый туннель Cloudflare (см. tunnel.py) и вешает кнопку
+«Панель» в меню бота. Свой домен в WEBAPP_PUBLIC_URL отменяет туннель.
 
 Запуск:
     python tgapp.py             # бумажная торговля + бот + панель
     python tgapp.py --no-web    # только бот, без Mini App
+    python tgapp.py --no-tunnel # панель только на localhost, без публичного адреса
     python tgapp.py --live      # боевые ордера (предохранитель тот же, см. README)
 
 Управление ботом доступно только TELEGRAM_CHAT_ID: он двигает реальные деньги в --live.
@@ -44,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import polybot as pb
+import tunnel
 
 try:
     from aiohttp import web
@@ -91,8 +93,17 @@ class Telegram:
     async def answer_callback(self, callback_id: str, text: str = "") -> Any:
         return await self.api("answerCallbackQuery", callback_query_id=callback_id, text=text)
 
+    async def set_menu_button(self, chat_id: str, url: str) -> Any:
+        """Кнопка Mini App в меню бота — та, что слева от поля ввода."""
+        if url:
+            button = {"type": "web_app", "text": "Панель", "web_app": {"url": url}}
+        else:
+            button = {"type": "commands"}
+        return await self.api("setChatMenuButton", chat_id=chat_id, menu_button=button)
+
     async def set_commands(self) -> None:
         await self.api("setMyCommands", commands=[
+            {"command": "app", "description": "открыть панель-терминал"},
             {"command": "pnl", "description": "сколько сейчас в плюсе"},
             {"command": "panel", "description": "живая панель"},
             {"command": "status", "description": "эквити, позиции, режим"},
@@ -449,8 +460,9 @@ HELP = """<b>Polybot — торговый бот Polymarket в Telegram</b>
 
 Движок крутится на твоём компьютере или сервере, Telegram — только пульт и витрина.
 
+/app — панель-терминал внутри Telegram (позиции, лента, кривая эквити)
 /pnl — сколько сейчас в плюсе: за всё время, за сегодня, по стратегиям
-/panel — живая панель, обновляется сама
+/panel — живая панель сообщением, обновляется сама
 /status — эквити, кэш, позиции
 /positions — что открыто прямо сейчас
 /trades — последние сделки
@@ -504,6 +516,22 @@ class TgBot:
                                      panel_markup(eng, self.public_url))
             if msg:
                 self.panel_msg = msg.get("message_id")
+        elif cmd in ("/app", "/miniapp", "/terminal"):
+            if self.public_url:
+                await self.tg.send(
+                    chat_id,
+                    "🖥 <b>Панель-терминал</b>\nПозиции, стакан сделок, кривая эквити "
+                    "и кнопки управления — прямо в Telegram.",
+                    {"inline_keyboard": [[{"text": "Открыть панель",
+                                           "web_app": {"url": self.public_url}}]]})
+            else:
+                await self.tg.send(
+                    chat_id,
+                    "Панель пока недоступна: нет публичного https-адреса.\n\n"
+                    "Бот пытается поднять его сам через cloudflared при запуске. "
+                    "Если не вышло — проверь интернет и перезапусти, либо пропиши свой "
+                    "адрес в <code>WEBAPP_PUBLIC_URL</code>.\n\n"
+                    "Команды <code>/pnl</code> и <code>/panel</code> работают и без неё.")
         elif cmd in ("/pnl", "/money", "/profit", "/деньги"):
             await self.tg.send(chat_id, render_pnl(eng))
         elif cmd == "/status":
@@ -575,6 +603,7 @@ class TgBot:
                         continue
                     if not self.owner and text.lower().startswith("/start"):
                         self.claim(chat_id)
+                        await self.tg.set_menu_button(chat_id, self.public_url)
                         await self.tg.send(
                             chat_id,
                             "👋 Запомнил тебя владельцем этого бота "
@@ -720,20 +749,35 @@ async def main_async(args: argparse.Namespace) -> int:
         bot = TgBot(engine, tg, owner, public_url if not args.no_web else "", store)
 
         runner: web.AppRunner | None = None
+        link: tunnel.Tunnel | None = None
         if not args.no_web:
             runner = web.AppRunner(build_web_app(engine, token, lambda: bot.owner))
             await runner.setup()
             await web.TCPSite(runner, host, port).start()
             log.info("Mini App слушает http://%s:%s", host, port)
-            if not public_url:
-                log.warning("WEBAPP_PUBLIC_URL пуст — кнопка панели скрыта, "
-                            "команды бота работают")
+
+            # Telegram открывает Mini App только по https, поэтому локальный порт
+            # выводим наружу туннелем. Свой домен в WEBAPP_PUBLIC_URL это отключает.
+            if not public_url and not args.no_tunnel and tunnel.auto_tunnel_enabled():
+                log.info("поднимаю публичный адрес для панели (cloudflared)…")
+                link = tunnel.Tunnel(port, pb.DATA_DIR)
+                public_url = await link.start()
+                if public_url:
+                    log.info("панель доступна: %s", public_url)
+                else:
+                    log.warning("туннель не поднялся — панель будет только локально, "
+                                "команды бота работают как обычно")
+                bot.public_url = public_url
 
         mode = "БОЕВОЙ" if cfg.live else "бумажный"
         if owner:
+            await tg.set_menu_button(owner, bot.public_url)
+            panel_line = ("🖥 Панель открывается кнопкой ниже или командой /app"
+                          if bot.public_url else
+                          "🖥 Панель недоступна: публичный адрес не поднялся, /app расскажет почему")
             await tg.send(owner,
                           f"🚀 <b>Polybot запущен</b> · режим {mode}\n"
-                          f"банк ${cfg.bankroll:,.0f}\n\n"
+                          f"банк ${cfg.bankroll:,.0f}\n{panel_line}\n\n"
                           "/pnl — сколько в плюсе, /panel — живая панель, /help — команды",
                           panel_markup(engine, bot.public_url))
         else:
@@ -753,6 +797,8 @@ async def main_async(args: argparse.Namespace) -> int:
             engine.request_stop()
             for task in tasks:
                 task.cancel()
+            if link:
+                await link.stop()
             if runner:
                 await runner.cleanup()
             store.close()
@@ -766,6 +812,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Polybot в Telegram: бот + Mini App")
     parser.add_argument("--live", action="store_true", help="боевые ордера (см. README)")
     parser.add_argument("--no-web", action="store_true", help="без Mini App, только команды")
+    parser.add_argument("--no-tunnel", action="store_true",
+                        help="не поднимать публичный адрес автоматически")
     parser.add_argument("--bankroll", type=float, help="переопределить банк в USDC")
     args = parser.parse_args()
 
