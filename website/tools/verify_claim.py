@@ -7,8 +7,14 @@ the ticket, so a made-up score cannot be paid: only the wallet that played can
 produce a valid ticket.
 
     python3 tools/verify_claim.py <ticket>
-    python3 tools/verify_claim.py <ticket> --balance      # also check holdings
-    cat tickets.txt | python3 tools/verify_claim.py -     # one ticket per line
+    python3 tools/verify_claim.py <ticket> --balance          # also check holdings
+    python3 tools/verify_claim.py <ticket> --allow-unsigned   # typed-address claims
+    cat tickets.txt | python3 tools/verify_claim.py -         # one ticket per line
+
+A ticket from a connected wallet is signed and provable. A ticket from a
+pasted address is not: it only says where to send the coins, and anyone could
+have typed it. Those need a second check of your own - the chat account, the
+balance, a signature you ask for by hand.
 
 Pure standard library - no packages to install.
 """
@@ -132,7 +138,7 @@ def token_balance(owner, rpc=RPC, mint=MINT):
                for acc in body["result"]["value"])
 
 
-def check(raw, want_balance=False, rpc=RPC):
+def check(raw, want_balance=False, rpc=RPC, allow_unsigned=False):
     try:
         ticket = json.loads(base64.b64decode(raw + "=" * (-len(raw) % 4)))
     except Exception as exc:
@@ -141,20 +147,24 @@ def check(raw, want_balance=False, rpc=RPC):
     for field in ("wallet", "score", "reward", "at"):
         if field not in ticket:
             return False, "ticket is missing '%s'" % field
-    if not ticket.get("sig"):
-        return False, "ticket carries no signature - ask the player to sign it again"
-
-    try:
-        ok = ed25519_verify(base64.b64decode(ticket["sig"]),
-                            signed_text(ticket).encode(),
-                            b58decode(ticket["wallet"]))
-    except Exception as exc:
-        return False, "signature could not be checked (%s)" % exc
-    if not ok:
-        return False, "SIGNATURE DOES NOT MATCH - do not pay this one"
+    signed = bool(ticket.get("sig"))
+    if signed:
+        try:
+            ok = ed25519_verify(base64.b64decode(ticket["sig"]),
+                                signed_text(ticket).encode(),
+                                b58decode(ticket["wallet"]))
+        except Exception as exc:
+            return False, "signature could not be checked (%s)" % exc
+        if not ok:
+            return False, "SIGNATURE DOES NOT MATCH - do not pay this one"
+    elif not allow_unsigned:
+        return False, ("UNSIGNED - the player typed an address instead of signing with the "
+                       "wallet, so nothing here is proof: not the score, not the ownership. "
+                       "Re-run with --allow-unsigned to read it anyway.")
 
     when = datetime.fromtimestamp(ticket["at"] / 1000, tz=timezone.utc)
-    lines = ["signature OK",
+    lines = ["signature OK" if signed else
+             "UNSIGNED - typed address, verify the player some other way",
              "  wallet : %s" % ticket["wallet"],
              "  score  : %s" % ticket["score"],
              "  reward : %s %s" % (ticket["reward"], TICKER),
@@ -179,6 +189,8 @@ def main():
     parser.add_argument("--balance", action="store_true",
                         help="also ask the chain what the wallet holds right now")
     parser.add_argument("--rpc", default=RPC, help="Solana RPC endpoint")
+    parser.add_argument("--allow-unsigned", action="store_true",
+                        help="also print tickets that carry no wallet signature")
     args = parser.parse_args()
 
     tickets = ([line.strip() for line in sys.stdin if line.strip()]
@@ -186,7 +198,7 @@ def main():
 
     bad = 0
     for raw in tickets:
-        ok, report = check(raw, args.balance, args.rpc)
+        ok, report = check(raw, args.balance, args.rpc, args.allow_unsigned)
         print(("[ok]   " if ok else "[BAD]  ") + report)
         bad += 0 if ok else 1
     return 1 if bad else 0

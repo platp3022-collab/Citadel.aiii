@@ -83,13 +83,24 @@ When a sibling coin actually launches it needs its own contract; the current
 
 ## Reward mode (play for $BFISH)
 
-Runs only count for people who hold the coin. The page:
+Runs only count for people who hold the coin. There are two ways to name the
+wallet that gets paid:
 
-1. connects a Solana wallet (Phantom / Solflare) — read-only, no transaction,
-2. reads the wallet's $BFISH balance from an RPC endpoint,
-3. unlocks ×2 scoring and denser token drops above the threshold,
-4. asks the wallet to sign a plain-text receipt at the end of a run and turns
-   it into a **claim ticket** (base64) the player sends you.
+- **Paste the address** into the field above the game and press *Use address*.
+  Works everywhere, phone included, no extension needed. The page reads that
+  address's $BFISH balance from an RPC endpoint and remembers it in
+  `localStorage`.
+- **Connect a wallet** (Phantom / Solflare) — read-only, no transaction. Same
+  balance check, but the claim can then be **signed**.
+
+Above the threshold the game scores ×2, drops tokens more often, and each run
+ends with a **claim ticket** (base64) carrying the wallet, the score and the
+amount. The player copies it into the chat; you pay it out.
+
+A signed ticket is proof. A typed-address ticket is not — it only says where
+to send the coins, and anyone could have typed it, including someone pasting a
+whale's address to clear the threshold. Treat those as a request, check the
+player yourself, and ask for a signed one when the amount is worth it.
 
 ```js
 rewards: {
@@ -109,10 +120,15 @@ a Helius/QuickNode/Triton endpoint in `rpc`.
 Before paying anything, verify the ticket:
 
 ```bash
-python3 tools/verify_claim.py <ticket>            # checks the signature
-python3 tools/verify_claim.py <ticket> --balance  # ...and current holdings
-cat tickets.txt | python3 tools/verify_claim.py - # a batch, one per line
+python3 tools/verify_claim.py <ticket>                   # checks the signature
+python3 tools/verify_claim.py <ticket> --balance         # ...and current holdings
+python3 tools/verify_claim.py <ticket> --allow-unsigned  # typed-address claims
+cat tickets.txt | python3 tools/verify_claim.py -        # a batch, one per line
 ```
+
+Unsigned tickets are rejected by default and printed with a warning under
+`--allow-unsigned`, so a typed-address claim can never be mistaken for a
+verified one.
 
 It rebuilds the exact message the wallet signed and checks the ed25519
 signature, so an edited score fails (`SIGNATURE DOES NOT MATCH`). Pure standard

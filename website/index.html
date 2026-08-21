@@ -668,6 +668,24 @@ footer {
   background: var(--glass);
 }
 .holder-bar.unlocked { border-style: solid; border-color: rgba(92, 224, 138, 0.45); }
+.holder-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.holder-actions input {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(3, 14, 28, 0.7);
+  color: var(--foam);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.holder-actions input::placeholder { color: rgba(157, 192, 220, 0.7); }
+.holder-actions input:focus {
+  outline: none;
+  border-color: rgba(143, 228, 255, 0.5);
+}
+.holder-actions input.bad { border-color: rgba(226, 86, 77, 0.7); }
 .holder-text { font-size: 14px; color: var(--muted); }
 .holder-text b { display: block; color: var(--foam); font-size: 15px; margin-bottom: 2px; }
 .holder-bar.unlocked .holder-text b { color: #5ce08a; }
@@ -1063,11 +1081,17 @@ input, textarea { cursor: text; }
         <div class="holder-text">
           <b id="holderTitle">Reward mode is locked</b>
           <span id="holderStatus">
-            Hold <span id="holderMin">100,000</span> $BFISH and every run turns
-            into a claim you can send us.
+            Hold <span id="holderMin">100,000</span> $BFISH, paste the wallet
+            you want paid, and every run turns into a claim you can send us.
           </span>
         </div>
-        <button class="btn btn-ghost btn-sm" id="connectWallet" type="button">Connect wallet</button>
+        <div class="holder-actions">
+          <input id="walletInput" type="text" spellcheck="false" autocomplete="off"
+                 autocapitalize="off" placeholder="Paste your Solana address"
+                 aria-label="The Solana address we should send your winnings to">
+          <button class="btn btn-ghost btn-sm" id="walletUse" type="button">Use address</button>
+          <button class="btn btn-ghost btn-sm" id="connectWallet" type="button">Connect wallet</button>
+        </div>
       </div>
       <div class="arcade-screen">
         <canvas id="gameCanvas" aria-label="Deep Dive - guide the pixel fish through the candles"></canvas>
@@ -1290,6 +1314,20 @@ input, textarea { cursor: text; }
         <summary>Are there fake tokens?</summary>
         <p>
           Yes — memecoins get cloned within minutes. The only real contract is the one printed on this site. If an address does not match character for character, it is not us.
+        </p>
+      </details>
+      <details class="reveal">
+        <summary>How do I actually get paid for playing?</summary>
+        <p>
+          Paste the Solana address you want paid into the field above the game
+          and press <b>Use address</b> — the page reads that wallet's $BFISH
+          balance, and above the threshold your runs count double and end with a
+          claim ticket. Copy the ticket into the chat and we send the coins to
+          that address by hand, in batches. Connecting a wallet instead of
+          typing does the same thing but signs the ticket, which we can verify
+          instantly — typed claims we have to check ourselves, so they are
+          slower and we may ask you to prove the wallet is yours. Payouts are at
+          our discretion; a ticket is a receipt, not a guarantee.
         </p>
       </details>
       <details class="reveal">
@@ -2396,10 +2434,23 @@ const REWARD = Object.assign(
   CONFIG.rewards || {}
 );
 
-const holder = { address: null, balance: 0, ok: false };
+const holder = { address: null, balance: 0, ok: false, signed: false };
 
 const nf = new Intl.NumberFormat("en-US");
 const short = (a) => a.slice(0, 4) + "…" + a.slice(-4);
+
+/* Solana addresses are 32 bytes in base58 - check that before sending anyone
+   off to paste a typo into the chat.                                        */
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function isSolanaAddress(text) {
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text)) return false;
+  let n = 0n;
+  for (const ch of text) n = n * 58n + BigInt(B58.indexOf(ch));
+  let bytes = 0;
+  for (let m = n; m > 0n; m >>= 8n) bytes++;
+  const leading = text.length - text.replace(/^1+/, "").length;
+  return bytes + leading === 32;
+}
 
 function wallet() {
   return (window.phantom && window.phantom.solana) || window.solana || window.solflare || null;
@@ -2431,37 +2482,65 @@ async function tokenBalance(owner) {
     (sum, acc) => sum + (acc.account.data.parsed.info.tokenAmount.uiAmount || 0), 0);
 }
 
-async function checkHolder(provider) {
-  holderUI("Checking your balance…", "Reading the chain, one moment.", false);
+/* One path for both ways of naming a wallet: pasted by hand, or handed over
+   by an extension. Signed claims are the ones we can actually verify.        */
+async function useAddress(address, signed) {
+  holder.address = address;
+  holder.signed = !!signed;
+  holder.ok = false;
+  try { localStorage.setItem("bitfish-wallet", address); } catch (e) { /* private mode */ }
+
+  const input = $("#walletInput");
+  if (input && input.value !== address) input.value = address;
+  if (input) input.classList.remove("bad");
+
+  holderUI("Checking " + short(address) + "…", "Reading the chain, one moment.", false);
   try {
-    holder.balance = await tokenBalance(holder.address);
+    holder.balance = await tokenBalance(address);
   } catch (e) {
-    holderUI("Could not read your balance",
+    holderUI("Could not read that balance",
       "The RPC endpoint refused the request (" + e.message + "). Try again, or " +
       "put your own endpoint in CONFIG.rewards.rpc.", false);
     return;
   }
+
   holder.ok = holder.balance >= REWARD.minTokens;
+  const held = nf.format(Math.floor(holder.balance));
   if (holder.ok) {
     holderUI("Reward mode is on",
-      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " " +
-      CONFIG.ticker + ". Runs score ×" + REWARD.multiplier + " and end with a claim ticket.",
+      short(address) + " holds " + held + " " + CONFIG.ticker + ". Runs score ×" +
+      REWARD.multiplier + " and every claim pays out to this address" +
+      (signed ? ", signed by your wallet." :
+                ". Connect the wallet if you want claims signed — unsigned ones we have to check by hand."),
       true);
   } else {
     holderUI("Not enough " + CONFIG.ticker + " yet",
-      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " of the " +
-      nf.format(REWARD.minTokens) + " needed. Top up and hit connect again — the game " +
-      "stays free either way.", false);
+      short(address) + " holds " + held + " of the " + nf.format(REWARD.minTokens) +
+      " needed. Top up and check again — the game stays free either way.", false);
   }
-  const btn = $("#connectWallet");
-  if (btn) btn.textContent = "Refresh balance";
+  $("#connectWallet").textContent = "Connect wallet";
+  $("#walletUse").textContent = "Check again";
+}
+
+function useTypedAddress() {
+  const input = $("#walletInput");
+  if (!input) return;
+  const value = input.value.trim();
+  if (!isSolanaAddress(value)) {
+    input.classList.add("bad");
+    holderUI("That is not a Solana address",
+      "It should be 32 to 44 characters of base58 — paste the receive address " +
+      "from your wallet, not a transaction or a domain.", false);
+    return;
+  }
+  useAddress(value, false);
 }
 
 async function connectWallet() {
   const provider = wallet();
   if (!provider) {
     holderUI("No Solana wallet found",
-      "Install Phantom or Solflare in this browser, then reload the page.", false);
+      "No extension here — paste your address in the field instead, that works too.", false);
     return;
   }
   try {
@@ -2469,13 +2548,11 @@ async function connectWallet() {
     const res = await provider.connect();
     const key = (res && res.publicKey) || provider.publicKey;
     if (!key) throw new Error("no public key");
-    holder.address = key.toString();
+    await useAddress(key.toString(), true);
   } catch (e) {
     holderUI("Wallet not connected",
       "The connection was cancelled. Nothing was signed and nothing was sent.", false);
-    return;
   }
-  await checkHolder(provider);
 }
 
 /* ------------------------------------------------------- the claim ticket */
@@ -2483,41 +2560,24 @@ function claimAmount(score) {
   return Math.min(score * REWARD.perPoint, REWARD.cap);
 }
 
-async function signClaim(score, amount, box, button) {
-  const provider = wallet();
-  button.disabled = true;
-  button.textContent = "Check your wallet…";
-
+function makeTicket(score, amount, sig) {
   const payload = {
     v: 1, game: "deep-dive", coin: CONFIG.ticker,
     wallet: holder.address, score: score, reward: amount, at: Date.now(),
   };
-  const text = CONFIG.name + " reward claim\n" +
-    "wallet: " + payload.wallet + "\n" +
-    "score: " + payload.score + "\n" +
-    "reward: " + payload.reward + " " + CONFIG.ticker + "\n" +
-    "time: " + new Date(payload.at).toISOString();
+  if (sig) payload.sig = sig;
+  return btoa(JSON.stringify(payload));
+}
 
-  try {
-    if (provider && provider.signMessage) {
-      const signed = await provider.signMessage(new TextEncoder().encode(text), "utf8");
-      const bytes = signed.signature || signed;
-      payload.sig = btoa(String.fromCharCode.apply(null, Array.from(bytes)));
-    }
-  } catch (e) {
-    button.disabled = false;
-    button.textContent = "Sign claim";
-    return;                       // the player refused - no ticket, no drama
-  }
-
-  const ticket = btoa(JSON.stringify(payload));
+function showTicket(ticket, amount, box) {
   box.innerHTML = "";
 
   const hint = document.createElement("p");
   hint.className = "hint";
   hint.textContent = "Claim ticket for " + nf.format(amount) + " " + CONFIG.ticker +
-    ". Copy it and post it in the chat — it is signed by your wallet, so we can " +
-    "verify it without you sending anything.";
+    " to " + short(holder.address) + ". Copy it into the chat and we pay it out" +
+    (holder.signed ? " — it is signed by your wallet, so we can verify it."
+                   : " — unsigned, so we check it by hand.");
 
   const code = document.createElement("code");
   code.textContent = ticket;
@@ -2547,16 +2607,58 @@ async function signClaim(score, amount, box, button) {
   box.append(hint, code, row);
 }
 
+async function signClaim(score, amount, box, button) {
+  const provider = wallet();
+  button.disabled = true;
+  button.textContent = "Check your wallet…";
+
+  const at = Date.now();
+  const text = CONFIG.name + " reward claim\n" +
+    "wallet: " + holder.address + "\n" +
+    "score: " + score + "\n" +
+    "reward: " + amount + " " + CONFIG.ticker + "\n" +
+    "time: " + new Date(at).toISOString();
+
+  let sig = null;
+  try {
+    if (provider && provider.signMessage) {
+      const signed = await provider.signMessage(new TextEncoder().encode(text), "utf8");
+      const bytes = signed.signature || signed;
+      sig = btoa(String.fromCharCode.apply(null, Array.from(bytes)));
+    }
+  } catch (e) {
+    button.disabled = false;
+    button.textContent = "Sign claim";
+    return;                       // the player refused - no ticket, no drama
+  }
+
+  // the signature covers this exact timestamp, so rebuild the payload with it
+  const payload = {
+    v: 1, game: "deep-dive", coin: CONFIG.ticker,
+    wallet: holder.address, score: score, reward: amount, at: at,
+  };
+  if (sig) payload.sig = sig;
+  showTicket(btoa(JSON.stringify(payload)), amount, box);
+}
+
 function renderClaim(score) {
   const box = $("#gClaim");
   if (!box) return;
   box.innerHTML = "";
   if (score <= 0) { box.hidden = true; return; }
+  box.hidden = false;
 
+  const hint = document.createElement("p");
+  hint.className = "hint";
+
+  if (!holder.address) {
+    hint.textContent = "Paste the wallet you want paid in the bar above and a run " +
+      "like this would be worth " + nf.format(claimAmount(score * REWARD.multiplier)) +
+      " " + CONFIG.ticker + ".";
+    box.append(hint);
+    return;
+  }
   if (!holder.ok) {
-    box.hidden = false;
-    const hint = document.createElement("p");
-    hint.className = "hint";
     hint.textContent = "Reward mode is off: hold " + nf.format(REWARD.minTokens) + " " +
       CONFIG.ticker + " and a run like this would be worth " +
       nf.format(claimAmount(score * REWARD.multiplier)) + ".";
@@ -2565,36 +2667,48 @@ function renderClaim(score) {
   }
 
   const amount = claimAmount(score);
-  box.hidden = false;
-  const hint = document.createElement("p");
-  hint.className = "hint";
-  hint.textContent = "This run is worth " + nf.format(amount) + " " + CONFIG.ticker + ".";
+  hint.textContent = "This run is worth " + nf.format(amount) + " " + CONFIG.ticker +
+    ", payable to " + short(holder.address) + ".";
   const btn = document.createElement("button");
   btn.className = "btn btn-ghost btn-sm";
   btn.type = "button";
-  btn.textContent = "Sign claim";
-  btn.addEventListener("click", () => signClaim(score, amount, box, btn));
+  btn.textContent = holder.signed ? "Sign claim" : "Get claim ticket";
+  btn.addEventListener("click", () => {
+    if (holder.signed) signClaim(score, amount, box, btn);
+    else showTicket(makeTicket(score, amount, null), amount, box);
+  });
   box.append(hint, btn);
 }
 
 (function initRewards() {
-  const btn = $("#connectWallet");
-  if (!btn) return;
+  const connect = $("#connectWallet");
+  if (!connect) return;
   const min = $("#holderMin");
   if (min) min.textContent = nf.format(REWARD.minTokens);
-  btn.addEventListener("click", connectWallet);
 
-  // A wallet the player already approved for this site reconnects silently.
+  connect.addEventListener("click", connectWallet);
+  $("#walletUse").addEventListener("click", useTypedAddress);
+  $("#walletInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); useTypedAddress(); }
+  });
+
+  let saved = null;
+  try { saved = localStorage.getItem("bitfish-wallet"); } catch (e) { /* ignore */ }
+  if (saved && isSolanaAddress(saved)) {
+    $("#walletInput").value = saved;
+    useAddress(saved, false);
+    return;
+  }
+
+  // a wallet the player already approved for this site reconnects silently
   const provider = wallet();
   if (provider && provider.connect) {
     provider.connect({ onlyIfTrusted: true })
       .then((res) => {
         const key = (res && res.publicKey) || provider.publicKey;
-        if (!key) return;
-        holder.address = key.toString();
-        return checkHolder(provider);
+        if (key) return useAddress(key.toString(), true);
       })
-      .catch(() => { /* not trusted yet - the button is right there */ });
+      .catch(() => { /* not trusted yet - the field and the button are right there */ });
   }
 })();
 
