@@ -17,32 +17,41 @@ indicator("FVG Sniper", overlay = true,
 g1 = "1 · FVG таймфрейма анализа"
 htfTF      = input.timeframe("5",   "ТФ анализа",                     group = g1)
 showHtf    = input.bool(true,       "Показывать FVG 5m",              group = g1)
-htfKeep    = input.int(8,           "Хранить на сторону", minval = 1, maxval = 20, group = g1)
-htfMinAtr  = input.float(0.10,      "Мин. размер (× ATR)", minval = 0, step = 0.05, group = g1)
+htfKeep    = input.int(4,           "Хранить на сторону", minval = 1, maxval = 20, group = g1)
+htfMinAtr  = input.float(0.15,      "Мин. размер (× ATR)", minval = 0, step = 0.05, group = g1)
 
 g2 = "2 · FVG графика"
 showLtf    = input.bool(true,       "Показывать FVG графика (3m)",    group = g2)
-ltfKeep    = input.int(12,          "Хранить на сторону", minval = 1, maxval = 30, group = g2)
-ltfMinAtr  = input.float(0.05,      "Мин. размер (× ATR)", minval = 0, step = 0.05, group = g2)
+ltfKeep    = input.int(4,           "Хранить на сторону", minval = 1, maxval = 30, group = g2)
+ltfMinAtr  = input.float(0.12,      "Мин. размер (× ATR)", minval = 0, step = 0.05, group = g2)
 
 g3 = "3 · GAP — два FVG на одном уровне"
 showOvl    = input.bool(true,       "Подсвечивать наложение",         group = g3)
 ovlMode    = input.string("5m + 3m","Какие пары считать", options = ["5m + 3m", "Любые два", "Только 5m", "Только 3m"], group = g3)
-ovlMinAtr  = input.float(0.03,      "Мин. толщина наложения (× ATR)", minval = 0, step = 0.01, group = g3)
-ovlKeep    = input.int(10,          "Хранить зон", minval = 1, maxval = 30, group = g3)
+ovlMinAtr  = input.float(0.06,      "Мин. толщина наложения (× ATR)", minval = 0, step = 0.01, group = g3)
+ovlKeep    = input.int(4,           "Хранить зон", minval = 1, maxval = 30, group = g3)
 ovlText    = input.bool(true,       "Подпись «2×FVG»",                group = g3)
 
+g0 = "0 · Сколько времени зона живёт"
+visMode    = input.string("Последние N баров", "Что показывать", options = ["Последние N баров", "Текущий день", "Всё"], group = g0, tooltip = "«Текущий день» — при смене дня график чистится полностью.")
+histBars   = input.int(200,         "Окно, баров", minval = 20, maxval = 5000, group = g0, tooltip = "Старее этого зоны и уровни не создаются вообще.")
+htfLife    = input.int(120,         "Жизнь FVG анализа, баров", minval = 0, maxval = 2000, group = g0, tooltip = "0 — жить, пока не отработает.")
+ltfLife    = input.int(40,          "Жизнь FVG графика, баров", minval = 0, maxval = 2000, group = g0)
+ovlLife    = input.int(80,          "Жизнь зоны GAP, баров",    minval = 0, maxval = 2000, group = g0)
+liqLife    = input.int(120,         "Жизнь уровня ликвидности, баров", minval = 0, maxval = 2000, group = g0)
+
 g4 = "4 · Границы и середина"
+fillMode   = input.string("Заливка", "Стиль зон", options = ["Заливка", "Только границы"], group = g4, tooltip = "«Только границы» убирает полупрозрачную заливку — график перестаёт быть серым.")
 showEdges  = input.bool(true,       "Линии границ FVG",               group = g4)
 showCE     = input.bool(true,       "Линия 50 % (CE)",                group = g4)
 invalidMode= input.string("Закрытие за границей", "Снимать FVG при", options = ["Закрытие за границей", "Проколе хвостом", "Достижении 50 %"], group = g4)
 keepDead   = input.bool(false,      "Оставлять отработанные (серым)", group = g4)
-rightPad   = input.int(6,           "Продлевать зоны вправо, баров", minval = 0, maxval = 100, group = g4)
+rightPad   = input.int(4,           "Продлевать зоны вправо, баров", minval = 0, maxval = 100, group = g4)
 
 g5 = "5 · Ликвидность и свипы"
 showLiq    = input.bool(true,       "Показывать уровни ликвидности",  group = g5)
 pivotLen   = input.int(5,           "Длина пивота", minval = 1, maxval = 50, group = g5)
-liqKeep    = input.int(6,           "Уровней на сторону", minval = 1, maxval = 20, group = g5)
+liqKeep    = input.int(3,           "Уровней на сторону", minval = 1, maxval = 20, group = g5)
 showSweep  = input.bool(true,       "Подписывать свипы",              group = g5)
 sweepKeep  = input.int(40,          "Держать снятый уровень, баров", minval = 0, maxval = 300, group = g5)
 
@@ -58,14 +67,14 @@ sessTz     = input.string("UTC",    "Таймзона", options = ["UTC", "Ameri
 showSessBg = input.bool(false,      "Подсветка фона сессии",          group = g7)
 
 g8 = "8 · Оформление"
-cBull      = input.color(color.new(#26a69a, 80), "FVG вверх",   group = g8, inline = "a")
-cBear      = input.color(color.new(#ef5350, 80), "FVG вниз",    group = g8, inline = "a")
-cOvlB      = input.color(color.new(#00e676, 55), "GAP вверх",   group = g8, inline = "b")
-cOvlS      = input.color(color.new(#ff1744, 55), "GAP вниз",    group = g8, inline = "b")
+cBull      = input.color(color.new(#00bfa5, 60), "FVG вверх",   group = g8, inline = "a")
+cBear      = input.color(color.new(#ff5252, 60), "FVG вниз",    group = g8, inline = "a")
+cOvlB      = input.color(color.new(#00e676, 35), "GAP вверх",   group = g8, inline = "b")
+cOvlS      = input.color(color.new(#ff1744, 35), "GAP вниз",    group = g8, inline = "b")
 cLiq       = input.color(color.new(#787b86, 30), "Ликвидность", group = g8, inline = "c")
 cSweep     = input.color(#42a5f5,                "Свип",        group = g8, inline = "c")
 cSmt       = input.color(#ffc107,                "SMT",         group = g8, inline = "c")
-dimLtf     = input.int(12,          "Прозрачнее FVG графика, %", minval = 0, maxval = 60, group = g8)
+dimLtf     = input.int(20,          "Прозрачнее FVG графика, %", minval = 0, maxval = 60, group = g8)
 showPanel  = input.bool(true,       "Панель",                         group = g8)
 panelPos   = input.string("Справа сверху", "Угол панели", options = ["Справа сверху", "Слева сверху", "Справа снизу", "Слева снизу"], group = g8)
 
@@ -76,6 +85,7 @@ type Fvg
     bool  bull
     bool  htf
     bool  dead
+    int   born
     box   bx
     line  lnT
     line  lnB
@@ -85,6 +95,7 @@ type Ovl
     float top
     float bot
     bool  bull
+    int   born
     box   bx
     label lb
 
@@ -112,6 +123,34 @@ padMs     = tfMs * rightPad
 tfSecChart= timeframe.in_seconds(timeframe.period)
 tfSecHtf  = timeframe.in_seconds(htfTF)
 
+// окно видимости: старее него объекты просто не создаются
+inWindow  = visMode == "Всё" or visMode == "Текущий день" or bar_index > last_bar_index - histBars
+newDay    = ta.change(time("D")) != 0
+dayReset  = visMode == "Текущий день" and newDay
+
+// при смене дня в режиме «Текущий день» стираем всё, что осталось со вчера
+if dayReset
+    if array.size(fvgs) > 0
+        for i = array.size(fvgs) - 1 to 0
+            f = array.get(fvgs, i)
+            box.delete(f.bx)
+            line.delete(f.lnT)
+            line.delete(f.lnB)
+            line.delete(f.lnC)
+            array.remove(fvgs, i)
+    if array.size(ovls) > 0
+        for i = array.size(ovls) - 1 to 0
+            o = array.get(ovls, i)
+            box.delete(o.bx)
+            label.delete(o.lb)
+            array.remove(ovls, i)
+    if array.size(liqs) > 0
+        for i = array.size(liqs) - 1 to 0
+            q = array.get(liqs, i)
+            line.delete(q.ln)
+            label.delete(q.lb)
+            array.remove(liqs, i)
+
 // ============================ ДАННЫЕ 5m ======================================
 htfFeed() =>
     bull = low[1] > high[3]
@@ -130,9 +169,10 @@ smtOn = smtSym != ""
 // ============================ ЗОНЫ НАЛОЖЕНИЯ =================================
 addOvl(float top, float bot, bool isBull) =>
     col = isBull ? cOvlB : cOvlS
-    o = Ovl.new(top = top, bot = bot, bull = isBull)
+    o = Ovl.new(top = top, bot = bot, bull = isBull, born = bar_index)
     o.bx := box.new(time, top, time + padMs, bot, xloc = xloc.bar_time,
-         border_color = color.new(col, 0), border_width = 2, bgcolor = col)
+         border_color = color.new(col, 0), border_width = 2,
+         bgcolor = fillMode == "Заливка" ? col : color.new(col, math.min(99, color.t(col) + 35)))
     if ovlText
         o.lb := label.new(time + padMs, (top + bot) / 2, "2×FVG", xloc = xloc.bar_time,
              style = label.style_label_left, color = color.new(col, 20), textcolor = color.white, size = size.tiny)
@@ -185,10 +225,12 @@ addFvg(float top, float bot, bool isBull, bool isHtf, int anchor) =>
     if top - bot > minSz and top > bot
         base = isBull ? cBull : cBear
         col  = isHtf ? base : color.new(base, math.min(99, color.t(base) + dimLtf))
-        f = Fvg.new(top = top, bot = bot, bull = isBull, htf = isHtf, dead = false)
+        f = Fvg.new(top = top, bot = bot, bull = isBull, htf = isHtf, dead = false, born = bar_index)
         if doDraw
+            color fill = fillMode == "Заливка" ? col : na
             f.bx := box.new(anchor, top, time + padMs, bot, xloc = xloc.bar_time,
-                 border_color = color.new(base, 45), border_width = isHtf ? 1 : 0, bgcolor = col)
+                 border_color = color.new(base, isHtf ? 15 : 40), border_width = isHtf ? 2 : 1,
+                 border_style = isHtf ? line.style_solid : line.style_dashed, bgcolor = fill)
             if showEdges
                 f.lnT := line.new(anchor, top, time + padMs, top, xloc = xloc.bar_time, color = color.new(base, 25), width = isHtf ? 2 : 1)
                 f.lnB := line.new(anchor, bot, time + padMs, bot, xloc = xloc.bar_time, color = color.new(base, 25), width = isHtf ? 2 : 1)
@@ -200,7 +242,7 @@ addFvg(float top, float bot, bool isBull, bool isHtf, int anchor) =>
     0
 
 // --- новые FVG 5m (только по закрытому бару анализа) ---
-if newHtfBar and barstate.isconfirmed
+if inWindow and newHtfBar and barstate.isconfirmed
     if not na(hBullTop)
         addFvg(hBullTop, hBullBot, true, true, hAnchor)
     if not na(hBearTop)
@@ -209,9 +251,9 @@ if newHtfBar and barstate.isconfirmed
 // --- новые FVG графика ---
 ltfBull = low > high[2]
 ltfBear = high < low[2]
-if barstate.isconfirmed and ltfBull
+if inWindow and barstate.isconfirmed and ltfBull
     addFvg(low, high[2], true, false, time[2])
-if barstate.isconfirmed and ltfBear
+if inWindow and barstate.isconfirmed and ltfBear
     addFvg(low[2], high, false, false, time[2])
 
 // --------------------- продление и снятие FVG --------------------------------
@@ -228,12 +270,20 @@ if array.size(fvgs) > 0
                 line.set_x2(f.lnB, rEdge)
             if not na(f.lnC)
                 line.set_x2(f.lnC, rEdge)
+            life    = f.htf ? htfLife : ltfLife
+            expired = life > 0 and bar_index - f.born > life
             ce = (f.top + f.bot) / 2
             broken = switch invalidMode
                 "Закрытие за границей" => f.bull ? close < f.bot : close > f.top
                 "Проколе хвостом"      => f.bull ? low   < f.bot : high  > f.top
                 => f.bull ? low <= ce : high >= ce
-            if broken
+            if expired
+                box.delete(f.bx)
+                line.delete(f.lnT)
+                line.delete(f.lnB)
+                line.delete(f.lnC)
+                array.remove(fvgs, i)
+            else if broken
                 f.dead := true
                 if keepDead
                     if not na(f.bx)
@@ -251,6 +301,11 @@ if array.size(fvgs) > 0
                     line.delete(f.lnB)
                     line.delete(f.lnC)
                     array.remove(fvgs, i)
+        else
+            deadLife = f.htf ? htfLife : ltfLife
+            if deadLife > 0 and bar_index - f.born > deadLife
+                box.delete(f.bx)
+                array.remove(fvgs, i)
 
 // --------------------- продление и снятие зон GAP ----------------------------
 if array.size(ovls) > 0
@@ -259,7 +314,7 @@ if array.size(ovls) > 0
         box.set_right(o.bx, time + padMs)
         if not na(o.lb)
             label.set_x(o.lb, time + padMs)
-        gone = o.bull ? close < o.bot : close > o.top
+        gone = (o.bull ? close < o.bot : close > o.top) or (ovlLife > 0 and bar_index - o.born > ovlLife)
         if gone
             box.delete(o.bx)
             label.delete(o.lb)
@@ -290,10 +345,19 @@ addLiq(float price, float comp, bool isHigh) =>
     trimLiq(isHigh)
     0
 
-if not na(ph)
+if inWindow and not na(ph)
     addLiq(ph, cHigh[pivotLen], true)
-if not na(pl)
+if inWindow and not na(pl)
     addLiq(pl, cLow[pivotLen], false)
+
+// убираем уровни, которые так и не сняли за отведённое время
+if liqLife > 0 and array.size(liqs) > 0
+    for i = array.size(liqs) - 1 to 0
+        q = array.get(liqs, i)
+        if not q.taken and bar_index - q.bar > liqLife
+            line.delete(q.ln)
+            label.delete(q.lb)
+            array.remove(liqs, i)
 
 var int  lastSweepBar  = na
 var bool lastSweepHigh = false
@@ -435,7 +499,8 @@ if showPanel and barstate.islast
     table.cell(tb, 2, 5, "", bgcolor = cl)
     table.merge_cells(tb, 1, 5, 2, 5)
 
-    warn = tfSecHtf <= tfSecChart ? "⚠ ТФ анализа ≤ ТФ графика" : (useSession and not inSession ? "вне сессии" : syminfo.ticker + " · " + timeframe.period)
+    modeTxt = visMode == "Последние N баров" ? "окно " + str.tostring(histBars) + " бар." : (visMode == "Текущий день" ? "текущий день" : "вся история")
+    warn = tfSecHtf <= tfSecChart ? "⚠ ТФ анализа ≤ ТФ графика" : (useSession and not inSession ? "вне сессии" : syminfo.ticker + " · " + timeframe.period + " · " + modeTxt)
     table.cell(tb, 0, 6, warn, bgcolor = cl, text_color = tfSecHtf <= tfSecChart ? color.orange : color.silver, text_size = size.tiny)
     table.cell(tb, 1, 6, "", bgcolor = cl)
     table.cell(tb, 2, 6, "", bgcolor = cl)
