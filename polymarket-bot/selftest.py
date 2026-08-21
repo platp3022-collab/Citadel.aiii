@@ -295,9 +295,23 @@ async def test_telegram() -> bool:
                 abs(state["cash"] + state["exposure"] - state["equity"]) < 0.02)
     ok &= check("лимиты уехали в панель", state["limits"]["max_positions"] == cfg.max_positions)
 
+    pf = engine.portfolio
+    pf.cash += 40.0                                   # изображаем зафиксированную прибыль
+    pf.day_start_equity = pf.equity - 12.5
+    money = tgapp.render_pnl(engine)
+    ok &= check("/pnl показывает плюс", "В плюсе" in money, pb.short(money.splitlines()[0], 40))
+    ok &= check("/pnl считает результат за сегодня", "сегодня" in money)
+    ok &= check("/pnl помечает бумажный режим", "Бумажный режим" in money)
+    ok &= check("склонение «сделка» по-русски",
+                [tgapp.plural(n, ("сделка", "сделки", "сделок")) for n in (1, 2, 5, 11, 21, 24)]
+                == ["сделка", "сделки", "сделок", "сделок", "сделка", "сделки"])
+    pf.cash -= 300.0
+    ok &= check("/pnl показывает минус", "В минусе" in tgapp.render_pnl(engine))
+    pf.cash += 260.0
+
     texts = [tgapp.render_status(engine), tgapp.render_positions(engine),
              tgapp.render_trades(engine), tgapp.render_stats(engine),
-             tgapp.render_panel(engine)]
+             tgapp.render_panel(engine), tgapp.render_pnl(engine)]
     ok &= check("все сообщения рендерятся", all(texts))
     ok &= check("влезают в лимит Telegram (4096)", all(len(t) < 4096 for t in texts),
                 f"максимум {max(len(t) for t in texts)} симв.")
@@ -315,6 +329,12 @@ async def test_telegram() -> bool:
     closed = await engine.flatten("тест")
     ok &= check("flatten закрывает всё", closed == before and not engine.portfolio.positions,
                 f"закрыто {closed}")
+
+    bot = tgapp.TgBot(engine, tgapp.Telegram(token, api), owner="", public_url="")  # type: ignore[arg-type]
+    ok &= check("без владельца бот никого не слушает", not bot.is_owner("555"))
+    bot.claim("555")
+    ok &= check("первый /start назначает владельца", bot.is_owner("555"))
+    ok &= check("после этого чужой чат отсекается", not bot.is_owner("556"))
 
     markup = tgapp.panel_markup(engine, "https://example.com/app")
     buttons = [b for row in markup["inline_keyboard"] for b in row]

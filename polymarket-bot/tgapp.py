@@ -41,7 +41,7 @@ import os
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import polybot as pb
 
@@ -93,6 +93,7 @@ class Telegram:
 
     async def set_commands(self) -> None:
         await self.api("setMyCommands", commands=[
+            {"command": "pnl", "description": "сколько сейчас в плюсе"},
             {"command": "panel", "description": "живая панель"},
             {"command": "status", "description": "эквити, позиции, режим"},
             {"command": "positions", "description": "открытые позиции"},
@@ -139,6 +140,8 @@ def state_dict(engine: pb.Engine) -> dict[str, Any]:
         "pnl_pct": round(total / max(cfg.bankroll, 1) * 100, 2),
         "unrealized": round(pf.unrealized, 2),
         "realized": round(pf.realized, 2),
+        "day_pnl": round(pf.equity - pf.day_start_equity, 2),
+        "day_start": round(pf.day_start_equity, 2),
         "win_rate": round(pf.win_rate * 100, 1),
         "profit_factor": round(pf.profit_factor, 2),
         "max_dd": round(pf.max_drawdown * 100, 2),
@@ -197,6 +200,19 @@ def esc(text: Any) -> str:
     return html.escape(str(text), quote=False)
 
 
+def plural(count: int, forms: tuple[str, str, str]) -> str:
+    """Русское склонение: 1 сделка, 2 сделки, 5 сделок."""
+    n = abs(int(count)) % 100
+    if 11 <= n <= 14:
+        return forms[2]
+    n %= 10
+    if n == 1:
+        return forms[0]
+    if 2 <= n <= 4:
+        return forms[1]
+    return forms[2]
+
+
 def render_status(engine: pb.Engine) -> str:
     s = state_dict(engine)
     sign = "🟢" if s["pnl"] >= 0 else "🔴"
@@ -211,6 +227,52 @@ def render_status(engine: pb.Engine) -> str:
         "",
         f"<i>{esc(s['status'])}</i>",
     ]
+    return "\n".join(lines)
+
+
+def render_pnl(engine: pb.Engine) -> str:
+    """Короткий ответ на вопрос «сколько там денег» — без захода в Mini App."""
+    s = state_dict(engine)
+    pnl, day = s["pnl"], s["day_pnl"]
+    if pnl > 0:
+        head = f"💰 <b>В плюсе на {pb.money(pnl)}</b>"
+    elif pnl < 0:
+        head = f"📉 <b>В минусе на {pb.money(pnl)}</b>"
+    else:
+        head = "➖ <b>Ровно по нулям</b>"
+
+    day_icon = "🟢" if day > 0 else ("🔴" if day < 0 else "⚪️")
+    lines = [
+        head,
+        f"эквити <b>${s['equity']:,.2f}</b> из ${s['bankroll']:,.2f} "
+        f"({s['pnl_pct']:+.2f}%)",
+        "",
+        f"{day_icon} сегодня <b>{pb.money(day)}</b>",
+        f"✅ реализовано {pb.money(s['realized'])}",
+        f"⏳ в открытых позициях {pb.money(s['unrealized'])}",
+        f"💵 свободно ${s['cash']:,.2f} · в рынке ${s['exposure']:,.2f}",
+    ]
+
+    if s["positions"]:
+        best = max(s["positions"], key=lambda p: p["upnl"])
+        worst = min(s["positions"], key=lambda p: p["upnl"])
+        lines += ["", f"лучшая: {esc(pb.short(best['question'], 34))} "
+                      f"<b>{pb.money(best['upnl'])}</b>"]
+        if worst is not best:
+            lines.append(f"худшая: {esc(pb.short(worst['question'], 34))} "
+                         f"<b>{pb.money(worst['upnl'])}</b>")
+
+    traded = [st for st in s["strategies"] if st["trades"]]
+    if traded:
+        lines += ["", "<b>По стратегиям</b>"]
+        for st in sorted(traded, key=lambda x: -x["pnl"]):
+            lines.append(f"· {esc(st['title'])} — {pb.money(st['pnl'])} "
+                         f"({st['trades']} {plural(st['trades'], ('сделка', 'сделки', 'сделок'))})")
+
+    if s["mode"] == "PAPER":
+        lines += ["", "<i>Бумажный режим: деньги виртуальные.</i>"]
+    if s["blocked"]:
+        lines += [f"🛑 <i>{esc(s['blocked'])}</i>"]
     return "\n".join(lines)
 
 
@@ -297,9 +359,9 @@ def panel_markup(engine: pb.Engine, public_url: str) -> dict[str, Any]:
     pause_btn = ({"text": "▶️ Продолжить", "callback_data": "resume"} if engine.paused
                  else {"text": "⏸ Пауза", "callback_data": "pause"})
     rows = [
-        [{"text": "🔄 Обновить", "callback_data": "refresh"}, pause_btn],
-        [{"text": "📉 Закрыть всё", "callback_data": "flat"},
-         {"text": "📊 Метрики", "callback_data": "stats"}],
+        [{"text": "💰 Сколько в плюсе", "callback_data": "pnl"},
+         {"text": "🔄 Обновить", "callback_data": "refresh"}],
+        [{"text": "📉 Закрыть всё", "callback_data": "flat"}, pause_btn],
     ]
     if public_url:
         rows.insert(0, [{"text": "🖥 Открыть панель", "web_app": {"url": public_url}}])
@@ -348,6 +410,7 @@ HELP = """<b>Polybot — торговый бот Polymarket в Telegram</b>
 
 Движок крутится на твоём компьютере или сервере, Telegram — только пульт и витрина.
 
+/pnl — сколько сейчас в плюсе: за всё время, за сегодня, по стратегиям
 /panel — живая панель, обновляется сама
 /status — эквити, кэш, позиции
 /positions — что открыто прямо сейчас
@@ -366,17 +429,30 @@ HELP = """<b>Polybot — торговый бот Polymarket в Telegram</b>
 
 
 class TgBot:
-    def __init__(self, engine: pb.Engine, tg: Telegram, owner: str, public_url: str) -> None:
+    def __init__(self, engine: pb.Engine, tg: Telegram, owner: str, public_url: str,
+                 store: pb.Store | None = None) -> None:
         self.engine = engine
         self.tg = tg
         self.owner = str(owner)
         self.public_url = public_url
+        self.store = store
         self.panel_msg: int | None = None
         self.seen_fills = len(engine.portfolio.fills)
         self.last_blocked = ""
 
     def is_owner(self, chat_id: Any) -> bool:
-        return str(chat_id) == self.owner
+        return bool(self.owner) and str(chat_id) == self.owner
+
+    def claim(self, chat_id: str) -> None:
+        """Первый, кто написал /start, становится владельцем — и запоминается в базе.
+
+        Так не нужно искать свой chat_id через сторонних ботов: занять место можно
+        ровно один раз, дальше бот отвечает только этому чату.
+        """
+        self.owner = str(chat_id)
+        if self.store:
+            self.store.set_state("owner_chat_id", self.owner)
+        log.info("владелец бота: chat_id %s", self.owner)
 
     # --- команды ----------------------------------------------------------------------
     async def handle_command(self, chat_id: str, text: str) -> None:
@@ -389,6 +465,8 @@ class TgBot:
                                      panel_markup(eng, self.public_url))
             if msg:
                 self.panel_msg = msg.get("message_id")
+        elif cmd in ("/pnl", "/money", "/profit", "/деньги"):
+            await self.tg.send(chat_id, render_pnl(eng))
         elif cmd == "/status":
             await self.tg.send(chat_id, render_status(eng))
         elif cmd == "/positions":
@@ -428,11 +506,14 @@ class TgBot:
         elif action == "flat":
             closed = await eng.flatten("кнопка «Закрыть всё»")
             note = f"закрыто: {closed}"
+        elif action == "pnl":
+            await self.tg.send(chat_id, render_pnl(eng))
+            note = "посчитал"
         elif action == "stats":
             await self.tg.send(chat_id, render_stats(eng))
         await self.tg.answer_callback(query["id"], note)
         message_id = query.get("message", {}).get("message_id")
-        if message_id and action != "stats":
+        if message_id and action not in ("stats", "pnl"):
             await self.tg.edit(chat_id, message_id, render_panel(eng),
                                panel_markup(eng, self.public_url))
 
@@ -453,6 +534,16 @@ class TgBot:
                     text = (message.get("text") or "").strip()
                     if not text:
                         continue
+                    if not self.owner and text.lower().startswith("/start"):
+                        self.claim(chat_id)
+                        await self.tg.send(
+                            chat_id,
+                            "👋 Запомнил тебя владельцем этого бота "
+                            f"(chat_id <code>{esc(chat_id)}</code>).\n"
+                            "Чтобы закрепить навсегда, впиши его в .env как "
+                            "<code>TELEGRAM_CHAT_ID</code>.\n\n" + HELP,
+                            panel_markup(self.engine, self.public_url))
+                        continue
                     if not self.is_owner(chat_id):
                         await self.tg.send(chat_id, "Этот бот приватный: он управляет чужими "
                                                     "деньгами. Твой chat_id: "
@@ -468,6 +559,9 @@ class TgBot:
         while not self.engine.stopping:
             await asyncio.sleep(interval)
             pf = self.engine.portfolio
+            if not self.owner:                    # некому писать — просто копим историю
+                self.seen_fills = len(pf.fills)
+                continue
             new = pf.fills[self.seen_fills:]
             self.seen_fills = len(pf.fills)
             for fill in new:
@@ -496,7 +590,7 @@ class TgBot:
         """Держим живую панель свежей, пока она открыта."""
         while not self.engine.stopping:
             await asyncio.sleep(interval)
-            if self.panel_msg:
+            if self.panel_msg and self.owner:
                 await self.tg.edit(self.owner, self.panel_msg, render_panel(self.engine),
                                    panel_markup(self.engine, self.public_url))
 
@@ -504,7 +598,9 @@ class TgBot:
 # --------------------------------------------------------------------------------------
 # Mini App: веб-сервер
 # --------------------------------------------------------------------------------------
-def build_web_app(engine: pb.Engine, token: str, owner: str) -> web.Application:
+def build_web_app(engine: pb.Engine, token: str,
+                  owner_of: "Callable[[], str]") -> web.Application:
+    """Владелец берётся коллбэком: его могли назначить уже после старта, по /start."""
     index_file = WEBAPP_DIR / "index.html"
 
     async def index(_: web.Request) -> web.StreamResponse:
@@ -517,8 +613,10 @@ def build_web_app(engine: pb.Engine, token: str, owner: str) -> web.Application:
         data = check_init_data(str(payload.get("initData", "")), token)
         if not data:
             return False, "подпись Telegram не сошлась"
-        user_id = str((data.get("user") or {}).get("id", ""))
-        if user_id != str(owner):
+        owner = str(owner_of() or "")
+        if not owner:
+            return False, "владелец не назначен: напиши боту /start"
+        if str((data.get("user") or {}).get("id", "")) != owner:
             return False, "эта панель принадлежит другому аккаунту"
         return True, ""
 
@@ -561,10 +659,8 @@ def build_web_app(engine: pb.Engine, token: str, owner: str) -> web.Application:
 # --------------------------------------------------------------------------------------
 async def main_async(args: argparse.Namespace) -> int:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    owner = os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not token or not owner:
-        print("Нужны TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID в .env.\n"
-              "Токен — у @BotFather, свой chat_id — у @userinfobot.")
+    if not token:
+        print("Нужен TELEGRAM_BOT_TOKEN в .env — токен берётся у @BotFather.")
         return 1
 
     cfg = pb.Config.from_env()
@@ -580,11 +676,13 @@ async def main_async(args: argparse.Namespace) -> int:
         store = pb.Store(pb.DB_PATH)
         engine = pb.Engine(cfg, http, store)
         tg = Telegram(token, http)
-        bot = TgBot(engine, tg, owner, public_url if not args.no_web else "")
+        # chat_id можно не указывать: первый, кто напишет /start, станет владельцем
+        owner = os.environ.get("TELEGRAM_CHAT_ID", "").strip() or store.get_state("owner_chat_id")
+        bot = TgBot(engine, tg, owner, public_url if not args.no_web else "", store)
 
         runner: web.AppRunner | None = None
         if not args.no_web:
-            runner = web.AppRunner(build_web_app(engine, token, owner))
+            runner = web.AppRunner(build_web_app(engine, token, lambda: bot.owner))
             await runner.setup()
             await web.TCPSite(runner, host, port).start()
             log.info("Mini App слушает http://%s:%s", host, port)
@@ -593,9 +691,14 @@ async def main_async(args: argparse.Namespace) -> int:
                             "команды бота работают")
 
         mode = "БОЕВОЙ" if cfg.live else "бумажный"
-        await tg.send(owner, f"🚀 <b>Polybot запущен</b> · режим {mode}\n"
-                             f"банк ${cfg.bankroll:,.0f}\n\n/panel — живая панель, /help — команды",
-                      panel_markup(engine, bot.public_url))
+        if owner:
+            await tg.send(owner,
+                          f"🚀 <b>Polybot запущен</b> · режим {mode}\n"
+                          f"банк ${cfg.bankroll:,.0f}\n\n"
+                          "/pnl — сколько в плюсе, /panel — живая панель, /help — команды",
+                          panel_markup(engine, bot.public_url))
+        else:
+            log.info("Владелец не назначен: напиши боту /start — он тебя запомнит")
 
         tasks = [
             asyncio.create_task(engine.run(None, once=False)),
@@ -614,7 +717,8 @@ async def main_async(args: argparse.Namespace) -> int:
             if runner:
                 await runner.cleanup()
             store.close()
-            await tg.send(owner, "⏹ Polybot остановлен.\n\n" + render_status(engine))
+            if bot.owner:
+                await tg.send(bot.owner, "⏹ Polybot остановлен.\n\n" + render_status(engine))
     return 0
 
 

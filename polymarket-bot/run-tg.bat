@@ -20,18 +20,14 @@ if not exist .env copy .env.example .env >nul
 
 findstr /R "^TELEGRAM_BOT_TOKEN=..*" .env >nul
 if errorlevel 1 goto needenv
-findstr /R "^TELEGRAM_CHAT_ID=..*" .env >nul
-if errorlevel 1 goto needenv
 
 echo Запускаю Telegram-бота в бумажном режиме. Реальные деньги не тратятся.
-echo Напиши боту /panel. Не закрывай это окно - выход: Ctrl+C.
+echo Напиши боту /start, потом /pnl. Не закрывай это окно - выход: Ctrl+C.
 python tgapp.py
 pause
 exit /b 0
 
 :needenv
-echo Открой файл .env и заполни две строки:
-echo   TELEGRAM_BOT_TOKEN - токен от @BotFather
-echo   TELEGRAM_CHAT_ID   - твой chat_id, узнать у @userinfobot
+echo Открой файл .env и впиши TELEGRAM_BOT_TOKEN - токен от @BotFather.
 pause
 exit /b 1

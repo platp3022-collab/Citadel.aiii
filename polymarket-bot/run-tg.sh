@@ -19,13 +19,11 @@ if [ ! -f .env ]; then
     cp .env.example .env
 fi
 
-if ! grep -qE '^TELEGRAM_BOT_TOKEN=.+' .env || ! grep -qE '^TELEGRAM_CHAT_ID=.+' .env; then
-    echo "Открой файл .env и заполни две строки:"
-    echo "  TELEGRAM_BOT_TOKEN — токен от @BotFather"
-    echo "  TELEGRAM_CHAT_ID   — твой chat_id, узнать у @userinfobot"
+if ! grep -qE "^TELEGRAM_BOT_TOKEN=.+" .env; then
+    echo "Открой файл .env и впиши TELEGRAM_BOT_TOKEN — токен от @BotFather."
     exit 1
 fi
 
 echo "Запускаю Telegram-бота в бумажном режиме. Реальные деньги не тратятся."
-echo "Напиши боту /panel. Не закрывай терминал — выход: Ctrl+C."
+echo "Напиши боту /start, потом /pnl. Не закрывай терминал — выход: Ctrl+C."
 python tgapp.py
