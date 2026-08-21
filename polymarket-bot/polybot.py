@@ -1345,9 +1345,12 @@ class Engine:
         self.cycles = 0
         self.last_scan = 0.0
         self.stopping = False
+        self.paused = False           # ручная пауза: позиции ведём, новые не открываем
         self.message = "старт"
 
     def status_line(self) -> str:
+        if self.paused:
+            return "ПАУЗА вручную: новые входы отключены, открытые позиции ведутся"
         blocked = self.risk.blocked_reason
         if blocked:
             return f"ТОРГОВЛЯ НА ПАУЗЕ: {blocked}"
@@ -1403,6 +1406,8 @@ class Engine:
 
     async def open_positions(self, signals: Iterable[Signal]) -> None:
         pf = self.portfolio
+        if self.paused:
+            return
         blocked = self.risk.check_portfolio(pf.equity, pf.peak, pf.day_start_equity)
         if blocked:
             return
@@ -1486,17 +1491,33 @@ class Engine:
                 reason = "риск-стоп портфеля"
             if not reason:
                 continue
-            result = self.broker.execute("SELL", book, pos.size * mark)
-            if not result:
-                continue
-            _, price, fee = result
-            if self.broker.live and isinstance(self.broker, ClobBroker):
-                try:
-                    self.broker.place(token_id, "SELL", price, pos.size)
-                except Exception as exc:
-                    log.error("выход не прошёл: %s", exc)
-                    continue
-            pf.close(token_id, price, fee, reason)
+            self._close(token_id, book, reason)
+
+    def _close(self, token_id: str, book: Book, reason: str) -> bool:
+        """Выход из позиции по текущему стакану. False — стакан не дал закрыться."""
+        pos = self.portfolio.positions.get(token_id)
+        if not pos or not book.bids:
+            return False
+        result = self.broker.execute("SELL", book, pos.size * book.best_bid)
+        if not result:
+            return False
+        _, price, fee = result
+        if self.broker.live and isinstance(self.broker, ClobBroker):
+            try:
+                self.broker.place(token_id, "SELL", price, pos.size)
+            except Exception as exc:
+                log.error("выход не прошёл: %s", exc)
+                return False
+        self.portfolio.close(token_id, price, fee, reason)
+        return True
+
+    async def flatten(self, reason: str = "ручное закрытие") -> int:
+        """Закрыть всё разом — команда из Telegram или перед остановкой."""
+        tokens = list(self.portfolio.positions)
+        if not tokens:
+            return 0
+        books = await asyncio.gather(*(self.data.book(t) for t in tokens))
+        return sum(1 for token, book in zip(tokens, books) if self._close(token, book, reason))
 
     # --- циклы ------------------------------------------------------------------------
     async def cycle(self) -> None:

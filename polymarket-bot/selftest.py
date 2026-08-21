@@ -250,6 +250,82 @@ async def test_short_side() -> bool:
     return bool(ok)
 
 
+async def test_telegram() -> bool:
+    """Telegram-слой: подпись Mini App, JSON состояния, тексты сообщений."""
+    import hashlib
+    import hmac
+    import json as _json
+    import urllib.parse
+
+    import tgapp
+
+    token = "123456:TEST-TOKEN"
+
+    def sign(fields: dict[str, str]) -> str:
+        check = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
+        secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+        digest = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        return urllib.parse.urlencode({**fields, "hash": digest})
+
+    fields = {"auth_date": str(int(pb.now())), "query_id": "AAA",
+              "user": _json.dumps({"id": 777, "first_name": "Тест"}, ensure_ascii=False)}
+    good = sign(fields)
+
+    ok = check("валидная подпись принимается",
+               (tgapp.check_init_data(good, token) or {}).get("user", {}).get("id") == 777)
+    ok &= check("подделанные данные отклоняются",
+                tgapp.check_init_data(good.replace("AAA", "BBB"), token) is None)
+    ok &= check("чужой токен бота отклоняется",
+                tgapp.check_init_data(good, "999:OTHER") is None)
+    ok &= check("протухшая подпись отклоняется",
+                tgapp.check_init_data(sign({**fields, "auth_date": str(int(pb.now() - 90000))}),
+                                      token) is None)
+    ok &= check("пустая строка отклоняется", tgapp.check_init_data("", token) is None)
+
+    cfg = pb.Config()
+    api = FakeApi()
+    engine = pb.Engine(cfg, api, store=None)     # type: ignore[arg-type]
+    await engine.scan()
+    await engine.open_positions(engine.signals())
+
+    state = tgapp.state_dict(engine)
+    ok &= check("состояние сериализуется в JSON",
+                bool(_json.dumps(state)), f"{len(state['positions'])} позиций")
+    ok &= check("баланс в состоянии сходится",
+                abs(state["cash"] + state["exposure"] - state["equity"]) < 0.02)
+    ok &= check("лимиты уехали в панель", state["limits"]["max_positions"] == cfg.max_positions)
+
+    texts = [tgapp.render_status(engine), tgapp.render_positions(engine),
+             tgapp.render_trades(engine), tgapp.render_stats(engine),
+             tgapp.render_panel(engine)]
+    ok &= check("все сообщения рендерятся", all(texts))
+    ok &= check("влезают в лимит Telegram (4096)", all(len(t) < 4096 for t in texts),
+                f"максимум {max(len(t) for t in texts)} симв.")
+    ok &= check("HTML-теги сбалансированы",
+                all(t.count("<b>") == t.count("</b>") and t.count("<i>") == t.count("</i>")
+                    for t in texts))
+
+    engine.paused = True
+    ok &= check("пауза блокирует новые входы", "ПАУЗА" in engine.status_line())
+    before = len(engine.portfolio.positions)
+    await engine.open_positions(engine.signals())
+    ok &= check("на паузе позиции не открываются", len(engine.portfolio.positions) == before)
+    engine.paused = False
+
+    closed = await engine.flatten("тест")
+    ok &= check("flatten закрывает всё", closed == before and not engine.portfolio.positions,
+                f"закрыто {closed}")
+
+    markup = tgapp.panel_markup(engine, "https://example.com/app")
+    buttons = [b for row in markup["inline_keyboard"] for b in row]
+    ok &= check("кнопка Mini App появляется при https-адресе",
+                any("web_app" in b for b in buttons))
+    ok &= check("без адреса кнопки Mini App нет",
+                not any("web_app" in b for row in tgapp.panel_markup(engine, "")["inline_keyboard"]
+                        for b in row))
+    return bool(ok)
+
+
 def test_dashboard() -> bool:
     cfg = pb.Config()
     api = FakeApi()
@@ -289,6 +365,8 @@ async def main() -> int:
     results["движок"] = await test_engine()
     print("\nИгра против исхода (SELL YES = BUY NO):")
     results["short"] = await test_short_side()
+    print("\nTelegram (подпись Mini App, состояние, сообщения):")
+    results["telegram"] = await test_telegram()
     print("\nДашборд:")
     results["дашборд"] = test_dashboard()
 

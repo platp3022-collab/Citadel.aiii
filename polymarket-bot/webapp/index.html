@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Polybot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #0f1115);
+    --card: var(--tg-theme-secondary-bg-color, #171a21);
+    --text: var(--tg-theme-text-color, #e8eaed);
+    --muted: var(--tg-theme-hint-color, #8b93a1);
+    --accent: var(--tg-theme-button-color, #4c8bf5);
+    --accent-text: var(--tg-theme-button-text-color, #fff);
+    --up: #43c98a;
+    --down: #f0616d;
+    --line: rgba(140, 150, 170, .18);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 12px 12px 96px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif;
+  }
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .equity { font-size: 30px; font-weight: 650; letter-spacing: -.5px; }
+  .pnl { font-size: 15px; font-weight: 600; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .muted { color: var(--muted); }
+  .tiny { font-size: 12px; }
+  .mode {
+    font-size: 11px; font-weight: 700; letter-spacing: .6px;
+    padding: 3px 8px; border-radius: 999px; background: rgba(76,139,245,.16); color: var(--accent);
+  }
+  .mode.live { background: rgba(240,97,109,.18); color: var(--down); }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  .stat { text-align: center; }
+  .stat b { display: block; font-size: 15px; font-weight: 620; }
+  .stat span { font-size: 11px; color: var(--muted); }
+  h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px;
+       text-transform: uppercase; letter-spacing: .7px; }
+  .pos { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .pos:last-child { border-bottom: 0; padding-bottom: 0; }
+  .pos:first-of-type { padding-top: 0; }
+  .q { font-size: 14px; font-weight: 550; margin-bottom: 4px; }
+  .tag { font-size: 11px; padding: 2px 6px; border-radius: 6px;
+         background: rgba(140,150,170,.14); color: var(--muted); margin-right: 6px; }
+  .fill { display: flex; justify-content: space-between; gap: 10px;
+          padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .fill:last-child { border-bottom: 0; }
+  .side { font-weight: 700; font-size: 11px; padding: 2px 6px; border-radius: 6px; }
+  .side.BUY { background: rgba(67,201,138,.16); color: var(--up); }
+  .side.SELL { background: rgba(240,97,109,.16); color: var(--down); }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px;
+         padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+         background: linear-gradient(to top, var(--bg) 72%, transparent); }
+  button { flex: 1; border: 0; border-radius: 12px; padding: 13px 10px;
+           font: inherit; font-weight: 620; color: var(--accent-text);
+           background: var(--accent); cursor: pointer; }
+  button.ghost { background: rgba(140,150,170,.16); color: var(--text); }
+  button:active { opacity: .7; }
+  button:disabled { opacity: .45; }
+  .banner { background: rgba(240,97,109,.14); color: var(--down);
+            border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+  svg { display: block; width: 100%; height: 64px; margin-top: 12px; overflow: visible; }
+</style>
+</head>
+<body>
+
+<div id="banner" class="banner" hidden></div>
+
+<div class="card">
+  <div class="row">
+    <span class="mode" id="mode">PAPER</span>
+    <span class="muted tiny" id="clock"></span>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <span class="equity" id="equity">—</span>
+    <span class="pnl" id="pnl"></span>
+  </div>
+  <svg id="chart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-hidden="true"></svg>
+  <div class="grid">
+    <div class="stat"><b id="cash">—</b><span>кэш</span></div>
+    <div class="stat"><b id="exposure">—</b><span>в рынке</span></div>
+    <div class="stat"><b id="winrate">—</b><span>win rate</span></div>
+    <div class="stat"><b id="pf">—</b><span>profit factor</span></div>
+  </div>
+  <div class="muted tiny" id="status" style="margin-top:12px"></div>
+</div>
+
+<div class="card">
+  <h2>Позиции</h2>
+  <div id="positions"><div class="empty">загружаю…</div></div>
+</div>
+
+<div class="card">
+  <h2>Стратегии</h2>
+  <div id="strategies"></div>
+</div>
+
+<div class="card">
+  <h2>Последние сделки</h2>
+  <div id="fills"></div>
+</div>
+
+<div class="bar">
+  <button id="pause" class="ghost">⏸ Пауза</button>
+  <button id="flat" class="ghost">📉 Закрыть всё</button>
+  <button id="refresh">🔄 Обновить</button>
+</div>
+
+<script>
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+if (tg) { tg.ready(); tg.expand(); }
+const initData = tg ? tg.initData : "";
+let state = null, busy = false;
+
+const $ = (id) => document.getElementById(id);
+const money = (v) => (v >= 0 ? "+$" : "−$") + Math.abs(v).toLocaleString("ru-RU",
+  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dollars = (v) => "$" + Math.round(v).toLocaleString("ru-RU");
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function call(path, extra) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(Object.assign({ initData }, extra || {})),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+function banner(text) {
+  const el = $("banner");
+  el.hidden = !text;
+  el.textContent = text || "";
+}
+
+function chart(values) {
+  const svg = $("chart");
+  if (!values || values.length < 2) { svg.innerHTML = ""; return; }
+  const lo = Math.min(...values), hi = Math.max(...values), span = (hi - lo) || 1;
+  const step = 300 / (values.length - 1);
+  const pts = values.map((v, i) => [i * step, 60 - ((v - lo) / span) * 56]);
+  const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  const area = line + ` L300 64 L0 64 Z`;
+  const up = values[values.length - 1] >= values[0];
+  const color = up ? "var(--up)" : "var(--down)";
+  svg.innerHTML =
+    `<path d="${area}" fill="${color}" opacity=".12"></path>` +
+    `<path d="${line}" fill="none" stroke="${color}" stroke-width="2"
+       stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></path>`;
+}
+
+function render(s) {
+  state = s;
+  $("mode").textContent = s.mode;
+  $("mode").className = "mode" + (s.mode === "LIVE" ? " live" : "");
+  $("clock").textContent = "цикл " + s.cycles + " · рынков " + s.markets;
+  $("equity").textContent = "$" + s.equity.toLocaleString("ru-RU",
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const up = s.pnl >= 0;
+  $("pnl").textContent = money(s.pnl) + " (" + (up ? "+" : "") + s.pnl_pct.toFixed(2) + "%)";
+  $("pnl").className = "pnl " + (up ? "up" : "down");
+  $("cash").textContent = dollars(s.cash);
+  $("exposure").textContent = dollars(s.exposure);
+  $("winrate").textContent = s.win_rate.toFixed(0) + "%";
+  $("pf").textContent = s.profit_factor.toFixed(2);
+  $("status").textContent = s.status;
+  $("pause").textContent = s.paused ? "▶️ Продолжить" : "⏸ Пауза";
+  banner(s.blocked ? "🛑 " + s.blocked : "");
+  chart(s.equity_curve);
+
+  $("positions").innerHTML = s.positions.length ? s.positions.map((p) => `
+    <div class="pos">
+      <div class="q">${esc(p.question)}</div>
+      <div class="row">
+        <div class="tiny muted">
+          <span class="tag">${esc(p.outcome)}</span>
+          <span class="tag">${esc(p.strategy)}</span>
+          ${p.entry.toFixed(3)} → ${p.mark.toFixed(3)} · ${dollars(p.cost)}
+        </div>
+        <b class="${p.upnl >= 0 ? "up" : "down"}">${money(p.upnl)}</b>
+      </div>
+      <button class="ghost tiny" style="margin-top:8px;padding:8px"
+              onclick="closePosition('${esc(p.token_id)}')">Закрыть позицию</button>
+    </div>`).join("") : `<div class="empty">Позиций нет — движок ждёт сигнал.</div>`;
+
+  $("strategies").innerHTML = s.strategies.map((st) => `
+    <div class="pos">
+      <div class="row">
+        <b class="tiny">${esc(st.title)}</b>
+        <b class="tiny ${st.pnl >= 0 ? "up" : "down"}">${money(st.pnl)}</b>
+      </div>
+      <div class="tiny muted">сигналов ${st.signals} · сделок ${st.trades}</div>
+      ${st.notes.map((n) => `<div class="tiny muted">${esc(n)}</div>`).join("")}
+    </div>`).join("");
+
+  $("fills").innerHTML = s.fills.length ? s.fills.slice(0, 12).map((f) => {
+    const when = new Date(f.ts * 1000).toLocaleTimeString("ru-RU",
+      { hour: "2-digit", minute: "2-digit" });
+    const pnl = f.pnl ? `<b class="${f.pnl > 0 ? "up" : "down"}">${money(f.pnl)}</b>` : "";
+    return `<div class="fill">
+        <span><span class="side ${f.side}">${f.side}</span> ${esc(f.question.slice(0, 34))}</span>
+        <span class="muted">${f.price.toFixed(3)} · ${when} ${pnl}</span>
+      </div>`;
+  }).join("") : `<div class="empty">Сделок пока не было.</div>`;
+}
+
+async function refresh() {
+  try {
+    render(await call("/api/state"));
+    banner(state && state.blocked ? "🛑 " + state.blocked : "");
+  } catch (err) {
+    banner("Нет связи с ботом: " + err.message);
+  }
+}
+
+async function act(action, extra) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  try {
+    render(await call("/api/action", Object.assign({ action }, extra || {})));
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+  } catch (err) {
+    banner("Не вышло: " + err.message);
+  } finally {
+    busy = false;
+    document.querySelectorAll("button").forEach((b) => (b.disabled = false));
+  }
+}
+
+function closePosition(tokenId) {
+  const run = () => act("close", { token_id: tokenId });
+  if (tg && tg.showConfirm) tg.showConfirm("Закрыть эту позицию по рынку?", (ok) => ok && run());
+  else if (confirm("Закрыть эту позицию по рынку?")) run();
+}
+
+$("refresh").onclick = refresh;
+$("pause").onclick = () => act(state && state.paused ? "resume" : "pause");
+$("flat").onclick = () => {
+  const run = () => act("flat");
+  if (tg && tg.showConfirm) tg.showConfirm("Закрыть все позиции по рынку?", (ok) => ok && run());
+  else if (confirm("Закрыть все позиции по рынку?")) run();
+};
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
