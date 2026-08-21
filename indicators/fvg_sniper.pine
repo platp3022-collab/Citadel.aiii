@@ -56,7 +56,8 @@ showSweep  = input.bool(true,       "Подписывать свипы",        
 sweepKeep  = input.int(40,          "Держать снятый уровень, баров", minval = 0, maxval = 300, group = g5)
 
 g6 = "6 · SMT-дивергенция"
-smtSym     = input.symbol("",       "Коррелирующий инструмент",       group = g6, tooltip = "Без него SMT не считается. Примеры: NQ1! ↔ ES1!, EURUSD ↔ DXY, BTCUSDT ↔ ETHUSDT.")
+smtSym     = input.symbol("",       "Коррелирующий инструмент",       group = g6, tooltip = "Второй инструмент, с которым сравнивается свип. Без него SMT не считается.\n\nEURUSD → TVC:DXY (инверсно) или GBPUSD\nGBPUSD → EURUSD\nNQ1!   → ES1!\nBTCUSDT → ETHUSDT\nXAUUSD → XAGUSD")
+smtInverse = input.bool(false,      "Инверсная корреляция",           group = g6, tooltip = "Включи, если второй инструмент ходит в противоположную сторону: DXY, USDCHF, USDJPY против EURUSD. Тогда минимум сравнивается с максимумом.")
 showSmt    = input.bool(true,       "Показывать SMT",                 group = g6)
 smtLine    = input.bool(true,       "Линия от свинга до свипа",       group = g6)
 
@@ -102,7 +103,8 @@ type Ovl
 type Liq
     float price
     bool  isHigh
-    float comp
+    float compH
+    float compL
     int   bar
     bool  taken
     int   takenBar
@@ -337,8 +339,8 @@ trimLiq(bool isHigh) =>
                     array.remove(liqs, i)
     0
 
-addLiq(float price, float comp, bool isHigh) =>
-    q = Liq.new(price = price, isHigh = isHigh, comp = comp, bar = bar_index - pivotLen, taken = false, takenBar = na)
+addLiq(float price, float ch, float cl, bool isHigh) =>
+    q = Liq.new(price = price, isHigh = isHigh, compH = ch, compL = cl, bar = bar_index - pivotLen, taken = false, takenBar = na)
     if showLiq
         q.ln := line.new(bar_index - pivotLen, price, bar_index, price, color = cLiq, style = line.style_dashed, width = 1)
     array.push(liqs, q)
@@ -346,9 +348,9 @@ addLiq(float price, float comp, bool isHigh) =>
     0
 
 if inWindow and not na(ph)
-    addLiq(ph, cHigh[pivotLen], true)
+    addLiq(ph, cHigh[pivotLen], cLow[pivotLen], true)
 if inWindow and not na(pl)
-    addLiq(pl, cLow[pivotLen], false)
+    addLiq(pl, cHigh[pivotLen], cLow[pivotLen], false)
 
 // убираем уровни, которые так и не сняли за отведённое время
 if liqLife > 0 and array.size(liqs) > 0
@@ -379,8 +381,10 @@ if array.size(liqs) > 0
                 q.takenBar := bar_index
                 lastSweepBar  := bar_index
                 lastSweepHigh := q.isHigh
-                // SMT: коррелирующий инструмент свой уровень НЕ снял
-                divergence = smtOn and (q.isHigh ? cHigh <= q.comp : cLow >= q.comp)
+                // SMT: связанный инструмент свой зеркальный уровень НЕ снял.
+                // при инверсной корреляции максимуму здесь соответствует минимум там
+                mirrorHigh = smtInverse ? not q.isHigh : q.isHigh
+                divergence = smtOn and (mirrorHigh ? cHigh <= q.compH : cLow >= q.compL)
                 lastSweepSmt := divergence
                 if q.isHigh
                     sweptHigh := true
@@ -493,7 +497,14 @@ if showPanel and barstate.islast
     table.cell(tb, 2, 4, "", bgcolor = cl)
     table.merge_cells(tb, 1, 4, 2, 4)
 
-    smtTxt = not smtOn ? "укажите тикер в п.6" : (lastSweepSmt ? "есть на последнем свипе" : "нет на последнем свипе")
+    smtHint = str.contains(syminfo.ticker, "EUR") ? "TVC:DXY + инверсия" :
+         str.contains(syminfo.ticker, "GBP") ? "EURUSD" :
+         str.contains(syminfo.ticker, "BTC") ? "ETHUSDT" :
+         str.contains(syminfo.ticker, "ETH") ? "BTCUSDT" :
+         str.contains(syminfo.ticker, "XAU") ? "XAGUSD" :
+         str.contains(syminfo.ticker, "NQ")  ? "ES1!"    :
+         str.contains(syminfo.ticker, "ES")  ? "NQ1!"    : "связанный тикер"
+    smtTxt = not smtOn ? "п.6: добавь " + smtHint : (lastSweepSmt ? "есть на последнем свипе" : "нет на последнем свипе")
     table.cell(tb, 0, 5, "SMT", bgcolor = cl, text_color = color.silver, text_size = size.tiny)
     table.cell(tb, 1, 5, smtTxt, bgcolor = cl, text_color = not smtOn ? color.orange : (lastSweepSmt ? color.new(cSmt, 0) : color.gray), text_size = size.tiny)
     table.cell(tb, 2, 5, "", bgcolor = cl)
