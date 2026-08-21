@@ -1,0 +1,433 @@
+//@version=6
+// =============================================================================
+//  FVG SNIPER — HTF Fair Value Gap + Liquidity Sweep + SMT + LTF confirmation
+// -----------------------------------------------------------------------------
+//  Model (default 5m analysis / 3m entry):
+//    1. HTF (5m) Fair Value Gap  -> the point of interest (POI / discount-premium)
+//    2. Liquidity sweep on the entry TF (3m) -> stop hunt of a swing high/low
+//    3. SMT divergence vs a correlated symbol at the swept level (optional)
+//    4. LTF confirmation: entry-TF FVG or displacement candle in the new direction
+//    5. Entry / Stop / Targets are drawn with a fixed R multiple
+//
+//  Put the chart on the ENTRY timeframe (3m) and leave "Analysis timeframe" = 5m.
+// =============================================================================
+indicator("FVG Sniper — HTF FVG + Sweep + SMT", "FVG Sniper", overlay = true,
+     max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// =============================== INPUTS ======================================
+gHTF = "1 · Analysis timeframe (HTF FVG)"
+htfTF        = input.timeframe("5",  "Analysis timeframe",              group = gHTF, tooltip = "Timeframe the Fair Value Gaps are detected on. Default 5m while you trade the 3m chart.")
+showHtfFvg   = input.bool(true,      "Draw HTF FVG",                    group = gHTF)
+showCE       = input.bool(true,      "Draw 50% (consequent encroachment)", group = gHTF)
+maxFvgSide   = input.int(6,          "Keep last N FVG per side", minval = 1, maxval = 30, group = gHTF)
+minGapAtr    = input.float(0.15,     "Min gap size (x HTF ATR14)", minval = 0, step = 0.05, group = gHTF, tooltip = "Filters out micro-gaps. 0 = keep every gap.")
+invalidMode  = input.string("Close through", "Invalidate FVG on", options = ["Close through", "Wick through", "50% reached"], group = gHTF)
+keepMitigated= input.bool(false,     "Keep invalidated FVG on chart",   group = gHTF)
+
+gLTF = "2 · Entry timeframe confirmation"
+useLtfFvg    = input.bool(true,      "Require entry-TF FVG",            group = gLTF)
+useDisp      = input.bool(true,      "…or displacement candle",         group = gLTF, tooltip = "A candle whose body is larger than ATR x multiplier and which closes beyond the sweep candle.")
+dispMult     = input.float(1.0,      "Displacement body (x ATR14)", minval = 0.1, step = 0.1, group = gLTF)
+showLtfFvg   = input.bool(false,     "Draw entry-TF FVG",               group = gLTF)
+
+gLQ = "3 · Liquidity sweep"
+useSweep     = input.bool(true,      "Require liquidity sweep",         group = gLQ)
+pivotLen     = input.int(5,          "Swing lookback (pivot length)", minval = 1, maxval = 50, group = gLQ)
+sweepValid   = input.int(12,         "Sweep stays valid for N bars", minval = 1, maxval = 200, group = gLQ)
+showLiq      = input.bool(true,      "Draw liquidity levels & sweeps",  group = gLQ)
+
+gSMT = "4 · SMT divergence"
+useSmt       = input.bool(false,     "Require SMT divergence",          group = gSMT)
+showSmt      = input.bool(true,      "Draw SMT markers",                group = gSMT)
+smtSym       = input.symbol("",      "Correlated symbol",               group = gSMT, tooltip = "e.g. NQ1! vs ES1!, EURUSD vs DXY, BTCUSDT vs ETHUSDT. Leave empty to disable.")
+
+gSIG = "5 · Signal engine"
+needScore    = input.int(3,          "Confluences required", minval = 1, maxval = 5, group = gSIG, tooltip = "How many of: HTF FVG tap · sweep · LTF confirmation · SMT · HTF bias.")
+poiValid     = input.int(20,         "FVG tap stays valid for N bars", minval = 1, maxval = 200, group = gSIG)
+cooldown     = input.int(10,         "Bars between signals", minval = 0, maxval = 200, group = gSIG)
+useBias      = input.bool(true,      "Use HTF EMA bias",                group = gSIG)
+biasLen      = input.int(50,         "HTF EMA length", minval = 2, group = gSIG)
+oneDirection = input.bool(true,      "Only trade with HTF bias",        group = gSIG, tooltip = "Hard filter: longs only above the HTF EMA, shorts only below.")
+
+gRISK = "6 · Risk"
+slAtrPad     = input.float(0.25,     "Stop padding (x ATR14)", minval = 0, step = 0.05, group = gRISK)
+rr1          = input.float(2.0,      "Target 1 (R)", minval = 0.1, step = 0.1, group = gRISK)
+rr2          = input.float(3.5,      "Target 2 (R)", minval = 0.1, step = 0.1, group = gRISK)
+showTrade    = input.bool(true,      "Draw entry / stop / targets",     group = gRISK)
+tradeLen     = input.int(30,         "Trade box width (bars)", minval = 5, maxval = 300, group = gRISK)
+
+gSESS = "7 · Session filter"
+useSession   = input.bool(false,     "Trade only inside session",       group = gSESS)
+sessStr      = input.session("0700-1600", "Session",                    group = gSESS)
+sessTz       = input.string("UTC",   "Timezone",                        group = gSESS, options = ["UTC", "America/New_York", "Europe/London", "Europe/Kyiv", "Europe/Moscow", "Asia/Tokyo", "Asia/Shanghai"])
+showSessBg   = input.bool(false,     "Shade session background",        group = gSESS)
+
+gUI = "8 · Appearance"
+cBull        = input.color(color.new(#26a69a, 78), "Bullish FVG",       group = gUI, inline = "c1")
+cBear        = input.color(color.new(#ef5350, 78), "Bearish FVG",       group = gUI, inline = "c1")
+cLiqC        = input.color(color.new(#787b86, 40), "Liquidity",         group = gUI, inline = "c2")
+cSmtC        = input.color(#ffb300,               "SMT",                group = gUI, inline = "c2")
+showPanel    = input.bool(true,      "Show dashboard",                  group = gUI)
+panelPos     = input.string("Top right", "Dashboard position", options = ["Top right", "Top left", "Bottom right", "Bottom left"], group = gUI)
+
+// ============================ TYPES & STATE ==================================
+type Fvg
+    float top
+    float bot
+    float ce
+    int   startTime
+    bool  bull
+    bool  dead
+    box   bx
+    line  ceLn
+
+var array<Fvg>  htfFvgs   = array.new<Fvg>()
+var array<box>  ltfBoxes  = array.new<box>()
+var array<box>  tradeBox  = array.new<box>()
+var array<line> tradeLine = array.new<line>()
+var array<label> tradeLbl = array.new<label>()
+var array<line> liqLines  = array.new<line>()
+var array<label> smtLbls  = array.new<label>()
+
+atr        = ta.atr(14)
+inSession  = not useSession or not na(time(timeframe.period, sessStr, sessTz))
+tfSecChart = timeframe.in_seconds(timeframe.period)
+tfSecHtf   = timeframe.in_seconds(htfTF)
+
+// ============================ HTF DATA FEED ==================================
+htfFeed() =>
+    bullGap = low[1] > high[3]
+    bearGap = high[1] < low[3]
+    [bullGap ? low[1] : na, bullGap ? high[3] : na, bearGap ? low[3] : na, bearGap ? high[1] : na, time[2], ta.atr(14), close[1], ta.ema(close, biasLen)]
+
+[hBullTop, hBullBot, hBearTop, hBearBot, hAnchor, hAtr, hClose, hEma] =
+     request.security(syminfo.tickerid, htfTF, htfFeed(), lookahead = barmerge.lookahead_off)
+
+newHtfBar = not na(hAnchor) and ta.change(hAnchor) != 0
+htfBull   = not na(hEma) and hClose > hEma
+htfBear   = not na(hEma) and hClose < hEma
+
+// --------------------------- register new HTF FVG ----------------------------
+addFvg(float top, float bot, bool isBull, int anchor) =>
+    minSize = na(hAtr) ? 0.0 : hAtr * minGapAtr
+    if top - bot > minSize and top > bot
+        f = Fvg.new(top = top, bot = bot, ce = (top + bot) / 2.0, startTime = anchor, bull = isBull, dead = false)
+        if showHtfFvg
+            f.bx := box.new(anchor, top, time, bot, xloc = xloc.bar_time, border_color = color.new(isBull ? cBull : cBear, 30), border_width = 1, bgcolor = isBull ? cBull : cBear)
+            if showCE
+                f.ceLn := line.new(anchor, f.ce, time, f.ce, xloc = xloc.bar_time, color = color.new(isBull ? cBull : cBear, 20), style = line.style_dotted, width = 1)
+        array.push(htfFvgs, f)
+        // trim: drop the oldest gap of the same side
+        cnt = 0
+        if array.size(htfFvgs) > 0
+            for i = array.size(htfFvgs) - 1 to 0
+                fi = array.get(htfFvgs, i)
+                if fi.bull == isBull
+                    cnt += 1
+                    if cnt > maxFvgSide
+                        box.delete(fi.bx)
+                        line.delete(fi.ceLn)
+                        array.remove(htfFvgs, i)
+    0
+
+if newHtfBar and barstate.isconfirmed
+    if not na(hBullTop)
+        addFvg(hBullTop, hBullBot, true, hAnchor)
+    if not na(hBearTop)
+        addFvg(hBearTop, hBearBot, false, hAnchor)
+
+// ---------------- maintain gaps: extend, tag taps, invalidate -----------------
+var int  tapBullBar = na
+var int  tapBearBar = na
+var float tapBullBot = na
+var float tapBearTop = na
+
+if array.size(htfFvgs) > 0
+    for i = array.size(htfFvgs) - 1 to 0
+        f = array.get(htfFvgs, i)
+        if not f.dead
+            if not na(f.bx)
+                box.set_right(f.bx, time)
+            if not na(f.ceLn)
+                line.set_x2(f.ceLn, time)
+            // price interacting with the gap
+            inside = low <= f.top and high >= f.bot
+            if inside and inSession
+                if f.bull
+                    tapBullBar := bar_index
+                    tapBullBot := f.bot
+                else
+                    tapBearBar := bar_index
+                    tapBearTop := f.top
+            // invalidation
+            broken = switch invalidMode
+                "Close through" => f.bull ? close < f.bot : close > f.top
+                "Wick through"  => f.bull ? low   < f.bot : high  > f.top
+                => f.bull ? low <= f.ce : high >= f.ce
+            if broken
+                f.dead := true
+                if keepMitigated
+                    if not na(f.bx)
+                        box.set_bgcolor(f.bx, color.new(color.gray, 90))
+                        box.set_border_color(f.bx, color.new(color.gray, 70))
+                    if not na(f.ceLn)
+                        line.delete(f.ceLn)
+                        f.ceLn := na
+                else
+                    box.delete(f.bx)
+                    line.delete(f.ceLn)
+                    array.remove(htfFvgs, i)
+
+// remember the most recent tap for `poiValid` bars
+bullPoi = not na(tapBullBar) and bar_index - tapBullBar <= poiValid
+bearPoi = not na(tapBearBar) and bar_index - tapBearBar <= poiValid
+
+// ========================== LIQUIDITY & SWEEPS ===============================
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low,  pivotLen, pivotLen)
+
+// correlated feed for SMT
+smtOn = useSmt and smtSym != ""
+[cHigh, cLow] = request.security(smtSym == "" ? syminfo.tickerid : smtSym, timeframe.period, [high, low], lookahead = barmerge.lookahead_off)
+
+var float lastPH     = na
+var float lastPL     = na
+var float lastPHcomp = na   // correlated symbol high at that pivot
+var float lastPLcomp = na
+var bool  phTaken    = false
+var bool  plTaken    = false
+
+pushLiqLine(float lvl, int fromBar) =>
+    if showLiq
+        ln = line.new(bar_index - fromBar, lvl, bar_index, lvl, color = cLiqC, style = line.style_dashed, width = 1)
+        array.push(liqLines, ln)
+        if array.size(liqLines) > 60
+            line.delete(array.shift(liqLines))
+    0
+
+if not na(ph)
+    lastPH     := ph
+    lastPHcomp := cHigh[pivotLen]
+    phTaken    := false
+    pushLiqLine(ph, pivotLen)
+
+if not na(pl)
+    lastPL     := pl
+    lastPLcomp := cLow[pivotLen]
+    plTaken    := false
+    pushLiqLine(pl, pivotLen)
+
+// sweep = wick takes the level out, body closes back inside
+sweepLow  = not na(lastPL) and not plTaken and low  < lastPL and close > lastPL
+sweepHigh = not na(lastPH) and not phTaken and high > lastPH and close < lastPH
+
+// SMT: main sweeps its level, correlated does NOT sweep the matching one
+smtBull = smtOn and sweepLow  and not na(lastPLcomp) and cLow  >= lastPLcomp
+smtBear = smtOn and sweepHigh and not na(lastPHcomp) and cHigh <= lastPHcomp
+
+var bool  swpBull    = false   // bullish sweep armed (low taken -> looking long)
+var bool  swpBear    = false
+var int   swpBullBar = na
+var int   swpBearBar = na
+var float swpBullLow = na
+var float swpBearHigh = na
+var bool  swpBullSmt = false
+var bool  swpBearSmt = false
+
+if sweepLow
+    plTaken     := true
+    swpBull     := true
+    swpBullBar  := bar_index
+    swpBullLow  := low
+    swpBullSmt  := smtBull
+if sweepHigh
+    phTaken     := true
+    swpBear     := true
+    swpBearBar  := bar_index
+    swpBearHigh := high
+    swpBearSmt  := smtBear
+
+if swpBull and bar_index - swpBullBar > sweepValid
+    swpBull := false
+if swpBear and bar_index - swpBearBar > sweepValid
+    swpBear := false
+
+if showLiq and sweepLow
+    label.new(bar_index, low, "◄ SSL", style = label.style_label_up, color = color.new(cBull, 20), textcolor = color.white, size = size.tiny, tooltip = "Sell-side liquidity swept")
+if showLiq and sweepHigh
+    label.new(bar_index, high, "BSL ►", style = label.style_label_down, color = color.new(cBear, 20), textcolor = color.white, size = size.tiny, tooltip = "Buy-side liquidity swept")
+
+if showSmt and smtBull
+    lSmtB = label.new(bar_index, low, "SMT", style = label.style_label_up, color = color.new(cSmtC, 10), textcolor = color.black, size = size.tiny, tooltip = "Bullish SMT: correlated symbol did not make a lower low")
+    array.push(smtLbls, lSmtB)
+if showSmt and smtBear
+    lSmtS = label.new(bar_index, high, "SMT", style = label.style_label_down, color = color.new(cSmtC, 10), textcolor = color.black, size = size.tiny, tooltip = "Bearish SMT: correlated symbol did not make a higher high")
+    array.push(smtLbls, lSmtS)
+if array.size(smtLbls) > 40
+    label.delete(array.shift(smtLbls))
+
+// ====================== ENTRY-TF CONFIRMATION (3m) ===========================
+ltfBullFvg = low > high[2]
+ltfBearFvg = high < low[2]
+
+if showLtfFvg and barstate.isconfirmed and (ltfBullFvg or ltfBearFvg)
+    b = box.new(bar_index - 2, ltfBullFvg ? low : low[2], bar_index + 3, ltfBullFvg ? high[2] : high,
+         border_color = color.new(ltfBullFvg ? cBull : cBear, 20), border_width = 1,
+         bgcolor = color.new(ltfBullFvg ? cBull : cBear, 20))
+    array.push(ltfBoxes, b)
+    if array.size(ltfBoxes) > 40
+        box.delete(array.shift(ltfBoxes))
+
+body        = math.abs(close - open)
+displaceUp  = body > atr * dispMult and close > open
+displaceDn  = body > atr * dispMult and close < open
+
+confBull = (useLtfFvg and ltfBullFvg) or (useDisp and displaceUp and swpBull and close > high[1])
+confBear = (useLtfFvg and ltfBearFvg) or (useDisp and displaceDn and swpBear and close < low[1])
+confBull := (useLtfFvg or useDisp) ? confBull : true
+confBear := (useLtfFvg or useDisp) ? confBear : true
+
+// ============================ SIGNAL ENGINE ==================================
+scoreBull = (bullPoi ? 1 : 0) + (swpBull ? 1 : 0) + (confBull ? 1 : 0) + (swpBullSmt ? 1 : 0) + (useBias and htfBull ? 1 : 0)
+scoreBear = (bearPoi ? 1 : 0) + (swpBear ? 1 : 0) + (confBear ? 1 : 0) + (swpBearSmt ? 1 : 0) + (useBias and htfBear ? 1 : 0)
+
+hardBull = (not useSweep or swpBull) and (not useSmt or swpBullSmt) and (not oneDirection or not useBias or htfBull)
+hardBear = (not useSweep or swpBear) and (not useSmt or swpBearSmt) and (not oneDirection or not useBias or htfBear)
+
+var int lastSigBar = na
+readyAgain = na(lastSigBar) or bar_index - lastSigBar > cooldown
+
+longSig  = inSession and readyAgain and hardBull and confBull and scoreBull >= needScore
+shortSig = inSession and readyAgain and hardBear and confBear and scoreBear >= needScore
+shortSig := longSig ? false : shortSig   // never fire both on one bar
+
+// ------------------------------ trade levels ---------------------------------
+var float sigEntry = na
+var float sigStop  = na
+var float sigTp1   = na
+var float sigTp2   = na
+var int   sigDir   = 0
+
+drawTrade(float entry, float stop, float t1, float t2, bool isLong) =>
+    if showTrade
+        col = isLong ? cBull : cBear
+        bRisk = box.new(bar_index, math.max(entry, stop), bar_index + tradeLen, math.min(entry, stop), border_color = color.new(color.red, 60), bgcolor = color.new(color.red, 88))
+        bRew  = box.new(bar_index, math.max(entry, t2),   bar_index + tradeLen, math.min(entry, t2),   border_color = color.new(color.green, 60), bgcolor = color.new(color.green, 88))
+        lnE   = line.new(bar_index, entry, bar_index + tradeLen, entry, color = color.new(color.white, 20), style = line.style_solid, width = 1)
+        lnT1  = line.new(bar_index, t1, bar_index + tradeLen, t1, color = color.new(color.green, 20), style = line.style_dashed, width = 1)
+        array.push(tradeBox, bRisk)
+        array.push(tradeBox, bRew)
+        array.push(tradeLine, lnE)
+        array.push(tradeLine, lnT1)
+        lb = label.new(bar_index, isLong ? stop : t2, (isLong ? "LONG" : "SHORT") + "  " + str.tostring(rr2, "#.#") + "R",
+             style = isLong ? label.style_label_up : label.style_label_down,
+             color = color.new(col, 10), textcolor = color.white, size = size.small)
+        array.push(tradeLbl, lb)
+        while array.size(tradeBox) > 20
+            box.delete(array.shift(tradeBox))
+        while array.size(tradeLine) > 20
+            line.delete(array.shift(tradeLine))
+        while array.size(tradeLbl) > 10
+            label.delete(array.shift(tradeLbl))
+    0
+
+if longSig
+    stopRef  = math.min(nz(swpBullLow, low), nz(tapBullBot, low))
+    sigEntry := close
+    sigStop  := math.min(stopRef, low) - atr * slAtrPad
+    rDist    = math.max(sigEntry - sigStop, syminfo.mintick)
+    sigTp1   := sigEntry + rDist * rr1
+    sigTp2   := sigEntry + rDist * rr2
+    sigDir   := 1
+    lastSigBar := bar_index
+    swpBull  := false
+    drawTrade(sigEntry, sigStop, sigTp1, sigTp2, true)
+
+if shortSig
+    stopRef  = math.max(nz(swpBearHigh, high), nz(tapBearTop, high))
+    sigEntry := close
+    sigStop  := math.max(stopRef, high) + atr * slAtrPad
+    rDist    = math.max(sigStop - sigEntry, syminfo.mintick)
+    sigTp1   := sigEntry - rDist * rr1
+    sigTp2   := sigEntry - rDist * rr2
+    sigDir   := -1
+    lastSigBar := bar_index
+    swpBear  := false
+    drawTrade(sigEntry, sigStop, sigTp1, sigTp2, false)
+
+plotshape(longSig,  "Long signal",  shape.triangleup,   location.belowbar, color.new(cBull, 0), size = size.small)
+plotshape(shortSig, "Short signal", shape.triangledown, location.abovebar, color.new(cBear, 0), size = size.small)
+bgcolor(showSessBg and inSession and useSession ? color.new(color.blue, 94) : na, title = "Session")
+
+// ================================ ALERTS =====================================
+dirTxt(bool isLong) => isLong ? "LONG" : "SHORT"
+if longSig
+    alert("FVG Sniper " + dirTxt(true) + " " + syminfo.ticker + " " + timeframe.period +
+         " | entry " + str.tostring(sigEntry, format.mintick) +
+         " | SL " + str.tostring(sigStop, format.mintick) +
+         " | TP1 " + str.tostring(sigTp1, format.mintick) +
+         " | TP2 " + str.tostring(sigTp2, format.mintick) +
+         " | score " + str.tostring(scoreBull) + "/5", alert.freq_once_per_bar_close)
+if shortSig
+    alert("FVG Sniper " + dirTxt(false) + " " + syminfo.ticker + " " + timeframe.period +
+         " | entry " + str.tostring(sigEntry, format.mintick) +
+         " | SL " + str.tostring(sigStop, format.mintick) +
+         " | TP1 " + str.tostring(sigTp1, format.mintick) +
+         " | TP2 " + str.tostring(sigTp2, format.mintick) +
+         " | score " + str.tostring(scoreBear) + "/5", alert.freq_once_per_bar_close)
+
+alertcondition(longSig,   "Long signal",   "FVG Sniper LONG {{ticker}} {{interval}} @ {{close}}")
+alertcondition(shortSig,  "Short signal",  "FVG Sniper SHORT {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sweepLow,  "Sweep of lows", "SSL swept {{ticker}} {{interval}}")
+alertcondition(sweepHigh, "Sweep of highs","BSL swept {{ticker}} {{interval}}")
+alertcondition(smtBull,   "Bullish SMT",   "Bullish SMT {{ticker}} {{interval}}")
+alertcondition(smtBear,   "Bearish SMT",   "Bearish SMT {{ticker}} {{interval}}")
+
+// =============================== DASHBOARD ===================================
+mark(bool ok) => ok ? "✔" : "•"
+markCol(bool ok) => ok ? color.new(#26a69a, 0) : color.new(#787b86, 30)
+
+if showPanel and barstate.islast
+    pos = switch panelPos
+        "Top right"    => position.top_right
+        "Top left"     => position.top_left
+        "Bottom right" => position.bottom_right
+        => position.bottom_left
+    var table tb = table.new(position.top_right, 3, 8, border_width = 1)
+    table.set_position(tb, pos)
+    bgHead = color.new(#1e222d, 10)
+    bgCell = color.new(#1e222d, 25)
+    table.cell(tb, 0, 0, "FVG SNIPER", bgcolor = bgHead, text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 0, "L", bgcolor = bgHead, text_color = color.new(cBull, 0), text_size = size.small)
+    table.cell(tb, 2, 0, "S", bgcolor = bgHead, text_color = color.new(cBear, 0), text_size = size.small)
+
+    table.cell(tb, 0, 1, "HTF " + htfTF + " FVG tap", bgcolor = bgCell, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 1, mark(bullPoi), bgcolor = bgCell, text_color = markCol(bullPoi), text_size = size.tiny)
+    table.cell(tb, 2, 1, mark(bearPoi), bgcolor = bgCell, text_color = markCol(bearPoi), text_size = size.tiny)
+
+    table.cell(tb, 0, 2, "Liquidity sweep", bgcolor = bgCell, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 2, mark(swpBull), bgcolor = bgCell, text_color = markCol(swpBull), text_size = size.tiny)
+    table.cell(tb, 2, 2, mark(swpBear), bgcolor = bgCell, text_color = markCol(swpBear), text_size = size.tiny)
+
+    table.cell(tb, 0, 3, "LTF " + timeframe.period + " confirm", bgcolor = bgCell, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 3, mark(confBull), bgcolor = bgCell, text_color = markCol(confBull), text_size = size.tiny)
+    table.cell(tb, 2, 3, mark(confBear), bgcolor = bgCell, text_color = markCol(confBear), text_size = size.tiny)
+
+    table.cell(tb, 0, 4, smtOn ? "SMT vs " + smtSym : "SMT (off)", bgcolor = bgCell, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 4, mark(swpBullSmt), bgcolor = bgCell, text_color = markCol(swpBullSmt), text_size = size.tiny)
+    table.cell(tb, 2, 4, mark(swpBearSmt), bgcolor = bgCell, text_color = markCol(swpBearSmt), text_size = size.tiny)
+
+    table.cell(tb, 0, 5, "HTF bias (EMA" + str.tostring(biasLen) + ")", bgcolor = bgCell, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 5, mark(useBias and htfBull), bgcolor = bgCell, text_color = markCol(useBias and htfBull), text_size = size.tiny)
+    table.cell(tb, 2, 5, mark(useBias and htfBear), bgcolor = bgCell, text_color = markCol(useBias and htfBear), text_size = size.tiny)
+
+    table.cell(tb, 0, 6, "Score (need " + str.tostring(needScore) + ")", bgcolor = bgHead, text_color = color.white, text_size = size.tiny)
+    table.cell(tb, 1, 6, str.tostring(scoreBull), bgcolor = bgHead, text_color = markCol(scoreBull >= needScore), text_size = size.tiny)
+    table.cell(tb, 2, 6, str.tostring(scoreBear), bgcolor = bgHead, text_color = markCol(scoreBear >= needScore), text_size = size.tiny)
+
+    lastTxt = sigDir == 0 ? "no signal yet" :
+         (sigDir == 1 ? "LONG " : "SHORT ") + str.tostring(sigEntry, format.mintick) +
+         "  SL " + str.tostring(sigStop, format.mintick) + "  TP " + str.tostring(sigTp2, format.mintick)
+    warnTxt = tfSecHtf <= tfSecChart ? "⚠ analysis TF ≤ chart TF" : (not inSession ? "outside session" : lastTxt)
+    table.cell(tb, 0, 7, warnTxt, bgcolor = bgCell, text_color = tfSecHtf <= tfSecChart ? color.orange : color.silver, text_size = size.tiny)
+    table.merge_cells(tb, 0, 7, 2, 7)
