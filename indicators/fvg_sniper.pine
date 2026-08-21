@@ -56,8 +56,8 @@ showSweep  = input.bool(true,       "Подписывать свипы",        
 sweepKeep  = input.int(40,          "Держать снятый уровень, баров", minval = 0, maxval = 300, group = g5)
 
 g6 = "6 · SMT-дивергенция"
-smtSym     = input.symbol("",       "Коррелирующий инструмент",       group = g6, tooltip = "Второй инструмент, с которым сравнивается свип. Без него SMT не считается.\n\nEURUSD → TVC:DXY (инверсно) или GBPUSD\nGBPUSD → EURUSD\nNQ1!   → ES1!\nBTCUSDT → ETHUSDT\nXAUUSD → XAGUSD")
-smtInverse = input.bool(false,      "Инверсная корреляция",           group = g6, tooltip = "Включи, если второй инструмент ходит в противоположную сторону: DXY, USDCHF, USDJPY против EURUSD. Тогда минимум сравнивается с максимумом.")
+smtSym     = input.symbol("",       "Инструмент (пусто = авто)",      group = g6, tooltip = "Оставь пустым — индикатор сам подберёт пару под текущий рынок и сам включит инверсию где надо:\n\nфорекс → TVC:DXY\nXAUUSD → XAGUSD\nBTC → ETH, ETH → BTC\nNQ → ES, ES → NQ\n\nЗаполни вручную, если хочешь другую пару.")
+smtInverse = input.bool(false,      "Инверсия (при ручном вводе)",    group = g6, tooltip = "Работает, только когда инструмент задан вручную. Включи, если он ходит зеркально: DXY, USDCHF, USDJPY против EURUSD.")
 showSmt    = input.bool(true,       "Показывать SMT",                 group = g6)
 smtLine    = input.bool(true,       "Линия от свинга до свипа",       group = g6)
 
@@ -66,6 +66,24 @@ useSession = input.bool(false,      "Работать только в сесси
 sessStr    = input.session("0700-1600", "Сессия",                     group = g7)
 sessTz     = input.string("UTC",    "Таймзона", options = ["UTC", "America/New_York", "Europe/London", "Europe/Kyiv", "Europe/Moscow", "Asia/Tokyo", "Asia/Shanghai"], group = g7)
 showSessBg = input.bool(false,      "Подсветка фона сессии",          group = g7)
+
+g9 = "9 · Скользящие средние"
+maFill     = input.bool(true,       "Заливка между MA 1 и MA 2",      group = g9)
+ma1On      = input.bool(true,  "MA 1", group = g9, inline = "m1")
+ma1Type    = input.string("EMA", "",   options = ["SMA", "EMA", "WMA", "HMA", "VWMA", "RMA"], group = g9, inline = "m1")
+ma1Len     = input.int(50,     "",     minval = 1, group = g9, inline = "m1")
+ma1TF      = input.timeframe("", "",   group = g9, inline = "m1", tooltip = "Пусто — таймфрейм графика. Можно поставить 5, 15, 60 — MA возьмётся со старшего ТФ.")
+ma1Col     = input.color(#42a5f5, "",  group = g9, inline = "m1")
+ma2On      = input.bool(true,  "MA 2", group = g9, inline = "m2")
+ma2Type    = input.string("EMA", "",   options = ["SMA", "EMA", "WMA", "HMA", "VWMA", "RMA"], group = g9, inline = "m2")
+ma2Len     = input.int(200,    "",     minval = 1, group = g9, inline = "m2")
+ma2TF      = input.timeframe("", "",   group = g9, inline = "m2")
+ma2Col     = input.color(#ab47bc, "",  group = g9, inline = "m2")
+ma3On      = input.bool(false, "MA 3", group = g9, inline = "m3")
+ma3Type    = input.string("SMA", "",   options = ["SMA", "EMA", "WMA", "HMA", "VWMA", "RMA"], group = g9, inline = "m3")
+ma3Len     = input.int(20,     "",     minval = 1, group = g9, inline = "m3")
+ma3TF      = input.timeframe("", "",   group = g9, inline = "m3")
+ma3Col     = input.color(#ffa726, "",  group = g9, inline = "m3")
 
 g8 = "8 · Оформление"
 cBull      = input.color(color.new(#00bfa5, 60), "FVG вверх",   group = g8, inline = "a")
@@ -165,8 +183,26 @@ htfFeed() =>
 newHtfBar = not na(hAnchor) and ta.change(hAnchor) != 0
 
 // ======================= КОРРЕЛИРУЮЩИЙ ИНСТРУМЕНТ ============================
-smtOn = smtSym != ""
-[cHigh, cLow] = request.security(smtSym == "" ? syminfo.tickerid : smtSym, timeframe.period, [high, low], lookahead = barmerge.lookahead_off)
+// пустое поле = подбираем пару сами по текущему рынку
+tkr    = syminfo.ticker
+isFx   = syminfo.type == "forex" or syminfo.type == "cfd"
+// берём только бесплатные общедоступные фиды, чтобы скрипт не падал без подписки
+autoSym = str.contains(tkr, "XAU") ? "TVC:SILVER" :
+     str.contains(tkr, "XAG") ? "TVC:GOLD" :
+     str.contains(tkr, "BTC") ? "BINANCE:ETHUSDT" :
+     str.contains(tkr, "ETH") ? "BINANCE:BTCUSDT" :
+     syminfo.type == "crypto" ? "BINANCE:BTCUSDT" :
+     str.contains(tkr, "NQ") or str.contains(tkr, "NAS") or str.contains(tkr, "US100") ? "TVC:SPX" :
+     str.contains(tkr, "SPX") or str.contains(tkr, "US500") or str.contains(tkr, "ES1") ? "TVC:NDQ" :
+     str.contains(tkr, "YM") or str.contains(tkr, "US30") or str.contains(tkr, "DJI") ? "TVC:SPX" :
+     isFx ? "TVC:DXY" : ""
+// для форекса DXY зеркалит всё, где USD стоит второй валютой (EURUSD, GBPUSD…)
+autoInv = isFx and syminfo.currency == "USD"
+
+smtPair = smtSym == "" ? autoSym : smtSym
+smtInv  = smtSym == "" ? autoInv : smtInverse
+smtOn   = smtPair != ""
+[cHigh, cLow] = request.security(smtPair == "" ? syminfo.tickerid : smtPair, timeframe.period, [high, low], lookahead = barmerge.lookahead_off)
 
 // ============================ ЗОНЫ НАЛОЖЕНИЯ =================================
 addOvl(float top, float bot, bool isBull) =>
@@ -383,7 +419,7 @@ if array.size(liqs) > 0
                 lastSweepHigh := q.isHigh
                 // SMT: связанный инструмент свой зеркальный уровень НЕ снял.
                 // при инверсной корреляции максимуму здесь соответствует минимум там
-                mirrorHigh = smtInverse ? not q.isHigh : q.isHigh
+                mirrorHigh = smtInv ? not q.isHigh : q.isHigh
                 divergence = smtOn and (mirrorHigh ? cHigh <= q.compH : cLow >= q.compL)
                 lastSweepSmt := divergence
                 if q.isHigh
@@ -405,7 +441,7 @@ if array.size(liqs) > 0
                          textcolor = divergence and showSmt ? color.black : color.white,
                          size = size.small,
                          tooltip = "Снята ликвидность " + str.tostring(q.price, format.mintick) +
-                         (divergence ? "\nSMT: " + smtSym + " свой уровень не снял" : ""))
+                         (divergence ? "\nSMT: " + smtPair + " свой уровень не снял" : ""))
                 if divergence and showSmt
                     if not na(q.ln)
                         line.set_color(q.ln, cSmt)
@@ -434,6 +470,37 @@ while array.size(smtLines) > 30
 
 bgcolor(showSessBg and useSession and inSession ? color.new(color.blue, 94) : na, title = "Сессия")
 
+// ========================= СКОЛЬЗЯЩИЕ СРЕДНИЕ ================================
+// все типы считаются в теле функции (то есть на каждом баре), выбор — уже готовым
+maOf(string t, int len) =>
+    sma  = ta.sma(close,  len)
+    ema  = ta.ema(close,  len)
+    wma  = ta.wma(close,  len)
+    hma  = ta.hma(close,  len)
+    vwma = ta.vwma(close, len)
+    rma  = ta.rma(close,  len)
+    switch t
+        "SMA"  => sma
+        "EMA"  => ema
+        "WMA"  => wma
+        "HMA"  => hma
+        "VWMA" => vwma
+        => rma
+
+ma1 = request.security(syminfo.tickerid, ma1TF == "" ? timeframe.period : ma1TF, maOf(ma1Type, ma1Len), lookahead = barmerge.lookahead_off)
+ma2 = request.security(syminfo.tickerid, ma2TF == "" ? timeframe.period : ma2TF, maOf(ma2Type, ma2Len), lookahead = barmerge.lookahead_off)
+ma3 = request.security(syminfo.tickerid, ma3TF == "" ? timeframe.period : ma3TF, maOf(ma3Type, ma3Len), lookahead = barmerge.lookahead_off)
+
+pMa1 = plot(ma1On ? ma1 : na, "MA 1", color = ma1Col, linewidth = 2)
+pMa2 = plot(ma2On ? ma2 : na, "MA 2", color = ma2Col, linewidth = 2)
+plot(ma3On ? ma3 : na, "MA 3", color = ma3Col, linewidth = 1)
+fill(pMa1, pMa2, color = maFill and ma1On and ma2On ? color.new(ma1 > ma2 ? cBull : cBear, 88) : na, title = "Облако MA")
+
+maCrossUp = ma1On and ma2On and ta.crossover(ma1, ma2)
+maCrossDn = ma1On and ma2On and ta.crossunder(ma1, ma2)
+plotshape(maCrossUp ? ma1 : na, "Пересечение MA вверх", shape.circle, location.absolute, color.new(cBull, 0), size = size.tiny)
+plotshape(maCrossDn ? ma1 : na, "Пересечение MA вниз",  shape.circle, location.absolute, color.new(cBear, 0), size = size.tiny)
+
 // =============================== АЛЕРТЫ ======================================
 newGap = ta.change(array.get(ovlCount, 0)) > 0
 alertcondition(newGap,    "GAP: два FVG на одном уровне", "GAP (2×FVG) {{ticker}} {{interval}} @ {{close}}")
@@ -441,6 +508,8 @@ alertcondition(sweptHigh, "Свип максимумов (BSL)",        "Сня�
 alertcondition(sweptLow,  "Свип минимумов (SSL)",         "Снята ликвидность снизу {{ticker}} {{interval}} @ {{close}}")
 alertcondition(smtHigh,   "SMT на максимумах",            "Медвежий SMT {{ticker}} {{interval}} @ {{close}}")
 alertcondition(smtLow,    "SMT на минимумах",             "Бычий SMT {{ticker}} {{interval}} @ {{close}}")
+alertcondition(maCrossUp, "MA 1 пересекла MA 2 вверх",    "MA вверх {{ticker}} {{interval}} @ {{close}}")
+alertcondition(maCrossDn, "MA 1 пересекла MA 2 вниз",     "MA вниз {{ticker}} {{interval}} @ {{close}}")
 
 // =============================== ПАНЕЛЬ ======================================
 countFvg(bool isBull, bool isHtf) =>
@@ -467,7 +536,7 @@ if showPanel and barstate.islast
         "Слева сверху"  => position.top_left
         "Справа снизу"  => position.bottom_right
         => position.bottom_left
-    var table tb = table.new(position.top_right, 3, 7, border_width = 1)
+    var table tb = table.new(position.top_right, 3, 8, border_width = 1)
     table.set_position(tb, pos)
     hd = color.new(#1e222d, 5)
     cl = color.new(#1e222d, 25)
@@ -497,22 +566,28 @@ if showPanel and barstate.islast
     table.cell(tb, 2, 4, "", bgcolor = cl)
     table.merge_cells(tb, 1, 4, 2, 4)
 
-    smtHint = str.contains(syminfo.ticker, "EUR") ? "TVC:DXY + инверсия" :
-         str.contains(syminfo.ticker, "GBP") ? "EURUSD" :
-         str.contains(syminfo.ticker, "BTC") ? "ETHUSDT" :
-         str.contains(syminfo.ticker, "ETH") ? "BTCUSDT" :
-         str.contains(syminfo.ticker, "XAU") ? "XAGUSD" :
-         str.contains(syminfo.ticker, "NQ")  ? "ES1!"    :
-         str.contains(syminfo.ticker, "ES")  ? "NQ1!"    : "связанный тикер"
-    smtTxt = not smtOn ? "п.6: добавь " + smtHint : (lastSweepSmt ? "есть на последнем свипе" : "нет на последнем свипе")
+    pairTxt = str.replace_all(str.replace_all(str.replace_all(smtPair, "TVC:", ""), "BINANCE:", ""), "CME_MINI:", "")
+    smtTxt = not smtOn ? "пара не найдена, впиши вручную" :
+         pairTxt + (smtInv ? " (инв.)" : "") + " · " + (lastSweepSmt ? "SMT есть" : "SMT нет")
     table.cell(tb, 0, 5, "SMT", bgcolor = cl, text_color = color.silver, text_size = size.tiny)
     table.cell(tb, 1, 5, smtTxt, bgcolor = cl, text_color = not smtOn ? color.orange : (lastSweepSmt ? color.new(cSmt, 0) : color.gray), text_size = size.tiny)
     table.cell(tb, 2, 5, "", bgcolor = cl)
     table.merge_cells(tb, 1, 5, 2, 5)
 
+    maTxt = not (ma1On and ma2On) ? "выключены" :
+         (close > ma1 and close > ma2 ? "цена выше обеих" :
+         close < ma1 and close < ma2 ? "цена ниже обеих" : "между MA")
+    maCol = not (ma1On and ma2On) ? color.gray :
+         (close > ma1 and close > ma2 ? color.new(cBull, 0) :
+         close < ma1 and close < ma2 ? color.new(cBear, 0) : color.silver)
+    table.cell(tb, 0, 6, "MA", bgcolor = cl, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 6, maTxt, bgcolor = cl, text_color = maCol, text_size = size.tiny)
+    table.cell(tb, 2, 6, "", bgcolor = cl)
+    table.merge_cells(tb, 1, 6, 2, 6)
+
     modeTxt = visMode == "Последние N баров" ? "окно " + str.tostring(histBars) + " бар." : (visMode == "Текущий день" ? "текущий день" : "вся история")
     warn = tfSecHtf <= tfSecChart ? "⚠ ТФ анализа ≤ ТФ графика" : (useSession and not inSession ? "вне сессии" : syminfo.ticker + " · " + timeframe.period + " · " + modeTxt)
-    table.cell(tb, 0, 6, warn, bgcolor = cl, text_color = tfSecHtf <= tfSecChart ? color.orange : color.silver, text_size = size.tiny)
-    table.cell(tb, 1, 6, "", bgcolor = cl)
-    table.cell(tb, 2, 6, "", bgcolor = cl)
-    table.merge_cells(tb, 0, 6, 2, 6)
+    table.cell(tb, 0, 7, warn, bgcolor = cl, text_color = tfSecHtf <= tfSecChart ? color.orange : color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 7, "", bgcolor = cl)
+    table.cell(tb, 2, 7, "", bgcolor = cl)
+    table.merge_cells(tb, 0, 7, 2, 7)
