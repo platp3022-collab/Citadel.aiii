@@ -234,6 +234,145 @@ def draw_fish(glyph="btc"):
     return g
 
 
+
+# --------------------------------------------------------------- the shark --
+# A caricature predator for the page background: spray-tan body, bleached
+# comb-over, red tie. Deliberately nobody in particular - it is a meme fish
+# with a haircut, not a portrait of a real person.
+SW, SH = 64, 34
+SCX, SCY = 30.0, 17.0
+
+SHARK_PAL = {
+    "d": "#241a12",   # outline
+    "b": "#dd9257",   # body
+    "B": "#f2b681",   # body highlight
+    "s": "#ab6a34",   # body shadow
+    "y": "#f6e3cd",   # belly
+    "h": "#f2cf63",   # hair
+    "H": "#fff0a8",   # hair highlight
+    "w": "#ffffff",   # teeth and eye
+    "m": "#2a0f14",   # mouth
+    "r": "#c8352c",   # tie
+    "R": "#8e1f19",   # tie shadow
+}
+
+
+def shark_body(x):
+    """Half-height of the body at column x - 0 outside the fish."""
+    import math
+    if x < 7 or x > 57:
+        return 0.0
+    t = (x - 7) / 50.0
+    h = 8.6 * math.sin(math.pi * (t ** 0.82)) ** 0.7
+    if t > 0.78:                      # a blunt snout instead of a needle
+        h = max(h, 3.4 * (1 - (t - 0.78) / 0.30))
+    return h
+
+
+def draw_shark():
+    g = blank(SW, SH)
+
+    # --- tail ------------------------------------------------------------
+    for x in range(2, 12):
+        t = 11 - x
+        outer = 2.0 + t * 1.25
+        inner = t * 0.22
+        for y in range(SH):
+            dy = abs(y + 0.5 - SCY)
+            if inner <= dy <= outer:
+                put(g, x, y, "b")
+
+    # --- dorsal fin -------------------------------------------------------
+    for y in range(1, 10):
+        left = 21 + (y - 1) * 0.2
+        right = 24 + (y - 1) * 1.5
+        for x in range(int(left), int(right) + 1):
+            put(g, x, y, "b")
+
+    # --- pectoral fin -----------------------------------------------------
+    for y in range(22, 30):
+        left = 30 + (y - 22) * 0.9
+        right = 41 - (y - 22) * 0.8
+        for x in range(int(left), int(right) + 1):
+            put(g, x, y, "b")
+
+    # --- body -------------------------------------------------------------
+    for x in range(SW):
+        h = shark_body(x)
+        if h <= 0:
+            continue
+        # the pale belly climbs less and less as the body narrows into the head
+        belly = h * min(0.34 + 0.45 * max(0.0, (x - 42) / 16.0), 0.82)
+        for y in range(SH):
+            dy = y + 0.5 - SCY
+            if abs(dy) <= h:
+                if dy > belly:
+                    put(g, x, y, "y")          # pale belly
+                elif dy < -h * 0.45:
+                    put(g, x, y, "B")
+                else:
+                    put(g, x, y, "b")
+
+    # gill slits
+    for i in range(3):
+        gx = 40 + i * 3
+        for y in range(int(SCY - 4), int(SCY + 2)):
+            if g[y][gx] in ("b", "B"):
+                put(g, gx, y, "s")
+
+    # --- mouth and teeth ---------------------------------------------------
+    for x in range(42, 59):
+        t = x - 42
+        top = SCY + 2.2 + t * 0.14
+        for y in range(SH):
+            inside = abs(y + 0.5 - SCY) <= shark_body(x) + 0.4
+            if inside and top <= y <= top + 2.6:
+                put(g, x, y, "m")
+        if t % 2 == 0 and g[int(top) + 1][x] == "m":
+            put(g, x, int(top) + 1, "w")           # teeth inside the gap
+
+    # --- eye: small and dark, the way a shark's eye reads at this size -----
+    for y in range(15, 17):
+        for x in range(50, 52):
+            put(g, x, y, "d")
+    put(g, 50, 15, "w")
+
+    # --- the hair: a comb-over hugging the head, swept forward -------------
+    def hair(x, top, bottom):
+        for y in range(int(round(top)), int(round(bottom)) + 1):
+            put(g, x, y, "H" if (x + y) % 5 == 0 else "h")
+
+    for x in range(40, 54):
+        bottom = SCY - shark_body(x) + 1.5         # bite slightly into the head
+        hair(x, bottom - (4.6 - (x - 40) * 0.06), bottom)
+    for x in range(53, 60):                        # the swoop, curling forward
+        t = x - 53
+        top = 12.0 - t * 0.42
+        hair(x, top, top + 2.8 - t * 0.30)
+
+    # --- the tie -----------------------------------------------------------
+    for x in range(44, 48):
+        put(g, x, int(SCY) + 6, "R")               # the knot, under the chin
+        put(g, x, int(SCY) + 7, "R")
+    for y in range(int(SCY) + 8, SH - 1):
+        half = 0.8 + (y - int(SCY) - 8) * 0.42
+        for x in range(int(round(45.5 - half)), int(round(45.5 + half)) + 1):
+            put(g, x, y, "r" if (x + y) % 4 else "R")
+
+    # --- outline -----------------------------------------------------------
+    solid = [[g[y][x] is not None for x in range(SW)] for y in range(SH)]
+    for y in range(SH):
+        for x in range(SW):
+            if solid[y][x]:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < SW and 0 <= ny < SH and solid[ny][nx]:
+                    put(g, x, y, "d")
+                    break
+    return g
+
+
 def scene(fish, w=76, h=40, ox=15, oy=4):
     """Fish on the dark grid background (used for og:image + favicon)."""
     g = blank(w, h)
@@ -320,12 +459,17 @@ def embed_game_data(page):
         '%s: [%s]' % (k, ", ".join('"%s"' % r for r in v))
         for k, v in GLYPHS.items()
     )
+    shark = ",\n  ".join('"%s"' % r for r in grid_rows(draw_shark()))
+    palette = ",\n  ".join('%s: "%s"' % (k, v) for k, v in SHARK_PAL.items())
     block = ("/* fishdata:start */\n"
              "const FISH_W = %d, FISH_H = %d;\n"
              "const FISH_GLYPH_POS = { x: %d, y: %d };\n"
              "const FISH_MAP = [\n  %s\n];\n"
              "const FISH_GLYPHS = {\n  %s\n};\n"
-             "/* fishdata:end */") % (W, H, GLYPH_POS[0], GLYPH_POS[1], rows, glyphs)
+             "const SHARK_MAP = [\n  %s\n];\n"
+             "const SHARK_PAL = {\n  %s\n};\n"
+             "/* fishdata:end */") % (W, H, GLYPH_POS[0], GLYPH_POS[1], rows, glyphs,
+                                      shark, palette)
     html = open(page).read()
     new = re.sub(r"/\* fishdata:start \*/.*?/\* fishdata:end \*/",
                  lambda m: block, html, flags=re.S)
@@ -358,6 +502,13 @@ def main():
     with open(os.path.join(OUT, "fish.svg"), "w") as fh:
         fh.write(to_svg(fish, scale=12))
     to_png(fish, os.path.join(OUT, "fish.png"), scale=16)
+
+    shark = draw_shark()
+    saved = dict(PAL)
+    PAL.update(SHARK_PAL)
+    to_png(shark, os.path.join(OUT, "shark.png"), scale=12)
+    PAL.clear()
+    PAL.update(saved)
 
     card = scene(fish)
     to_png(card, os.path.join(OUT, "og.png"), scale=16)

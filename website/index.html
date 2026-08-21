@@ -704,6 +704,48 @@ footer {
 .claim .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
 .reward-note { max-width: 78ch; margin-inline: auto; font-size: 12.5px; opacity: 0.85; }
 
+/* ---------------------------------------------------------- the shark --- */
+.shark {
+  position: absolute;
+  opacity: 0.62;
+  pointer-events: none;
+  animation-timing-function: linear;
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+  filter: drop-shadow(0 12px 28px rgba(2, 10, 22, 0.55));
+}
+@keyframes shark-swim {
+  from { transform: translateX(-45vw) translateY(0); }
+  50%  { transform: translateX(45vw) translateY(-16px); }
+  to   { transform: translateX(145vw) translateY(0); }
+}
+@keyframes shark-back {
+  from { transform: translateX(145vw) translateY(0) scaleX(-1); }
+  50%  { transform: translateX(45vw) translateY(-16px) scaleX(-1); }
+  to   { transform: translateX(-45vw) translateY(0) scaleX(-1); }
+}
+
+/* a fish that just got swallowed */
+.school .fish.eaten {
+  opacity: 0 !important;
+  filter: blur(5px) !important;
+  transition: opacity 0.32s ease, filter 0.32s ease;
+}
+.puff {
+  position: fixed;
+  width: 30px; height: 30px;
+  margin: -15px 0 0 -15px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 245, 255, 0.9), rgba(200, 245, 255, 0) 70%);
+  pointer-events: none;
+  z-index: -1;
+  animation: puff 0.65s ease-out forwards;
+}
+@keyframes puff {
+  from { transform: scale(0.35); opacity: 0.95; }
+  to   { transform: scale(2.4); opacity: 0; }
+}
+
 /* ---------------------------------------------------------- responsive --- */
 @media (max-width: 980px) {
   .hero-grid, .about-grid { grid-template-columns: 1fr; }
@@ -1534,6 +1576,55 @@ const FISH_GLYPHS = {
   usd: ["....#....", "..#####..", ".#..#..#.", ".#..#....", "..####...", "....#.##.", "....#..#.", ".#..#..#.", "..#####..", "....#....", "........."],
   quest: ["..#####..", ".##...##.", "......##.", ".....##..", "....##...", "...##....", "...##....", ".........", "...##....", "...##....", "........."]
 };
+const SHARK_MAP = [
+  ".....................dddd.......................................",
+  "....................dbbbbd......................................",
+  "....................dbbbbbdd....................................",
+  "..d.................dbbbbbbbd...................................",
+  ".dbd................dbbbbbbbbdd.................................",
+  ".dbbd...............dbbbbbbbbbbd................................",
+  ".dbbbd...............dbbbbbbbbbbdd......ddd.....................",
+  ".dbbbbd..............dbbbbbbbbbbbbd....dhhhddd..................",
+  ".dbbbbd............dddbbbbBBBBBBbbbdddddhhHhhhddd..........d....",
+  ".dbbbbbd........dddBBBBBBBBBBBBBBBBBBBBdhHhhhhHhhdd......ddhd...",
+  ".dbbbbbbd.....ddBBBBBBBBBBBBBBBBBBBBBBBBHhhhhHhhhhHdd..ddhhhd...",
+  ".dbbbbbbbd..ddBBBBBBBBBBBBBBBBBBBBBBBBBBhhhhHhhhhHhhhddhhhhd....",
+  ".dbbbbbbbbddBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBhHhhhhHhhhhHhhhhd.....",
+  ".dbbbbbbbbBBBBBBBBBBBbbbbbbbbbbbbbbbbbBBsBBsBhhHhhhhHhhhhd......",
+  ".dbbbbbbbBBBBBbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsBhhhHhhhdd.......",
+  "..dddbbbBBbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbwhhhBBdd......",
+  ".....dddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbddbhbbbBd.....",
+  ".....dddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbbbbbbbbbd.....",
+  "..dddbbbyyybbbbbbbbbbbbbbbbbbbbbbbbbbbbbsbbsbbsbbbbbbbbydd......",
+  ".dbbbbbbbyyyyyyyyyybbbbbbbbbbbbbbbbbbbbbyyyyybbbbyyyyydd........",
+  ".dbbbbbbbbyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyywmwmwmyyyydd..........",
+  ".dbbbbbbbbddyyyyyyyyyyyyyyyyyyyyyyyyyyyyyymmmmmmwmwd............",
+  ".dbbbbbbbd..ddyyyyyyyyyyyyyyyyyyyyyyyyyyyyyymmmmddd.............",
+  ".dbbbbbbd.....ddyyyyyyyyyyyyyyyyyyyyyyyyyyyyRRRRd...............",
+  ".dbbbbbd........dddyyyyyyyyyyyyyyyyyyyybddddRRRRd...............",
+  ".dbbbbd............dddddddyyyyyybbbbbbbd....drrd................",
+  ".dbbbbd...................dddddddbbbbbd....drrRrd...............",
+  ".dbbbd...........................dbbbbd....drRrrd...............",
+  ".dbbd.............................dbbd....drRrrrRd..............",
+  ".dbd...............................dd.....dRrrrRrd..............",
+  "..d.......................................drrrRrrd..............",
+  ".........................................drrrRrrrRd.............",
+  ".........................................drrRrrrRrd.............",
+  "..........................................dddddddd.............."
+];
+const SHARK_PAL = {
+  d: "#241a12",
+  b: "#dd9257",
+  B: "#f2b681",
+  s: "#ab6a34",
+  y: "#f6e3cd",
+  h: "#f2cf63",
+  H: "#fff0a8",
+  w: "#ffffff",
+  m: "#2a0f14",
+  r: "#c8352c",
+  R: "#8e1f19"
+};
 /* fishdata:end */
 
 /* ------------------------------------------------------------- palettes -- */
@@ -1595,6 +1686,22 @@ const STATUS_TEXT = {
 };
 
 /* ------------------------------------------------------- pixel drawing -- */
+function drawMap(ctx, map, ox, oy, cell, palette) {
+  for (let row = 0; row < map.length; row++) {
+    const line = map[row];
+    let col = 0;
+    while (col < line.length) {
+      const ch = line[col];
+      if (ch === ".") { col++; continue; }
+      let run = 1;
+      while (col + run < line.length && line[col + run] === ch) run++;
+      ctx.fillStyle = palette[ch] || palette.d;
+      ctx.fillRect(ox + col * cell, oy + row * cell, cell * run, cell);
+      col += run;
+    }
+  }
+}
+
 function drawFishPixels(ctx, ox, oy, cell, skin, glyph) {
   const stamp = glyph && FISH_GLYPHS[glyph];
 
@@ -1689,6 +1796,14 @@ function drawToken(ctx, x, y, radius, skin, glyph) {
 /* ------------------------------------------------------- background school */
 /* One sprite per coin, reused by every fish, so a whole school costs six
    canvases no matter how many fish are swimming.                            */
+function spriteUrl(map, palette, cell) {
+  const c = document.createElement("canvas");
+  c.width = map[0].length * cell;
+  c.height = map.length * cell;
+  drawMap(c.getContext("2d"), map, 0, 0, cell, palette);
+  return c.toDataURL("image/png");
+}
+
 function skinSprite(skin, glyph, cell) {
   const c = document.createElement("canvas");
   c.width = FISH_W * cell;
@@ -1697,243 +1812,102 @@ function skinSprite(skin, glyph, cell) {
   return c.toDataURL("image/png");
 }
 
+const school = document.getElementById("school");
+const schoolSprites = reduced || !school ? [] : FAMILY.map((f) => skinSprite(f.skin, f.glyph, 3));
+
+function addFish(index) {
+  if (!school || !schoolSprites.length) return;
+  const depth = Math.random();                   // 0 = close by, 1 = far away
+  const img = document.createElement("img");
+  img.src = schoolSprites[(index === undefined ? Math.floor(Math.random() * schoolSprites.length) : index) % schoolSprites.length];
+  img.alt = "";
+  img.className = "fish";
+  img.style.top = (3 + Math.random() * 90).toFixed(1) + "vh";
+  img.style.width = Math.round(110 - depth * 68) + "px";
+  img.style.opacity = (0.38 - depth * 0.21).toFixed(2);
+  img.style.filter = "blur(" + (depth * 2.1).toFixed(1) + "px)";
+  const dur = 34 + depth * 44 + Math.random() * 20;
+  img.style.animationName = Math.random() < 0.4 ? "swim-back" : "swim";
+  img.style.animationDuration = dur.toFixed(0) + "s";
+  img.style.animationDelay = "-" + (Math.random() * dur).toFixed(0) + "s";
+  school.appendChild(img);
+}
+
 (function buildSchool() {
-  const box = document.getElementById("school");
-  if (!box || reduced) return;
-  box.innerHTML = "";
-
-  const sprites = FAMILY.map((f) => skinSprite(f.skin, f.glyph, 3));
+  if (!school || reduced) return;
+  school.innerHTML = "";
   const count = window.innerWidth < 700 ? 10 : 18;
-
-  for (let i = 0; i < count; i++) {
-    const depth = Math.random();                 // 0 = close by, 1 = far away
-    const img = document.createElement("img");
-    img.src = sprites[i % sprites.length];
-    img.alt = "";
-    img.className = "fish";
-    img.style.top = (3 + Math.random() * 90).toFixed(1) + "vh";
-    img.style.width = Math.round(110 - depth * 68) + "px";
-    img.style.opacity = (0.38 - depth * 0.21).toFixed(2);
-    img.style.filter = "blur(" + (depth * 2.1).toFixed(1) + "px)";
-    const dur = 34 + depth * 44 + Math.random() * 20;
-    img.style.animationName = Math.random() < 0.4 ? "swim-back" : "swim";
-    img.style.animationDuration = dur.toFixed(0) + "s";
-    img.style.animationDelay = "-" + (Math.random() * dur).toFixed(0) + "s";
-    box.appendChild(img);
-  }
+  for (let i = 0; i < count; i++) addFish(i);
 })();
 
-/* ===================================================== REWARD MODE ======= */
-/* Hold some $BFISH and your runs become claim tickets: the page reads your
-   balance from a Solana RPC and asks the wallet to sign a plain text receipt.
-   It never builds a transaction, and it cannot send tokens - payouts happen
-   by hand from the community wallet.                                        */
-const REWARD = Object.assign(
-  { minTokens: 100000, perPoint: 10, cap: 25000, multiplier: 2,
-    rpc: "https://api.mainnet-beta.solana.com" },
-  CONFIG.rewards || {}
-);
+/* ------------------------------------------------------------- the shark --
+   A big orange predator with a bleached comb-over patrols the background and
+   swallows whatever swims into its mouth. The school restocks itself, so the
+   page never empties out.                                                    */
+(function sharkPatrol() {
+  if (!school || reduced || typeof SHARK_MAP === "undefined") return;
+  const src = spriteUrl(SHARK_MAP, SHARK_PAL, 3);
 
-const holder = { address: null, balance: 0, ok: false };
-
-const nf = new Intl.NumberFormat("en-US");
-const short = (a) => a.slice(0, 4) + "…" + a.slice(-4);
-
-function wallet() {
-  return (window.phantom && window.phantom.solana) || window.solana || window.solflare || null;
-}
-
-function holderUI(title, status, unlocked) {
-  const bar = $("#holderBar");
-  if (!bar) return;
-  $("#holderTitle").textContent = title;
-  $("#holderStatus").textContent = status;
-  bar.classList.toggle("unlocked", !!unlocked);
-  const pill = $("#gModePill");
-  if (pill) pill.hidden = !unlocked;
-}
-
-async function tokenBalance(owner) {
-  const res = await fetch(REWARD.rpc, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: 1, method: "getTokenAccountsByOwner",
-      params: [owner, { mint: CONFIG.contract }, { encoding: "jsonParsed" }],
-    }),
-  });
-  if (!res.ok) throw new Error("RPC " + res.status);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error.message || "RPC error");
-  return (json.result && json.result.value || []).reduce(
-    (sum, acc) => sum + (acc.account.data.parsed.info.tokenAmount.uiAmount || 0), 0);
-}
-
-async function checkHolder(provider) {
-  holderUI("Checking your balance…", "Reading the chain, one moment.", false);
-  try {
-    holder.balance = await tokenBalance(holder.address);
-  } catch (e) {
-    holderUI("Could not read your balance",
-      "The RPC endpoint refused the request (" + e.message + "). Try again, or " +
-      "put your own endpoint in CONFIG.rewards.rpc.", false);
-    return;
-  }
-  holder.ok = holder.balance >= REWARD.minTokens;
-  if (holder.ok) {
-    holderUI("Reward mode is on",
-      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " " +
-      CONFIG.ticker + ". Runs score ×" + REWARD.multiplier + " and end with a claim ticket.",
-      true);
-  } else {
-    holderUI("Not enough " + CONFIG.ticker + " yet",
-      short(holder.address) + " holds " + nf.format(Math.floor(holder.balance)) + " of the " +
-      nf.format(REWARD.minTokens) + " needed. Top up and hit connect again — the game " +
-      "stays free either way.", false);
-  }
-  const btn = $("#connectWallet");
-  if (btn) btn.textContent = "Refresh balance";
-}
-
-async function connectWallet() {
-  const provider = wallet();
-  if (!provider) {
-    holderUI("No Solana wallet found",
-      "Install Phantom or Solflare in this browser, then reload the page.", false);
-    return;
-  }
-  try {
-    holderUI("Connecting…", "Approve the connection in your wallet.", false);
-    const res = await provider.connect();
-    const key = (res && res.publicKey) || provider.publicKey;
-    if (!key) throw new Error("no public key");
-    holder.address = key.toString();
-  } catch (e) {
-    holderUI("Wallet not connected",
-      "The connection was cancelled. Nothing was signed and nothing was sent.", false);
-    return;
-  }
-  await checkHolder(provider);
-}
-
-/* ------------------------------------------------------- the claim ticket */
-function claimAmount(score) {
-  return Math.min(score * REWARD.perPoint, REWARD.cap);
-}
-
-async function signClaim(score, amount, box, button) {
-  const provider = wallet();
-  button.disabled = true;
-  button.textContent = "Check your wallet…";
-
-  const payload = {
-    v: 1, game: "deep-dive", coin: CONFIG.ticker,
-    wallet: holder.address, score: score, reward: amount, at: Date.now(),
-  };
-  const text = CONFIG.name + " reward claim\n" +
-    "wallet: " + payload.wallet + "\n" +
-    "score: " + payload.score + "\n" +
-    "reward: " + payload.reward + " " + CONFIG.ticker + "\n" +
-    "time: " + new Date(payload.at).toISOString();
-
-  try {
-    if (provider && provider.signMessage) {
-      const signed = await provider.signMessage(new TextEncoder().encode(text), "utf8");
-      const bytes = signed.signature || signed;
-      payload.sig = btoa(String.fromCharCode.apply(null, Array.from(bytes)));
-    }
-  } catch (e) {
-    button.disabled = false;
-    button.textContent = "Sign claim";
-    return;                       // the player refused - no ticket, no drama
+  function puff(x, y) {
+    const dot = document.createElement("div");
+    dot.className = "puff";
+    dot.style.left = x + "px";
+    dot.style.top = y + "px";
+    document.body.appendChild(dot);
+    setTimeout(() => dot.remove(), 700);
   }
 
-  const ticket = btoa(JSON.stringify(payload));
-  box.innerHTML = "";
-
-  const hint = document.createElement("p");
-  hint.className = "hint";
-  hint.textContent = "Claim ticket for " + nf.format(amount) + " " + CONFIG.ticker +
-    ". Copy it and post it in the chat — it is signed by your wallet, so we can " +
-    "verify it without you sending anything.";
-
-  const code = document.createElement("code");
-  code.textContent = ticket;
-
-  const row = document.createElement("div");
-  const copy = document.createElement("button");
-  copy.className = "btn btn-gold btn-sm";
-  copy.type = "button";
-  copy.textContent = "Copy ticket";
-  copy.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(ticket);
-      toast("Claim ticket copied");
-    } catch (e) {
-      toast("Select the ticket text and copy it manually");
-    }
-  });
-  const chat = document.createElement("a");
-  chat.className = "btn btn-ghost btn-sm";
-  chat.href = CONFIG.telegram;
-  chat.target = "_blank";
-  chat.rel = "noopener";
-  chat.textContent = "Open the chat";
-  chat.style.marginLeft = "8px";
-  row.append(copy, chat);
-
-  box.append(hint, code, row);
-}
-
-function renderClaim(score) {
-  const box = $("#gClaim");
-  if (!box) return;
-  box.innerHTML = "";
-  if (score <= 0) { box.hidden = true; return; }
-
-  if (!holder.ok) {
-    box.hidden = false;
-    const hint = document.createElement("p");
-    hint.className = "hint";
-    hint.textContent = "Reward mode is off: hold " + nf.format(REWARD.minTokens) + " " +
-      CONFIG.ticker + " and a run like this would be worth " +
-      nf.format(claimAmount(score * REWARD.multiplier)) + ".";
-    box.append(hint);
-    return;
+  function swallow(fish, rect) {
+    fish.classList.add("eaten");
+    puff(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    setTimeout(() => {
+      fish.remove();
+      setTimeout(addFish, 6000 + Math.random() * 14000);   // it swims back later
+    }, 380);
   }
 
-  const amount = claimAmount(score);
-  box.hidden = false;
-  const hint = document.createElement("p");
-  hint.className = "hint";
-  hint.textContent = "This run is worth " + nf.format(amount) + " " + CONFIG.ticker + ".";
-  const btn = document.createElement("button");
-  btn.className = "btn btn-ghost btn-sm";
-  btn.type = "button";
-  btn.textContent = "Sign claim";
-  btn.addEventListener("click", () => signClaim(score, amount, box, btn));
-  box.append(hint, btn);
-}
-
-(function initRewards() {
-  const btn = $("#connectWallet");
-  if (!btn) return;
-  const min = $("#holderMin");
-  if (min) min.textContent = nf.format(REWARD.minTokens);
-  btn.addEventListener("click", connectWallet);
-
-  // A wallet the player already approved for this site reconnects silently.
-  const provider = wallet();
-  if (provider && provider.connect) {
-    provider.connect({ onlyIfTrusted: true })
-      .then((res) => {
-        const key = (res && res.publicKey) || provider.publicKey;
-        if (!key) return;
-        holder.address = key.toString();
-        return checkHolder(provider);
-      })
-      .catch(() => { /* not trusted yet - the button is right there */ });
+  function bite(shark, backwards) {
+    const s = shark.getBoundingClientRect();
+    if (!s.width) return;
+    const jaw = {
+      left: backwards ? s.left : s.right - s.width * 0.28,
+      right: backwards ? s.left + s.width * 0.28 : s.right,
+      top: s.top + s.height * 0.34,
+      bottom: s.top + s.height * 0.86,
+    };
+    school.querySelectorAll("img.fish:not(.eaten)").forEach((fish) => {
+      const f = fish.getBoundingClientRect();
+      if (f.right < jaw.left || f.left > jaw.right) return;
+      if (f.bottom < jaw.top || f.top > jaw.bottom) return;
+      swallow(fish, f);
+    });
   }
+
+  function patrol() {
+    const shark = document.createElement("img");
+    const backwards = Math.random() < 0.5;
+    const dur = 26 + Math.random() * 14;
+    shark.src = src;
+    shark.alt = "";
+    shark.className = "shark";
+    shark.style.top = (8 + Math.random() * 62).toFixed(1) + "vh";
+    const span = Math.min(180 + Math.random() * 90, window.innerWidth * 0.45);
+    shark.style.width = Math.round(span) + "px";
+    shark.style.animationName = backwards ? "shark-back" : "shark-swim";
+    shark.style.animationDuration = dur.toFixed(0) + "s";
+    school.appendChild(shark);
+
+    const hunting = setInterval(() => bite(shark, backwards), 130);
+    const done = () => {
+      clearInterval(hunting);
+      shark.remove();
+      setTimeout(patrol, 16000 + Math.random() * 26000);   // back on the prowl
+    };
+    shark.addEventListener("animationend", done, { once: true });
+    setTimeout(done, (dur + 2) * 1000);                     // belt and braces
+  }
+
+  setTimeout(patrol, 7000 + Math.random() * 6000);
 })();
 
 /* ==================================================== DEEP DIVE (game) === */

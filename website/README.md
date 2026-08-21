@@ -126,6 +126,29 @@ promotional scheme, and in some jurisdictions that shape (paid entry, prize
 out) is regulated. Keep the payouts discretionary — the copy on the page
 already says so — and take advice before you scale it up.
 
+## The background: a school and a predator
+
+`addFish()` drops one pixel fish into the fixed `#school` layer with a random
+depth — far ones are smaller, dimmer and blurred — and the page starts with 18
+of them (10 on phones), cycling through every coin in `FAMILY`.
+
+Every 15–40 seconds a shark crosses the page. While it is on screen the page
+checks the fish against its jaw (the leading 28% of the sprite) ten times a
+second; anything caught fades out with a bubble puff, and a replacement fish
+swims in 6–20 seconds later, so the school never empties.
+
+The shark is a caricature — spray-tan body, bleached comb-over, red tie — and
+deliberately nobody in particular. It carries no name anywhere on the page, and
+that is on purpose: putting a real politician's name or face on a coin site
+reads as an endorsement nobody gave you, which is a much bigger problem than a
+joke is worth. Keep it unnamed.
+
+Tuning lives in `sharkPatrol()`: the first `setTimeout` (when it first shows
+up), the one inside `done()` (the gap between visits), `span` (its size) and
+`.shark { opacity }` in the CSS. Its pixels come from `draw_shark()` in
+`tools/make_assets.py` — palette in `SHARK_PAL`, shape in the body/hair/tie
+sections.
+
 ## The mini-game
 
 `Deep Dive` lives in the same file: swim the fish through red candles, eat the
