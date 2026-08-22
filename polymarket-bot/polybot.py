@@ -280,9 +280,30 @@ class Http:
         if self._session:
             await self._session.close()
 
+    @staticmethod
+    def clean_params(params: dict[str, Any] | None) -> dict[str, str] | None:
+        """Привести параметры запроса к строкам.
+
+        yarl (внутри aiohttp) отказывается класть в строку запроса bool и None:
+        `Invalid variable type: value should be str, int or float`. Приводим здесь,
+        чтобы вызывающему коду можно было писать естественно — True, а не "true".
+        """
+        if not params:
+            return None
+        clean: dict[str, str] = {}
+        for key, value in params.items():
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                clean[key] = "true" if value else "false"
+            else:
+                clean[key] = str(value)
+        return clean
+
     async def get_json(self, url: str, params: dict[str, Any] | None = None,
                        attempts: int = 3) -> Any:
         assert self._session is not None, "Http используется вне контекста"
+        params = self.clean_params(params)
         delay = 0.6
         for attempt in range(attempts):
             try:

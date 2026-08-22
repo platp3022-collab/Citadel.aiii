@@ -362,6 +362,57 @@ async def test_telegram() -> bool:
     return bool(ok)
 
 
+async def test_request_params() -> bool:
+    """Параметры запросов: bool и None ломали yarl и роняли бота при первом ответе.
+
+    Гоняем настоящий aiohttp по localhost — именно так ошибка и всплывала.
+    """
+    from aiohttp import web
+
+    import tgapp
+
+    clean = pb.Http.clean_params({"yes": True, "no": False, "none": None, "n": 15, "s": "x"})
+    ok = check("bool превращается в true/false",
+               clean == {"yes": "true", "no": "false", "n": "15", "s": "x"}, str(clean))
+    ok &= check("пустые параметры не ломают запрос", pb.Http.clean_params(None) is None)
+
+    seen: dict[str, str] = {}
+
+    async def echo(request: web.Request) -> web.Response:
+        seen.clear()
+        seen.update(dict(request.query))
+        return web.json_response({"ok": True, "result": {}})
+
+    app = web.Application()
+    app.router.add_get("/{tail:.*}", echo)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 8178)
+    await site.start()
+    try:
+        async with pb.Http(2) as http:
+            got = await http.get_json("http://127.0.0.1:8178/x", {"flag": True, "none": None})
+            ok &= check("запрос с bool доходит до сервера", got is not None
+                        and seen.get("flag") == "true" and "none" not in seen, str(seen))
+
+            original = tgapp.TG_API
+            tgapp.TG_API = "http://127.0.0.1:8178"
+            try:
+                tg = tgapp.Telegram("123:ABC", http)
+                await tg.send("777", "текст <b>жирный</b>",
+                              {"inline_keyboard": [[{"text": "кнопка", "callback_data": "x"}]]})
+            finally:
+                tgapp.TG_API = original
+            ok &= check("отправка сообщения не падает на yarl",
+                        seen.get("disable_web_page_preview") == "true"
+                        and seen.get("parse_mode") == "HTML")
+            ok &= check("клавиатура уходит как JSON",
+                        seen.get("reply_markup", "").startswith('{"inline_keyboard"'))
+    finally:
+        await runner.cleanup()
+    return bool(ok)
+
+
 async def test_tunnel() -> bool:
     """Публичный адрес для Mini App: разбор вывода cloudflared и запуск процесса.
 
@@ -498,6 +549,8 @@ async def main() -> int:
     results["short"] = await test_short_side()
     print("\nTelegram (подпись Mini App, состояние, сообщения):")
     results["telegram"] = await test_telegram()
+    print("\nПараметры запросов (регрессия: bool ронял бота):")
+    results["запросы"] = await test_request_params()
     print("\nПубличный адрес для панели (tunnel.py):")
     results["туннель"] = await test_tunnel()
     print("\nЗапуск одной командой (start.py):")

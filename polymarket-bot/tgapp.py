@@ -70,8 +70,18 @@ class Telegram:
 
     async def api(self, method: str, **params: Any) -> Any:
         url = f"{TG_API}/bot{self.token}/{method}"
-        clean = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
-                 for k, v in params.items() if v is not None}
+        # словари и списки Telegram ждёт в виде JSON, bool — как true/false:
+        # в строку запроса можно класть только строки и числа
+        clean: dict[str, Any] = {}
+        for key, value in params.items():
+            if value is None:
+                continue
+            if isinstance(value, (dict, list)):
+                clean[key] = json.dumps(value, ensure_ascii=False)
+            elif isinstance(value, bool):
+                clean[key] = "true" if value else "false"
+            else:
+                clean[key] = value
         result = await self.http.get_json(url, clean)
         if isinstance(result, dict):
             if result.get("ok"):
