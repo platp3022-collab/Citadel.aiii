@@ -32,6 +32,7 @@ class FakeApi:
         self.requests = 0
         self.last_error = ""
         self.phase = 0.0                     # сдвигаем — цены «оживают» между циклами
+        self.probe_ok = True                 # для /diag: притворяемся живыми или мёртвыми
         self.tokens: dict[str, int] = {}
         self.markets: list[dict[str, Any]] = []
         end = pb.now() + 20 * 86400
@@ -61,6 +62,12 @@ class FakeApi:
         wave = 0.06 * math.sin((step + idx * 7) / 9.0)
         dip = -0.10 * math.exp(-((step - 95) ** 2) / 60.0)
         return pb.clamp(base + wave + dip + self.phase, 0.05, 0.95)
+
+    async def probe(self, url: str, params: dict[str, Any] | None = None
+                    ) -> tuple[bool, str, float]:
+        if self.probe_ok:
+            return True, "HTTP 200, 120 байт", 84.0
+        return False, "ClientConnectorError: соединение отклонено", 20.0
 
     async def get_json(self, url: str, params: dict[str, Any] | None = None,
                        attempts: int = 3) -> Any:
@@ -413,6 +420,32 @@ async def test_request_params() -> bool:
     return bool(ok)
 
 
+async def test_diag() -> bool:
+    """/diag должен различать «связь есть» и «Polymarket недоступен»."""
+    import tgapp
+
+    api = FakeApi()
+    engine = pb.Engine(pb.Config(), api, store=None)   # type: ignore[arg-type]
+    await engine.scan()
+
+    good = await tgapp.render_diag(engine)
+    ok = check("при живой связи все узлы зелёные", good.count("✅") == 3 and "❌" not in good)
+    ok &= check("подсказка про фильтры показана", "фильтры" in good)
+
+    api.probe_ok = False
+    bad = await tgapp.render_diag(engine)
+    ok &= check("при обрыве все узлы красные", bad.count("❌") == 3 and "✅" not in bad)
+    ok &= check("совет про VPN появляется", "VPN" in bad)
+    ok &= check("текст ошибки виден", "ClientConnectorError" in bad)
+    ok &= check("/diag влезает в лимит Telegram", len(bad) < 4096, f"{len(bad)} симв.")
+
+    api.errors = 3
+    api.last_error = "TimeoutError: gamma-api.polymarket.com"
+    ok &= check("статус движка показывает саму ошибку сети",
+                "gamma-api" in engine.status_line(), pb.short(engine.status_line(), 60))
+    return bool(ok)
+
+
 async def test_tunnel() -> bool:
     """Публичный адрес для Mini App: разбор вывода cloudflared и запуск процесса.
 
@@ -551,6 +584,8 @@ async def main() -> int:
     results["telegram"] = await test_telegram()
     print("\nПараметры запросов (регрессия: bool ронял бота):")
     results["запросы"] = await test_request_params()
+    print("\nДиагностика связи (/diag):")
+    results["диагностика"] = await test_diag()
     print("\nПубличный адрес для панели (tunnel.py):")
     results["туннель"] = await test_tunnel()
     print("\nЗапуск одной командой (start.py):")

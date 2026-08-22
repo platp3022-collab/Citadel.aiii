@@ -123,6 +123,7 @@ class Telegram:
             {"command": "pause", "description": "пауза: не открывать новое"},
             {"command": "resume", "description": "снять паузу"},
             {"command": "flat", "description": "закрыть все позиции"},
+            {"command": "diag", "description": "проверить связь с Polymarket"},
             {"command": "help", "description": "как это работает"},
         ])
 
@@ -336,6 +337,44 @@ def render_pnl(engine: pb.Engine) -> str:
     return "\n".join(lines)
 
 
+async def render_diag(engine: pb.Engine) -> str:
+    """Проверка связи с каждым узлом Polymarket по отдельности.
+
+    Движок может молчать по разным причинам — блокировка провайдером, DNS, TLS,
+    просто медленный ответ. Общий счётчик ошибок этого не различает, а тут видно.
+    """
+    http = engine.http
+    checks = [
+        ("Gamma (список рынков)", f"{pb.GAMMA_API}/markets", {"limit": 1, "closed": False}),
+        ("CLOB (стакан)", f"{pb.CLOB_API}/sampling-simplified-markets", None),
+        ("Data API (сделки)", f"{pb.DATA_API}/trades", {"limit": 1}),
+    ]
+    lines = ["<b>Диагностика связи</b>", ""]
+    alive = 0
+    for name, url, params in checks:
+        ok, detail, ms = await http.probe(url, params)
+        alive += ok
+        icon = "✅" if ok else "❌"
+        lines.append(f"{icon} <b>{esc(name)}</b>\n    {esc(detail)} · {ms:.0f} мс")
+
+    lines += ["", f"<b>Движок:</b> {esc(engine.status_line())}",
+              f"рынков в работе: {len(engine.universe)} · "
+              f"снимков: {len(engine.snapshots)} · циклов: {engine.cycles}",
+              f"запросов всего: {http.requests} · сбоев: {http.errors}"]
+
+    if alive == 0:
+        lines += ["", "Ни один узел Polymarket не отвечает. Обычно это провайдер или "
+                      "страна: попробуй VPN и перезапусти бота. Telegram при этом "
+                      "работает — значит, дело именно в Polymarket."]
+    elif alive < len(checks):
+        lines += ["", "Часть узлов недоступна. Торговать можно только когда отвечают "
+                      "и Gamma, и CLOB: без стакана бот не войдёт в позицию."]
+    else:
+        lines += ["", "Связь в порядке. Если рынков всё равно нет — их отсекают фильтры "
+                      "в .env (MIN_LIQUIDITY, MIN_VOLUME_24H, MAX_SPREAD)."]
+    return "\n".join(lines)
+
+
 def render_positions(engine: pb.Engine) -> str:
     s = state_dict(engine)
     if not s["positions"]:
@@ -480,6 +519,7 @@ HELP = """<b>Polybot — торговый бот Polymarket в Telegram</b>
 /pause — не открывать новое (открытое продолжаем вести)
 /resume — снять паузу
 /flat — закрыть все позиции по рынку
+/diag — проверить связь с Polymarket, если рынков нет
 /help — эта справка
 
 Кнопка «🖥 Открыть панель» открывает Mini App внутри Telegram — там позиции, кривая
@@ -542,6 +582,9 @@ class TgBot:
                     "Если не вышло — проверь интернет и перезапусти, либо пропиши свой "
                     "адрес в <code>WEBAPP_PUBLIC_URL</code>.\n\n"
                     "Команды <code>/pnl</code> и <code>/panel</code> работают и без неё.")
+        elif cmd in ("/diag", "/ping", "/связь"):
+            await self.tg.send(chat_id, "Проверяю связь с Polymarket…")
+            await self.tg.send(chat_id, await render_diag(eng))
         elif cmd in ("/pnl", "/money", "/profit", "/деньги"):
             await self.tg.send(chat_id, render_pnl(eng))
         elif cmd == "/status":

@@ -300,6 +300,25 @@ class Http:
                 clean[key] = str(value)
         return clean
 
+    async def probe(self, url: str, params: dict[str, Any] | None = None
+                    ) -> tuple[bool, str, float]:
+        """Один запрос без ретраев: (дошло ли, что ответили, сколько мс).
+
+        Нужен для /diag: показать, какой именно узел не отвечает, а не общий счётчик.
+        """
+        assert self._session is not None, "Http используется вне контекста"
+        started = time.monotonic()
+        try:
+            async with self._session.get(url, params=self.clean_params(params)) as resp:
+                body = await resp.text()
+                ms = (time.monotonic() - started) * 1000
+                if resp.status == 200:
+                    return True, f"HTTP 200, {len(body)} байт", ms
+                return False, f"HTTP {resp.status}: {body[:80]}", ms
+        except Exception as exc:
+            ms = (time.monotonic() - started) * 1000
+            return False, f"{type(exc).__name__}: {str(exc)[:90] or 'нет деталей'}", ms
+
     async def get_json(self, url: str, params: dict[str, Any] | None = None,
                        attempts: int = 3) -> Any:
         assert self._session is not None, "Http используется вне контекста"
@@ -1381,8 +1400,11 @@ class Engine:
         blocked = self.risk.blocked_reason
         if blocked:
             return f"ТОРГОВЛЯ НА ПАУЗЕ: {blocked}"
-        err = f"  ошибок сети: {self.http.errors}" if self.http.errors else ""
-        return f"{self.message}{err}"
+        if self.http.errors:
+            # показываем саму ошибку, а не только счётчик: по ней видно, что чинить
+            return (f"{self.message} · сбоев сети {self.http.errors}: "
+                    f"{short(self.http.last_error, 70)}")
+        return self.message
 
     # --- сканирование -----------------------------------------------------------------
     async def scan(self) -> None:
