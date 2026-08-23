@@ -87,7 +87,7 @@ ma3Col     = input.color(#ffa726, "",  group = g9, inline = "m3")
 
 g10 = "10 · Готовность к входу"
 entryOn    = input.bool(true,       "Считать готовность",             group = g10)
-needScore  = input.int(4,           "Нужно совпадений из 5", minval = 1, maxval = 5, group = g10, tooltip = "Свип · SMT · зона · реакция · байас MA.")
+needScore  = input.int(5,           "Нужно совпадений из 7", minval = 1, maxval = 7, group = g10, tooltip = "Свип · SMT · зона · реакция · байас MA · килзона · структура.")
 entryWin   = input.int(15,          "Свип актуален, баров", minval = 1, maxval = 200, group = g10)
 reactWin   = input.int(3,           "Реакция в пределах, баров", minval = 0, maxval = 50, group = g10)
 zoneMode   = input.string("GAP и FVG 5m", "Что считать зоной", options = ["Только GAP", "GAP и FVG 5m"], group = g10)
@@ -97,6 +97,30 @@ slPad      = input.float(0.25,      "Отступ стопа (× ATR)", minval =
 rr1        = input.float(2.0,       "Цель 1 (R)", minval = 0.1, step = 0.1, group = g10)
 rr2        = input.float(3.5,       "Цель 2 (R)", minval = 0.1, step = 0.1, group = g10)
 keepSetups = input.int(3,           "Показывать последних сетапов", minval = 1, maxval = 20, group = g10)
+
+g11 = "11 · Килзоны"
+kzOn       = input.bool(true,       "Подсвечивать килзоны",           group = g11)
+kzTz       = input.string("America/New_York", "Таймзона килзон", options = ["America/New_York", "Europe/London", "Europe/Kyiv", "Europe/Moscow", "UTC", "Asia/Tokyo"], group = g11, tooltip = "Времена ниже заданы по Нью-Йорку — классические килзоны ICT. Сменишь таймзону — пересчитай часы.")
+kzAsiaS    = input.session("2000-0000", "Азия",                       group = g11, inline = "k1")
+kzAsiaC    = input.color(color.new(#ffa726, 92), "",                  group = g11, inline = "k1")
+kzLonS     = input.session("0200-0500", "Лондон",                     group = g11, inline = "k2")
+kzLonC     = input.color(color.new(#42a5f5, 90), "",                  group = g11, inline = "k2")
+kzNyS      = input.session("0700-1000", "Нью-Йорк",                   group = g11, inline = "k3")
+kzNyC      = input.color(color.new(#26a69a, 90), "",                  group = g11, inline = "k3")
+kzUse      = input.string("Лондон + Нью-Йорк", "Какие килзоны считать рабочими", options = ["Лондон + Нью-Йорк", "Только Лондон", "Только Нью-Йорк", "Все три"], group = g11)
+kzHard     = input.bool(false,      "Готовность только внутри килзоны", group = g11, tooltip = "Жёсткий фильтр. Выключено — килзона просто даёт +1 к чек-листу.")
+
+g12 = "12 · Ключевые уровни"
+lvlPD      = input.bool(true,       "Хай/лоу прошлого дня (PDH/PDL)",   group = g12)
+lvlPW      = input.bool(true,       "Хай/лоу прошлой недели (PWH/PWL)", group = g12)
+lvlDO      = input.bool(true,       "Открытие дня",                     group = g12)
+lvlAsia    = input.bool(true,       "Диапазон Азии",                    group = g12, tooltip = "Хай и лоу азиатской сессии — самая снимаемая ликвидность на европейской открывашке.")
+lvlBox     = input.bool(true,       "Бокс азиатского диапазона",        group = g12)
+cKey       = input.color(#ffee58,   "Цвет ключевых уровней",            group = g12)
+
+g13 = "13 · Структура рынка"
+structOn   = input.bool(true,       "Показывать BOS и CHoCH",         group = g13, tooltip = "BOS — продолжение тренда, CHoCH — первый слом в другую сторону.")
+structKeep = input.int(6,           "Хранить отметок", minval = 1, maxval = 30, group = g13)
 
 g8 = "8 · Оформление"
 cBull      = input.color(color.new(#00bfa5, 60), "FVG вверх",   group = g8, inline = "a")
@@ -139,8 +163,10 @@ type Liq
     int   bar
     bool  taken
     int   takenBar
+    string tag
     line  ln
     label lb
+    label tg
 
 var array<Fvg> fvgs = array.new<Fvg>()
 var array<Ovl> ovls = array.new<Ovl>()
@@ -182,6 +208,7 @@ if dayReset
             q = array.get(liqs, i)
             line.delete(q.ln)
             label.delete(q.lb)
+            label.delete(q.tg)
             array.remove(liqs, i)
 
 // ============================ ДАННЫЕ 5m ======================================
@@ -380,32 +407,39 @@ trimLiq(bool isHigh) =>
     if array.size(liqs) > 0
         for i = array.size(liqs) - 1 to 0
             q = array.get(liqs, i)
-            if q.isHigh == isHigh and not q.taken
+            if q.isHigh == isHigh and not q.taken and q.tag == ""
                 cnt += 1
                 if cnt > liqKeep
                     line.delete(q.ln)
                     label.delete(q.lb)
+                    label.delete(q.tg)
                     array.remove(liqs, i)
     0
 
-addLiq(float price, float ch, float cl, bool isHigh) =>
-    q = Liq.new(price = price, isHigh = isHigh, compH = ch, compL = cl, bar = bar_index - pivotLen, taken = false, takenBar = na)
-    if showLiq
-        q.ln := line.new(bar_index - pivotLen, price, bar_index, price, color = cLiq, style = line.style_dashed, width = 1)
+addLiq(float price, float ch, float cl, bool isHigh, int backBars, string tag) =>
+    q = Liq.new(price = price, isHigh = isHigh, compH = ch, compL = cl, bar = bar_index - backBars,
+         taken = false, takenBar = na, tag = tag)
+    key = tag != ""
+    if showLiq or key
+        q.ln := line.new(bar_index - backBars, price, bar_index, price,
+             color = key ? cKey : cLiq, style = key ? line.style_solid : line.style_dashed, width = key ? 2 : 1)
+        if key
+            q.tg := label.new(bar_index, price, tag, style = label.style_label_left,
+                 color = color.new(cKey, 85), textcolor = cKey, size = size.tiny)
     array.push(liqs, q)
     trimLiq(isHigh)
     0
 
 if inWindow and not na(ph)
-    addLiq(ph, cHigh[pivotLen], cLow[pivotLen], true)
+    addLiq(ph, cHigh[pivotLen], cLow[pivotLen], true, pivotLen, "")
 if inWindow and not na(pl)
-    addLiq(pl, cHigh[pivotLen], cLow[pivotLen], false)
+    addLiq(pl, cHigh[pivotLen], cLow[pivotLen], false, pivotLen, "")
 
 // убираем уровни, которые так и не сняли за отведённое время
 if liqLife > 0 and array.size(liqs) > 0
     for i = array.size(liqs) - 1 to 0
         q = array.get(liqs, i)
-        if not q.taken and bar_index - q.bar > liqLife
+        if not q.taken and q.tag == "" and bar_index - q.bar > liqLife
             line.delete(q.ln)
             label.delete(q.lb)
             array.remove(liqs, i)
@@ -430,6 +464,8 @@ if array.size(liqs) > 0
         if not q.taken
             if not na(q.ln)
                 line.set_x2(q.ln, bar_index)
+            if not na(q.tg)
+                label.set_x(q.tg, bar_index)
             hit = q.isHigh ? (high > q.price and close < q.price) : (low < q.price and close > q.price)
             if hit and inSession
                 q.taken    := true
@@ -480,13 +516,15 @@ if array.size(liqs) > 0
             if sweepKeep > 0 and not na(q.takenBar) and bar_index - q.takenBar > sweepKeep
                 line.delete(q.ln)
                 label.delete(q.lb)
+                label.delete(q.tg)
                 array.remove(liqs, i)
 
 // жёсткий потолок на снятые уровни, чтобы не упереться в лимит объектов
-while array.size(liqs) > 60
+while array.size(liqs) > 80
     old = array.shift(liqs)
     line.delete(old.ln)
     label.delete(old.lb)
+    label.delete(old.tg)
 
 while array.size(smtLbls) > 30
     label.delete(array.shift(smtLbls))
@@ -525,6 +563,120 @@ maCrossUp = ma1On and ma2On and ta.crossover(ma1, ma2)
 maCrossDn = ma1On and ma2On and ta.crossunder(ma1, ma2)
 plotshape(maCrossUp ? ma1 : na, "Пересечение MA вверх", shape.circle, location.absolute, color.new(cBull, 0), size = size.tiny)
 plotshape(maCrossDn ? ma1 : na, "Пересечение MA вниз",  shape.circle, location.absolute, color.new(cBear, 0), size = size.tiny)
+
+// =============================== КИЛЗОНЫ =====================================
+inAsiaKz = not na(time(timeframe.period, kzAsiaS, kzTz))
+inLonKz  = not na(time(timeframe.period, kzLonS,  kzTz))
+inNyKz   = not na(time(timeframe.period, kzNyS,   kzTz))
+inKz = switch kzUse
+    "Лондон + Нью-Йорк" => inLonKz or inNyKz
+    "Только Лондон"     => inLonKz
+    "Только Нью-Йорк"   => inNyKz
+    => inAsiaKz or inLonKz or inNyKz
+bgcolor(kzOn and inAsiaKz ? kzAsiaC : na, title = "Килзона Азия")
+bgcolor(kzOn and inLonKz  ? kzLonC  : na, title = "Килзона Лондон")
+bgcolor(kzOn and inNyKz   ? kzNyC   : na, title = "Килзона Нью-Йорк")
+
+// ========================== КЛЮЧЕВЫЕ УРОВНИ ==================================
+// предыдущий день / неделя берём с lookahead_on по закрытым периодам — это
+// штатный непererрисовывающий способ получить PDH/PDL
+[pdh, pdl, dOpen] = request.security(syminfo.tickerid, "D", [high[1], low[1], open], lookahead = barmerge.lookahead_on)
+[pwh, pwl]        = request.security(syminfo.tickerid, "W", [high[1], low[1]],       lookahead = barmerge.lookahead_on)
+[cdh, cdl]        = request.security(smtPair == "" ? syminfo.tickerid : smtPair, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[cwh, cwl]        = request.security(smtPair == "" ? syminfo.tickerid : smtPair, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+newWeek = ta.change(time("W")) != 0
+
+if inWindow and newDay and lvlPD and not na(pdh)
+    addLiq(pdh, cdh, cdl, true,  0, "PDH")
+    addLiq(pdl, cdh, cdl, false, 0, "PDL")
+if inWindow and newWeek and lvlPW and not na(pwh)
+    addLiq(pwh, cwh, cwl, true,  0, "PWH")
+    addLiq(pwl, cwh, cwl, false, 0, "PWL")
+
+// открытие дня — просто ориентир, в свипы не идёт
+var line doLn = na
+var label doLb = na
+if lvlDO and newDay
+    line.delete(doLn)
+    label.delete(doLb)
+    doLn := line.new(bar_index, dOpen, bar_index + 1, dOpen, color = color.new(cKey, 45), style = line.style_dotted, width = 1)
+    doLb := label.new(bar_index, dOpen, "открытие дня", style = label.style_label_left, color = color.new(cKey, 90), textcolor = color.new(cKey, 25), size = size.tiny)
+if not na(doLn)
+    line.set_x2(doLn, bar_index)
+    label.set_x(doLb, bar_index)
+
+// --------------------------- диапазон Азии -----------------------------------
+var float asiaH    = na
+var float asiaL    = na
+var int   asiaBar  = na
+var box   asiaBx   = na
+if inAsiaKz
+    if not inAsiaKz[1]
+        asiaH   := high
+        asiaL   := low
+        asiaBar := bar_index
+        if lvlBox
+            box.delete(asiaBx)
+            asiaBx := box.new(bar_index, high, bar_index, low, border_color = color.new(cKey, 55), border_width = 1, bgcolor = color.new(cKey, 93))
+    else
+        asiaH := math.max(asiaH, high)
+        asiaL := math.min(asiaL, low)
+    if not na(asiaBx)
+        box.set_top(asiaBx, asiaH)
+        box.set_bottom(asiaBx, asiaL)
+        box.set_right(asiaBx, bar_index)
+// сессия закрылась — фиксируем хай и лоу как ликвидность
+if lvlAsia and not inAsiaKz and inAsiaKz[1] and not na(asiaH)
+    addLiq(asiaH, cHigh, cLow, true,  bar_index - asiaBar, "Asia H")
+    addLiq(asiaL, cHigh, cLow, false, bar_index - asiaBar, "Asia L")
+
+// ========================== СТРУКТУРА: BOS / CHoCH ===========================
+var float structH    = na
+var float structL    = na
+var int   structHBar = na
+var int   structLBar = na
+var int   trendDir   = 0
+var array<line>  stLines = array.new<line>()
+var array<label> stLbls  = array.new<label>()
+
+if not na(ph)
+    structH    := ph
+    structHBar := bar_index - pivotLen
+if not na(pl)
+    structL    := pl
+    structLBar := bar_index - pivotLen
+
+brokeUp = not na(structH) and close > structH and close[1] <= structH
+brokeDn = not na(structL) and close < structL and close[1] >= structL
+
+markStruct(float lvl, int fromBar, bool up, string txt) =>
+    col = up ? cBull : cBear
+    ln = line.new(fromBar, lvl, bar_index, lvl, color = color.new(col, 20), style = line.style_dashed, width = 1)
+    lb = label.new(bar_index, lvl, txt, style = up ? label.style_label_up : label.style_label_down,
+         color = color.new(col, 25), textcolor = color.white, size = size.tiny)
+    array.push(stLines, ln)
+    array.push(stLbls, lb)
+    while array.size(stLines) > structKeep
+        line.delete(array.shift(stLines))
+    while array.size(stLbls) > structKeep
+        label.delete(array.shift(stLbls))
+    0
+
+chochUp = false
+chochDn = false
+if brokeUp
+    chochUp := trendDir == -1
+    if structOn
+        markStruct(structH, structHBar, true, chochUp ? "CHoCH" : "BOS")
+    trendDir := 1
+    structH  := na
+if brokeDn
+    chochDn := trendDir == 1
+    if structOn
+        markStruct(structL, structLBar, false, chochDn ? "CHoCH" : "BOS")
+    trendDir := -1
+    structL  := na
 
 // ========================= ГОТОВНОСТЬ К ВХОДУ ================================
 // 1. цена сейчас внутри бычьей / медвежьей зоны?
@@ -571,11 +723,16 @@ biasOn = ma1On and ma2On
 biasL  = biasOn and ma1 > ma2
 biasS  = biasOn and ma1 < ma2
 
-scoreL = (swFreshL ? 1 : 0) + (smtFreshL ? 1 : 0) + (inZoneL ? 1 : 0) + (reactL ? 1 : 0) + (biasL ? 1 : 0)
-scoreS = (swFreshS ? 1 : 0) + (smtFreshS ? 1 : 0) + (inZoneS ? 1 : 0) + (reactS ? 1 : 0) + (biasS ? 1 : 0)
+// 5. структура: пробой в нужную сторону уже был
+structUp = trendDir == 1
+structDn = trendDir == -1
 
-readyL = entryOn and inSession and scoreL >= needScore and scoreL >= scoreS
-readyS = entryOn and inSession and scoreS >= needScore and scoreS > scoreL
+scoreL = (swFreshL ? 1 : 0) + (smtFreshL ? 1 : 0) + (inZoneL ? 1 : 0) + (reactL ? 1 : 0) + (biasL ? 1 : 0) + (inKz ? 1 : 0) + (structUp ? 1 : 0)
+scoreS = (swFreshS ? 1 : 0) + (smtFreshS ? 1 : 0) + (inZoneS ? 1 : 0) + (reactS ? 1 : 0) + (biasS ? 1 : 0) + (inKz ? 1 : 0) + (structDn ? 1 : 0)
+
+kzOk   = not kzHard or inKz
+readyL = entryOn and inSession and kzOk and scoreL >= needScore and scoreL >= scoreS
+readyS = entryOn and inSession and kzOk and scoreS >= needScore and scoreS > scoreL
 newL   = readyL and not readyL[1]
 newS   = readyS and not readyS[1]
 
@@ -693,6 +850,10 @@ alertcondition(maCrossUp, "MA 1 пересекла MA 2 вверх",    "MA вв
 alertcondition(maCrossDn, "MA 1 пересекла MA 2 вниз",     "MA вниз {{ticker}} {{interval}} @ {{close}}")
 alertcondition(newL,      "Готовность к входу LONG",      "Готов вход LONG {{ticker}} {{interval}} @ {{close}}")
 alertcondition(newS,      "Готовность к входу SHORT",     "Готов вход SHORT {{ticker}} {{interval}} @ {{close}}")
+alertcondition(chochUp,   "CHoCH вверх",                  "Слом структуры вверх {{ticker}} {{interval}} @ {{close}}")
+alertcondition(chochDn,   "CHoCH вниз",                   "Слом структуры вниз {{ticker}} {{interval}} @ {{close}}")
+alertcondition(brokeUp and not chochUp, "BOS вверх",      "BOS вверх {{ticker}} {{interval}} @ {{close}}")
+alertcondition(brokeDn and not chochDn, "BOS вниз",       "BOS вниз {{ticker}} {{interval}} @ {{close}}")
 
 // =============================== ПАНЕЛЬ ======================================
 countFvg(bool isBull, bool isHtf) =>
@@ -722,7 +883,7 @@ if showPanel and barstate.islast
         "Слева сверху"  => position.top_left
         "Справа снизу"  => position.bottom_right
         => position.bottom_left
-    var table tb = table.new(position.top_right, 3, 14, border_width = 1)
+    var table tb = table.new(position.top_right, 3, 16, border_width = 1)
     table.set_position(tb, pos)
     hd = color.new(#1e222d, 5)
     cl = color.new(#1e222d, 25)
@@ -731,7 +892,7 @@ if showPanel and barstate.islast
     table.cell(tb, 1, 0, "▲",          bgcolor = hd, text_color = color.new(cBull, 0), text_size = size.small)
     table.cell(tb, 2, 0, "▼",          bgcolor = hd, text_color = color.new(cBear, 0), text_size = size.small)
 
-    // --- что есть на графике ---
+    // ---- что есть на графике ----
     table.cell(tb, 0, 1, "FVG " + htfTF + "m", bgcolor = cl, text_color = color.silver, text_size = size.tiny)
     table.cell(tb, 1, 1, str.tostring(countFvg(true,  true)), bgcolor = cl, text_color = color.white, text_size = size.tiny)
     table.cell(tb, 2, 1, str.tostring(countFvg(false, true)), bgcolor = cl, text_color = color.white, text_size = size.tiny)
@@ -746,7 +907,7 @@ if showPanel and barstate.islast
     table.cell(tb, 1, 3, str.tostring(nB), bgcolor = cl, text_color = nB > 0 ? color.new(cOvlB, 0) : color.gray, text_size = size.tiny)
     table.cell(tb, 2, 3, str.tostring(nS), bgcolor = cl, text_color = nS > 0 ? color.new(cOvlS, 0) : color.gray, text_size = size.tiny)
 
-    // --- чек-лист входа ---
+    // ---- чек-лист ----
     table.cell(tb, 0, 4, "ЧЕК-ЛИСТ", bgcolor = hd, text_color = color.white, text_size = size.tiny)
     table.cell(tb, 1, 4, "", bgcolor = hd)
     table.cell(tb, 2, 4, "", bgcolor = hd)
@@ -755,7 +916,9 @@ if showPanel and barstate.islast
     table.cell(tb, 1, 5, mk(swFreshL), bgcolor = cl, text_color = mkc(swFreshL), text_size = size.tiny)
     table.cell(tb, 2, 5, mk(swFreshS), bgcolor = cl, text_color = mkc(swFreshS), text_size = size.tiny)
 
-    table.cell(tb, 0, 6, smtOn ? "SMT · " + str.replace_all(str.replace_all(str.replace_all(smtPair, "TVC:", ""), "BINANCE:", ""), "CME_MINI:", "") + (smtInv ? " инв." : "") : "SMT · нет пары", bgcolor = cl, text_color = smtOn ? color.silver : color.orange, text_size = size.tiny)
+    pairTxt = str.replace_all(str.replace_all(str.replace_all(smtPair, "TVC:", ""), "BINANCE:", ""), "CME_MINI:", "")
+    table.cell(tb, 0, 6, smtOn ? "SMT · " + pairTxt + (smtInv ? " инв." : "") : "SMT · нет пары", bgcolor = cl,
+         text_color = smtOn ? color.silver : color.orange, text_size = size.tiny)
     table.cell(tb, 1, 6, mk(smtFreshL), bgcolor = cl, text_color = mkc(smtFreshL), text_size = size.tiny)
     table.cell(tb, 2, 6, mk(smtFreshS), bgcolor = cl, text_color = mkc(smtFreshS), text_size = size.tiny)
 
@@ -771,37 +934,47 @@ if showPanel and barstate.islast
     table.cell(tb, 1, 9, mk(biasL), bgcolor = cl, text_color = mkc(biasL), text_size = size.tiny)
     table.cell(tb, 2, 9, mk(biasS), bgcolor = cl, text_color = mkc(biasS), text_size = size.tiny)
 
-    // --- итог ---
-    table.cell(tb, 0, 10, "ГОТОВНОСТЬ", bgcolor = hd, text_color = color.white, text_size = size.tiny)
-    table.cell(tb, 1, 10, str.tostring(scoreL) + "/" + str.tostring(needScore), bgcolor = hd,
+    kzTxt = inAsiaKz ? "килзона · Азия" : (inLonKz ? "килзона · Лондон" : (inNyKz ? "килзона · Нью-Йорк" : "килзона · вне"))
+    table.cell(tb, 0, 10, kzTxt, bgcolor = cl, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 10, mk(inKz), bgcolor = cl, text_color = mkc(inKz), text_size = size.tiny)
+    table.cell(tb, 2, 10, mk(inKz), bgcolor = cl, text_color = mkc(inKz), text_size = size.tiny)
+
+    stTxt = trendDir == 0 ? "структура · нет" : (trendDir == 1 ? "структура · вверх" : "структура · вниз")
+    table.cell(tb, 0, 11, stTxt, bgcolor = cl, text_color = color.silver, text_size = size.tiny)
+    table.cell(tb, 1, 11, mk(structUp), bgcolor = cl, text_color = mkc(structUp), text_size = size.tiny)
+    table.cell(tb, 2, 11, mk(structDn), bgcolor = cl, text_color = mkc(structDn), text_size = size.tiny)
+
+    // ---- итог ----
+    table.cell(tb, 0, 12, "ГОТОВНОСТЬ", bgcolor = hd, text_color = color.white, text_size = size.tiny)
+    table.cell(tb, 1, 12, str.tostring(scoreL) + "/" + str.tostring(needScore), bgcolor = hd,
          text_color = readyL ? color.new(cBull, 0) : color.silver, text_size = size.tiny)
-    table.cell(tb, 2, 10, str.tostring(scoreS) + "/" + str.tostring(needScore), bgcolor = hd,
+    table.cell(tb, 2, 12, str.tostring(scoreS) + "/" + str.tostring(needScore), bgcolor = hd,
          text_color = readyS ? color.new(cBear, 0) : color.silver, text_size = size.tiny)
 
     setupTxt = sDir == 0 ? "активного сетапа нет" :
          (sDir == 1 ? "LONG " : "SHORT ") + str.tostring(sEntry, format.mintick) +
          "  SL " + str.tostring(sSl, format.mintick) + "  TP " + str.tostring(sTp1, format.mintick)
-    table.cell(tb, 0, 11, setupTxt, bgcolor = cl,
+    table.cell(tb, 0, 13, setupTxt, bgcolor = cl,
          text_color = sDir == 0 ? color.gray : (sDir == 1 ? color.new(cBull, 0) : color.new(cBear, 0)), text_size = size.tiny)
-    table.cell(tb, 1, 11, "", bgcolor = cl)
-    table.cell(tb, 2, 11, "", bgcolor = cl)
-    table.merge_cells(tb, 0, 11, 2, 11)
+    table.cell(tb, 1, 13, "", bgcolor = cl)
+    table.cell(tb, 2, 13, "", bgcolor = cl)
+    table.merge_cells(tb, 0, 13, 2, 13)
 
     closed  = nWin + nLoss
     statTxt = nSetup == 0 ? "сетапов ещё не было" :
          str.tostring(nSetup) + " сетапов · TP " + str.tostring(nWin) + " · SL " + str.tostring(nLoss) +
          (closed > 0 ? "  →  " + str.tostring(math.round(nWin * 100.0 / closed)) + "%" : "")
-    table.cell(tb, 0, 12, statTxt, bgcolor = cl,
+    table.cell(tb, 0, 14, statTxt, bgcolor = cl,
          text_color = closed == 0 ? color.silver : (nWin >= nLoss ? color.new(cBull, 0) : color.new(cBear, 0)), text_size = size.tiny)
-    table.cell(tb, 1, 12, "", bgcolor = cl)
-    table.cell(tb, 2, 12, "", bgcolor = cl)
-    table.merge_cells(tb, 0, 12, 2, 12)
+    table.cell(tb, 1, 14, "", bgcolor = cl)
+    table.cell(tb, 2, 14, "", bgcolor = cl)
+    table.merge_cells(tb, 0, 14, 2, 14)
 
     modeTxt = visMode == "Последние N баров" ? "окно " + str.tostring(histBars) + " бар." : (visMode == "Текущий день" ? "текущий день" : "вся история")
     warnTxt = tfSecHtf <= tfSecChart ? "⚠ ТФ анализа ≤ ТФ графика" :
          (useSession and not inSession ? "вне сессии" : syminfo.ticker + " · " + timeframe.period + " · " + modeTxt)
-    table.cell(tb, 0, 13, warnTxt, bgcolor = cl,
+    table.cell(tb, 0, 15, warnTxt, bgcolor = cl,
          text_color = tfSecHtf <= tfSecChart ? color.orange : color.silver, text_size = size.tiny)
-    table.cell(tb, 1, 13, "", bgcolor = cl)
-    table.cell(tb, 2, 13, "", bgcolor = cl)
-    table.merge_cells(tb, 0, 13, 2, 13)
+    table.cell(tb, 1, 15, "", bgcolor = cl)
+    table.cell(tb, 2, 15, "", bgcolor = cl)
+    table.merge_cells(tb, 0, 15, 2, 15)
