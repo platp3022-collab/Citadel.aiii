@@ -15,75 +15,65 @@ indicator("FVG Sniper", overlay = true,
 
 // ================================ ВВОД =======================================
 gMain = "Основное"
-htfTF     = input.timeframe("5", "Таймфрейм анализа", group = gMain, tooltip = "FVG ищутся на нём. График держи младше — например анализ 5, график 3.")
-density   = input.string("Средне", "Плотность разметки", options = ["Мало", "Средне", "Много"], group = gMain, tooltip = "Одна ручка вместо семи счётчиков: сколько зон, уровней, отметок структуры и сетапов держать одновременно.")
-visMode   = input.string("Последние N баров", "Что показывать", options = ["Последние N баров", "Текущий день", "Всё"], group = gMain)
-histBars  = input.int(200, "Окно, баров", minval = 20, maxval = 5000, group = gMain)
-lifeBars  = input.int(40, "Время жизни зоны, баров", minval = 0, maxval = 1000, group = gMain, tooltip = "База для FVG графика. FVG анализа и уровни живут втрое дольше, зоны GAP — вдвое. 0 — жить до отработки.")
-sens      = input.float(0.15, "Минимальный размер (× ATR)", minval = 0, step = 0.05, group = gMain, tooltip = "Фильтр мелочи. Больше значение — чище график.")
-pivotLen  = input.int(5, "Длина пивота", minval = 1, maxval = 50, group = gMain, tooltip = "Меньше — больше свингов и свипов.")
-rangeLen  = input.int(60, "Диапазон сделки, баров", minval = 10, maxval = 500, group = gMain, tooltip = "На нём считаются премиум/дискаунт и OTE.")
+htfTF    = input.timeframe("5", "Таймфрейм анализа", group = gMain, tooltip = "FVG ищутся на нём. График держи младше: анализ 5, график 3.")
+mode     = input.string("Только сейчас", "Режим", options = ["Только сейчас", "С историей"], group = gMain, tooltip = "«Только сейчас» — на графике остаётся исключительно то, что работает прямо сейчас: свежие зоны рядом с ценой, неснятая ликвидность, активный сетап. Всё прошлое стирается.")
+sens     = input.float(0.15, "Минимальный размер (× ATR)", minval = 0, step = 0.05, group = gMain, tooltip = "Фильтр мелочи. Больше — чище график.")
+pivotLen = input.int(5, "Длина пивота", minval = 1, maxval = 50, group = gMain)
 
 gShow = "Что рисовать"
-showHtf    = input.bool(true, "FVG анализа",                     group = gShow)
-showLtf    = input.bool(true, "FVG графика",                     group = gShow)
-showOvl    = input.bool(true, "GAP — два FVG на одном уровне",   group = gShow)
-showLiq    = input.bool(true, "Ликвидность и свипы",             group = gShow)
-showKey    = input.bool(true, "Ключевые уровни: день, неделя, Азия", group = gShow)
-kzOn       = input.bool(true, "Килзоны",                         group = gShow)
-showStruct = input.bool(true, "Структура BOS / CHoCH",           group = gShow)
-showOb     = input.bool(true, "Ордер-блоки",                     group = gShow, tooltip = "Последняя противоположная свеча перед импульсом, создавшим FVG.")
-showRange  = input.bool(true, "Премиум / дискаунт и OTE",        group = gShow, tooltip = "Диапазон сделки, равновесие 50 % и зона оптимального входа 0.62–0.79.")
-showSetup  = input.bool(true, "Уровни сетапа",                   group = gShow)
-showPanel  = input.bool(true, "Панель",                          group = gShow)
-fillMode   = input.string("Заливка", "Стиль зон", options = ["Заливка", "Только границы"], group = gShow, tooltip = "«Только границы» убирает заливку — график перестаёт быть серым.")
+showFvg    = input.bool(true, "Зоны: FVG, GAP, ордер-блоки", group = gShow)
+showLiq    = input.bool(true, "Ликвидность и свипы",         group = gShow)
+showKz     = input.bool(true, "Килзоны",                     group = gShow)
+showStruct = input.bool(true, "Структура BOS / CHoCH",       group = gShow)
+showRange  = input.bool(true, "Премиум / дискаунт и OTE",    group = gShow)
+showSetup  = input.bool(true, "Уровни сетапа",               group = gShow)
+showPanel  = input.bool(true, "Панель",                      group = gShow)
+fillMode   = input.string("Только границы", "Стиль зон", options = ["Только границы", "Заливка"], group = gShow)
 
 gEntry = "Вход"
-entryOn   = input.bool(true,  "Считать готовность", group = gEntry)
-needScore = input.int(6, "Нужно совпадений из 8", minval = 1, maxval = 8, group = gEntry, tooltip = "Свип · SMT · зона · реакция · байас MA · килзона · структура · дискаунт/премиум.")
+entryOn   = input.bool(true, "Считать готовность", group = gEntry)
+needScore = input.int(6, "Нужно совпадений из 8", minval = 1, maxval = 8, group = gEntry, tooltip = "Свип · SMT · зона · реакция · байас · килзона · структура · дискаунт/премиум.")
 kzHard    = input.bool(false, "Только внутри килзоны", group = gEntry)
 slPad     = input.float(0.25, "Отступ стопа (× ATR)", minval = 0, step = 0.05, group = gEntry)
-rr1       = input.float(2.0,  "Цель 1 (R)", minval = 0.1, step = 0.1, group = gEntry)
-rr2       = input.float(3.5,  "Цель 2 (R)", minval = 0.1, step = 0.1, group = gEntry)
+rr1       = input.float(2.0, "Цель 1 (R)", minval = 0.1, step = 0.1, group = gEntry)
+rr2       = input.float(3.5, "Цель 2 (R)", minval = 0.1, step = 0.1, group = gEntry)
 
 gSmt = "SMT"
 smtSym     = input.symbol("", "Инструмент (пусто = авто)", group = gSmt, tooltip = "Пусто — пара подбирается сама: форекс → TVC:DXY, золото ↔ серебро, BTC ↔ ETH, NQ ↔ SPX.")
 smtInverse = input.bool(false, "Инверсия (при ручном вводе)", group = gSmt)
 
 gKz = "Килзоны"
-kzTz    = input.string("America/New_York", "Таймзона", options = ["America/New_York", "Europe/London", "Europe/Kyiv", "Europe/Moscow", "UTC", "Asia/Tokyo"], group = gKz, tooltip = "Часы ниже — классические килзоны ICT по Нью-Йорку.")
-kzAsiaS = input.session("2000-0000", "Азия",      group = gKz)
-kzLonS  = input.session("0200-0500", "Лондон",    group = gKz)
-kzNyS   = input.session("0700-1000", "Нью-Йорк",  group = gKz)
-kzUse   = input.string("Лондон + Нью-Йорк", "Рабочие килзоны", options = ["Лондон + Нью-Йорк", "Только Лондон", "Только Нью-Йорк", "Все три"], group = gKz)
+kzTz    = input.string("America/New_York", "Таймзона", options = ["America/New_York", "Europe/London", "Europe/Kyiv", "Europe/Moscow", "UTC", "Asia/Tokyo"], group = gKz)
+kzAsiaS = input.session("2000-0000", "Азия",     group = gKz)
+kzLonS  = input.session("0200-0500", "Лондон",   group = gKz)
+kzNyS   = input.session("0700-1000", "Нью-Йорк", group = gKz)
 
 gMa = "Скользящие средние"
-ma1On   = input.bool(true, "MA 1", group = gMa, inline = "m1")
-ma1Type = input.string("EMA", "", options = ["EMA", "SMA"], group = gMa, inline = "m1")
-ma1Len  = input.int(50, "", minval = 1, group = gMa, inline = "m1")
-ma1TF   = input.timeframe("", "", group = gMa, inline = "m1", tooltip = "Пусто — таймфрейм графика.")
-ma2On   = input.bool(true, "MA 2", group = gMa, inline = "m2")
-ma2Type = input.string("EMA", "", options = ["EMA", "SMA"], group = gMa, inline = "m2")
-ma2Len  = input.int(200, "", minval = 1, group = gMa, inline = "m2")
-ma2TF   = input.timeframe("", "", group = gMa, inline = "m2")
+showMa = input.bool(true, "Показывать EMA", group = gMa)
+maFast = input.int(50,  "Быстрая", minval = 1, group = gMa, inline = "m")
+maSlow = input.int(200, "Медленная", minval = 1, group = gMa, inline = "m")
 
-gUi = "Цвета"
-cBull    = input.color(color.new(#00bfa5, 60), "Вверх", group = gUi, inline = "c")
-cBear    = input.color(color.new(#ff5252, 60), "Вниз",  group = gUi, inline = "c")
-cKey     = input.color(#ffee58, "Ключевые",             group = gUi, inline = "c")
+gUi = "Оформление"
+cUp      = input.color(#26a69a, "Вверх", group = gUi, inline = "c")
+cDn      = input.color(#ef5350, "Вниз",  group = gUi, inline = "c")
 panelPos = input.string("Справа сверху", "Угол панели", options = ["Справа сверху", "Слева сверху", "Справа снизу", "Слева снизу"], group = gUi)
 
 // ============================= ПРОИЗВОДНОЕ ===================================
-// «плотность» разворачивается в счётчики
-htfKeep    = density == "Мало" ? 2 : density == "Средне" ? 4 : 8
-ltfKeep    = density == "Мало" ? 2 : density == "Средне" ? 4 : 8
-ovlKeep    = density == "Мало" ? 2 : density == "Средне" ? 4 : 8
-liqKeep    = density == "Мало" ? 2 : density == "Средне" ? 3 : 6
-structKeep = density == "Мало" ? 3 : density == "Средне" ? 6 : 10
-keepSetups = density == "Мало" ? 2 : density == "Средне" ? 3 : 5
-sweepKeep  = density == "Мало" ? 25 : density == "Средне" ? 40 : 80
+nowOnly = mode == "Только сейчас"
 
-// «время жизни» и «минимальный размер» — в свои наборы
+// сколько объектов живёт одновременно
+htfKeep    = nowOnly ? 2 : 4
+ltfKeep    = nowOnly ? 2 : 3
+ovlKeep    = nowOnly ? 2 : 3
+liqKeep    = nowOnly ? 2 : 4
+structKeep = nowOnly ? 2 : 5
+keepSetups = nowOnly ? 1 : 3
+sweepKeep  = nowOnly ? 10 : 30
+lifeBars   = nowOnly ? 25 : 50
+histBars   = nowOnly ? 120 : 250
+visMode    = nowOnly ? "Текущий день" : "Последние N баров"
+farAtr     = nowOnly ? 6.0 : 15.0     // дальше этого от цены зона стирается
+
 htfLife   = lifeBars * 3
 ltfLife   = lifeBars
 ovlLife   = lifeBars * 2
@@ -92,39 +82,59 @@ htfMinAtr = sens
 ltfMinAtr = sens * 0.8
 ovlMinAtr = sens * 0.4
 
-// бывшие настройки, которые на практике всегда стояли одинаково
+// бывшие настройки, теперь просто разумные значения
+showHtf   = showFvg
+showLtf   = showFvg
+showOvl   = showFvg
+showOb    = showFvg
+showKey   = showLiq
+showSweep = showLiq
+kzOn      = showKz
+structOn  = showStruct
+lvlPD     = showLiq
+lvlPW     = showLiq
+lvlDO     = showLiq
+lvlAsia   = showLiq
+lvlBox    = showLiq
 showCE    = true
 showEdges = true
 ovlText   = true
-rightPad  = 4
-dimLtf    = 20
-showSweep = showLiq
 showSmt   = true
 smtLine   = true
-maFill    = true
+rightPad  = 4
+dimLtf    = 20
 dispMult  = 1.0
 entryWin  = 15
 reactWin  = 3
+rangeLen  = 60
 inSession = true
-lvlPD     = showKey
-lvlPW     = showKey
-lvlDO     = showKey
-lvlAsia   = showKey
-lvlBox    = showKey
-structOn  = showStruct
+kzUse     = "Лондон + Нью-Йорк"
+ma1On     = showMa
+ma2On     = showMa
+ma1Type   = "EMA"
+ma2Type   = "EMA"
+ma1Len    = maFast
+ma2Len    = maSlow
+ma1TF     = ""
+ma2TF     = ""
+maFill    = false
 
-// цвета, которые незачем настраивать поштучно
-cOvlB   = color.new(cBull, math.max(0, color.t(cBull) - 25))
-cOvlS   = color.new(cBear, math.max(0, color.t(cBear) - 25))
-cLiq    = color.new(#787b86, 30)
-cSweep  = #42a5f5
-cSmt    = #ffc107
-cOb     = #7e57c2
-ma1Col  = #42a5f5
-ma2Col  = #ab47bc
-kzAsiaC = color.new(#ffa726, 92)
-kzLonC  = color.new(#42a5f5, 90)
-kzNyC   = color.new(#26a69a, 90)
+// --------------------------------- цвета -------------------------------------
+// весь индикатор живёт на двух цветах плюс серый и белый — ничего лишнего
+cNeutral = #9598a1
+cBull    = color.new(cUp, 60)
+cBear    = color.new(cDn, 60)
+cOvlB    = color.new(cUp, 35)
+cOvlS    = color.new(cDn, 35)
+cOb      = cNeutral
+cKey     = cNeutral
+cLiq     = color.new(cNeutral, 45)
+cSweep   = #ffffff
+cSmt     = #ffffff
+ma1Col   = color.new(cNeutral, 35)
+ma2Col   = color.new(cNeutral, 10)
+kzLonC   = color.new(cNeutral, 94)
+kzNyC    = color.new(cNeutral, 94)
 
 // =============================== ТИПЫ ========================================
 type Fvg
@@ -293,18 +303,18 @@ addFvg(float top, float bot, bool isBull, int kind, int anchor) =>
     minSz  = (isHtf ? nz(hAtr, atr) : atr) * (isHtf ? htfMinAtr : ltfMinAtr)
     doDraw = isOb ? showOb : (isHtf ? showHtf : showLtf)
     if top - bot > (isOb ? 0.0 : minSz) and top > bot
-        base = isOb ? cOb : (isBull ? cBull : cBear)
+        base = isBull ? cBull : cBear
         col  = isHtf ? base : color.new(base, math.min(99, color.t(base) + dimLtf))
         f = Fvg.new(top = top, bot = bot, bull = isBull, kind = kind, born = bar_index)
         if doDraw
             color fill = fillMode == "Заливка" ? col : na
             f.bx := box.new(anchor, top, time + padMs, bot, xloc = xloc.bar_time,
-                 border_color = color.new(base, isHtf ? 15 : 40), border_width = isHtf ? 2 : 1,
-                 border_style = isHtf ? line.style_solid : line.style_dashed, bgcolor = fill)
-            if showEdges
+                 border_color = color.new(base, isHtf ? 20 : 50), border_width = isHtf ? 2 : 1,
+                 border_style = isOb ? line.style_dotted : (isHtf ? line.style_solid : line.style_dashed), bgcolor = fill)
+            if showEdges and not isOb
                 f.lnT := line.new(anchor, top, time + padMs, top, xloc = xloc.bar_time, color = color.new(base, 25), width = isHtf ? 2 : 1)
                 f.lnB := line.new(anchor, bot, time + padMs, bot, xloc = xloc.bar_time, color = color.new(base, 25), width = isHtf ? 2 : 1)
-            if showCE
+            if showCE and not isOb
                 f.lnC := line.new(anchor, (top + bot) / 2, time + padMs, (top + bot) / 2, xloc = xloc.bar_time, color = color.new(base, 40), style = line.style_dotted)
         tryOverlap(f)
         array.push(fvgs, f)
@@ -354,7 +364,8 @@ if array.size(fvgs) > 0
         life    = f.kind == 1 ? htfLife : ltfLife
         expired = life > 0 and bar_index - f.born > life
         broken  = f.bull ? close < f.bot : close > f.top
-        if expired or broken
+        far     = low - f.top > atr * farAtr or f.bot - high > atr * farAtr
+        if expired or broken or far
             killFvg(f)
             array.remove(fvgs, i)
 
@@ -365,7 +376,7 @@ if array.size(ovls) > 0
         box.set_right(o.bx, time + padMs)
         if not na(o.lb)
             label.set_x(o.lb, time + padMs)
-        gone = (o.bull ? close < o.bot : close > o.top) or (ovlLife > 0 and bar_index - o.born > ovlLife)
+        gone = (o.bull ? close < o.bot : close > o.top) or (ovlLife > 0 and bar_index - o.born > ovlLife) or low - o.top > atr * farAtr or o.bot - high > atr * farAtr
         if gone
             box.delete(o.bx)
             label.delete(o.lb)
@@ -460,8 +471,9 @@ if array.size(liqs) > 0
                     swLowBar   := bar_index
                     swLowPrice := low
                     swLowSmt   := divergence
+                swCol = q.isHigh ? cDn : cUp
                 if not na(q.ln)
-                    line.set_color(q.ln, cSweep)
+                    line.set_color(q.ln, swCol)
                     line.set_style(q.ln, line.style_solid)
                     line.set_width(q.ln, 2)
                 showIt = showSweep or (divergence and showSmt)
@@ -469,7 +481,7 @@ if array.size(liqs) > 0
                     txt = (q.isHigh ? "SWEEP ↑ BSL" : "SWEEP ↓ SSL") + (divergence and showSmt ? "  ·  SMT" : "")
                     q.lb := label.new(bar_index, q.isHigh ? high : low, txt,
                          style = q.isHigh ? label.style_label_down : label.style_label_up,
-                         color = divergence and showSmt ? color.new(cSmt, 0) : color.new(cSweep, 0),
+                         color = color.new(divergence and showSmt ? cSmt : swCol, 10),
                          textcolor = divergence and showSmt ? color.black : color.white,
                          size = size.small,
                          tooltip = "Снята ликвидность " + str.tostring(q.price, format.mintick) +
@@ -489,12 +501,12 @@ if array.size(liqs) > 0
                 array.remove(liqs, i)
 
 // жёсткий потолок на снятые уровни, чтобы не упереться в лимит объектов
-while array.size(liqs) > 80
+while array.size(liqs) > (nowOnly ? 24 : 60)
     killLiq(array.shift(liqs))
 
-while array.size(smtLbls) > 30
+while array.size(smtLbls) > (nowOnly ? 4 : 20)
     label.delete(array.shift(smtLbls))
-while array.size(smtLines) > 30
+while array.size(smtLines) > (nowOnly ? 4 : 20)
     line.delete(array.shift(smtLines))
 
 
@@ -526,7 +538,6 @@ inKz = switch kzUse
     "Только Лондон"     => inLonKz
     "Только Нью-Йорк"   => inNyKz
     => inAsiaKz or inLonKz or inNyKz
-bgcolor(kzOn and inAsiaKz ? kzAsiaC : na, title = "Килзона Азия")
 bgcolor(kzOn and inLonKz  ? kzLonC  : na, title = "Килзона Лондон")
 bgcolor(kzOn and inNyKz   ? kzNyC   : na, title = "Килзона Нью-Йорк")
 
@@ -857,17 +868,14 @@ alertcondition(brokeUp and not chochUp, "BOS вверх",      "BOS вверх {
 alertcondition(brokeDn and not chochDn, "BOS вниз",       "BOS вниз {{ticker}} {{interval}} @ {{close}}")
 
 // =============================== ПАНЕЛЬ ======================================
-countFvg(bool isBull, int kind) =>
+// одна цифра на сторону вместо четырёх строк со счётчиками
+countZones(bool isBull) =>
     n = 0
     if array.size(fvgs) > 0
         for i = 0 to array.size(fvgs) - 1
             f = array.get(fvgs, i)
-            if f.bull == isBull and f.kind == kind
+            if f.bull == isBull
                 n += 1
-    n
-
-countOvl(bool isBull) =>
-    n = 0
     if array.size(ovls) > 0
         for i = 0 to array.size(ovls) - 1
             o = array.get(ovls, i)
@@ -876,19 +884,12 @@ countOvl(bool isBull) =>
     n
 
 mk(bool b)  => b ? "✔" : "·"
-mkc(bool b) => b ? color.new(#00e676, 0) : color.new(#787b86, 20)
+mkc(bool b) => b ? color.white : color.new(cNeutral, 45)
 
-// три вида строк вместо трёх десятков одинаковых table.cell
 rowChk(t, r, name, l, s, bg) =>
-    table.cell(t, 0, r, name,  bgcolor = bg, text_color = color.silver, text_size = size.tiny)
-    table.cell(t, 1, r, mk(l), bgcolor = bg, text_color = mkc(l),       text_size = size.tiny)
-    table.cell(t, 2, r, mk(s), bgcolor = bg, text_color = mkc(s),       text_size = size.tiny)
-    0
-
-rowNum(t, r, name, l, s, bg, cl, cs) =>
-    table.cell(t, 0, r, name, bgcolor = bg, text_color = color.silver, text_size = size.tiny)
-    table.cell(t, 1, r, str.tostring(l), bgcolor = bg, text_color = cl, text_size = size.tiny)
-    table.cell(t, 2, r, str.tostring(s), bgcolor = bg, text_color = cs, text_size = size.tiny)
+    table.cell(t, 0, r, name,  bgcolor = bg, text_color = color.new(cNeutral, 10), text_size = size.tiny)
+    table.cell(t, 1, r, mk(l), bgcolor = bg, text_color = mkc(l), text_size = size.tiny)
+    table.cell(t, 2, r, mk(s), bgcolor = bg, text_color = mkc(s), text_size = size.tiny)
     0
 
 rowWide(t, r, txt, bg, fg) =>
@@ -904,54 +905,53 @@ if showPanel and barstate.islast
         "Слева сверху"  => position.top_left
         "Справа снизу"  => position.bottom_right
         => position.bottom_left
-    var table tb = table.new(position.top_right, 3, 18, border_width = 1)
+    var table tb = table.new(position.top_right, 3, 15, border_width = 1)
     table.set_position(tb, pos)
     hd = color.new(#1e222d, 5)
     cl = color.new(#1e222d, 25)
 
-    table.cell(tb, 0, 0, "FVG SNIPER", bgcolor = hd, text_color = color.white,        text_size = size.small)
-    table.cell(tb, 1, 0, "▲",          bgcolor = hd, text_color = color.new(cBull, 0), text_size = size.small)
-    table.cell(tb, 2, 0, "▼",          bgcolor = hd, text_color = color.new(cBear, 0), text_size = size.small)
+    table.cell(tb, 0, 0, "FVG SNIPER", bgcolor = hd, text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 0, "▲",          bgcolor = hd, text_color = cUp,         text_size = size.small)
+    table.cell(tb, 2, 0, "▼",          bgcolor = hd, text_color = cDn,         text_size = size.small)
 
-    nB = countOvl(true)
-    nS = countOvl(false)
-    rowNum(tb, 1, "FVG " + htfTF + "m",      countFvg(true, 1),  countFvg(false, 1),  cl, color.white, color.white)
-    rowNum(tb, 2, "FVG " + timeframe.period, countFvg(true, 0), countFvg(false, 0), cl, color.white, color.white)
-    rowNum(tb, 3, "GAP · 2×FVG", nB, nS, cl,
-         nB > 0 ? color.new(cOvlB, 0) : color.gray, nS > 0 ? color.new(cOvlS, 0) : color.gray)
-    rowNum(tb, 4, "ордер-блоки", countFvg(true, 2), countFvg(false, 2), cl, color.new(cOb, 0), color.new(cOb, 0))
+    zL = countZones(true)
+    zS = countZones(false)
+    table.cell(tb, 0, 1, "зоны рядом", bgcolor = cl, text_color = color.new(cNeutral, 10), text_size = size.tiny)
+    table.cell(tb, 1, 1, str.tostring(zL), bgcolor = cl, text_color = zL > 0 ? cUp : color.new(cNeutral, 45), text_size = size.tiny)
+    table.cell(tb, 2, 1, str.tostring(zS), bgcolor = cl, text_color = zS > 0 ? cDn : color.new(cNeutral, 45), text_size = size.tiny)
 
-    rowWide(tb, 5, "ЧЕК-ЛИСТ  ·  " + amdTxt, hd, color.white)
+    rowWide(tb, 2, amdTxt, hd, color.white)
+
     pairTxt = str.replace_all(str.replace_all(str.replace_all(smtPair, "TVC:", ""), "BINANCE:", ""), "CME_MINI:", "")
-    kzTxt = inAsiaKz ? "килзона · Азия" : (inLonKz ? "килзона · Лондон" : (inNyKz ? "килзона · Нью-Йорк" : "килзона · вне"))
+    kzTxt = inLonKz ? "килзона · Лондон" : (inNyKz ? "килзона · Нью-Йорк" : (inAsiaKz ? "килзона · Азия" : "килзона · вне"))
     stTxt = trendDir == 0 ? "структура · нет" : (trendDir == 1 ? "структура · вверх" : "структура · вниз")
-    rowChk(tb, 6, "свип", swFreshL, swFreshS, cl)
-    rowChk(tb, 7, smtOn ? "SMT · " + pairTxt + (smtInv ? " инв." : "") : "SMT · нет пары", smtFreshL, smtFreshS, cl)
-    rowChk(tb, 8, "цена в зоне", inZoneL, inZoneS, cl)
-    rowChk(tb, 9, "реакция " + timeframe.period, reactL, reactS, cl)
-    rowChk(tb, 10, biasOn ? "байас MA" : "байас MA (выкл)", biasL, biasS, cl)
-    rowChk(tb, 11, kzTxt, inKz, inKz, cl)
-    rowChk(tb, 12, stTxt, structUp, structDn, cl)
-    pdTxt = inOte ? "OTE 0.62–0.79 ✦" : (inDiscount ? "дискаунт" : "премиум")
-    rowChk(tb, 13, pdTxt, inDiscount, inPremium, cl)
+    pdTxt = inOte ? "OTE 0.62–0.79" : (inDiscount ? "дискаунт" : "премиум")
+    rowChk(tb, 3, "свип", swFreshL, swFreshS, cl)
+    rowChk(tb, 4, smtOn ? "SMT · " + pairTxt + (smtInv ? " инв." : "") : "SMT · нет пары", smtFreshL, smtFreshS, cl)
+    rowChk(tb, 5, "цена в зоне", inZoneL, inZoneS, cl)
+    rowChk(tb, 6, "реакция " + timeframe.period, reactL, reactS, cl)
+    rowChk(tb, 7, biasOn ? "байас EMA" : "байас EMA (выкл)", biasL, biasS, cl)
+    rowChk(tb, 8, kzTxt, inKz, inKz, cl)
+    rowChk(tb, 9, stTxt, structUp, structDn, cl)
+    rowChk(tb, 10, pdTxt, inDiscount, inPremium, cl)
 
-    table.cell(tb, 0, 14, "ГОТОВНОСТЬ", bgcolor = hd, text_color = color.white, text_size = size.tiny)
-    table.cell(tb, 1, 14, str.tostring(scoreL) + "/" + str.tostring(needScore), bgcolor = hd,
-         text_color = readyL ? color.new(cBull, 0) : color.silver, text_size = size.tiny)
-    table.cell(tb, 2, 14, str.tostring(scoreS) + "/" + str.tostring(needScore), bgcolor = hd,
-         text_color = readyS ? color.new(cBear, 0) : color.silver, text_size = size.tiny)
+    table.cell(tb, 0, 11, "ГОТОВНОСТЬ", bgcolor = hd, text_color = color.white, text_size = size.tiny)
+    table.cell(tb, 1, 11, str.tostring(scoreL) + "/" + str.tostring(needScore), bgcolor = hd,
+         text_color = readyL ? cUp : color.new(cNeutral, 20), text_size = size.tiny)
+    table.cell(tb, 2, 11, str.tostring(scoreS) + "/" + str.tostring(needScore), bgcolor = hd,
+         text_color = readyS ? cDn : color.new(cNeutral, 20), text_size = size.tiny)
 
     setupTxt = sDir == 0 ? "активного сетапа нет" :
          (sDir == 1 ? "LONG " : "SHORT ") + str.tostring(sEntry, format.mintick) +
          "  SL " + str.tostring(sSl, format.mintick) + "  TP " + str.tostring(sTp1, format.mintick)
-    rowWide(tb, 15, setupTxt, cl, sDir == 0 ? color.gray : (sDir == 1 ? color.new(cBull, 0) : color.new(cBear, 0)))
+    rowWide(tb, 12, setupTxt, cl, sDir == 0 ? color.new(cNeutral, 45) : (sDir == 1 ? cUp : cDn))
 
     closed  = nWin + nLoss
     statTxt = nSetup == 0 ? "сетапов ещё не было" :
          str.tostring(nSetup) + " сетапов · TP " + str.tostring(nWin) + " · SL " + str.tostring(nLoss) +
          (closed > 0 ? "  →  " + str.tostring(math.round(nWin * 100.0 / closed)) + "%" : "")
-    rowWide(tb, 16, statTxt, cl, closed == 0 ? color.silver : (nWin >= nLoss ? color.new(cBull, 0) : color.new(cBear, 0)))
+    rowWide(tb, 13, statTxt, cl, closed == 0 ? color.new(cNeutral, 20) : (nWin >= nLoss ? cUp : cDn))
 
-    modeTxt = visMode == "Последние N баров" ? "окно " + str.tostring(histBars) + " бар." : (visMode == "Текущий день" ? "текущий день" : "вся история")
-    warnTxt = tfSecHtf <= tfSecChart ? "⚠ ТФ анализа ≤ ТФ графика" : syminfo.ticker + " · " + timeframe.period + " · " + modeTxt
-    rowWide(tb, 17, warnTxt, cl, tfSecHtf <= tfSecChart ? color.orange : color.silver)
+    warnTxt = tfSecHtf <= tfSecChart ? "⚠ ТФ анализа ≤ ТФ графика" :
+         syminfo.ticker + " · " + timeframe.period + " · " + (nowOnly ? "только сейчас" : "с историей")
+    rowWide(tb, 14, warnTxt, cl, tfSecHtf <= tfSecChart ? #ffa726 : color.new(cNeutral, 20))
