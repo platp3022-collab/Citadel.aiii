@@ -6,181 +6,152 @@
 <title>POLYBOT TERMINAL</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  /* Терминал в металле: всё оттенками серого, объём даётся фасками и тенями.
-     Прибыль и убыток различаются яркостью и стрелкой, а не цветом — палитра
-     намеренно монохромная. Тема Telegram игнорируется: это прибор. */
+  /* Светлая панель: белые карточки, воздух, синий как единственный акцент.
+     Тяжёлых фасок и теней нет — вес даётся отступами и тонкими линиями. */
   :root {
-    --ink:      #0a0a0b;   /* самый тёмный: щели и провалы */
-    --panel:    #131418;
-    --panel-hi: #1c1e23;
-    --screen:   #0d0e11;   /* «стекло» экранов */
-    --edge-hi:  rgba(255,255,255,.075);  /* верхняя фаска */
-    --edge-lo:  rgba(0,0,0,.72);         /* нижняя фаска */
-    --text:     #d8d9dd;
-    --bright:   #f4f5f7;   /* прибыль, акцент */
-    --mid:      #9a9ca3;
-    --dim:      #6a6c74;
-    --faint:    #494b52;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-            "Liberation Mono", "Courier New", monospace;
-    --bevel: inset 0 1px 0 var(--edge-hi), inset 0 -1px 0 var(--edge-lo),
-             0 6px 14px rgba(0,0,0,.5);
-    --groove: inset 0 2px 5px rgba(0,0,0,.85), inset 0 -1px 0 var(--edge-hi);
+    --bg:        #eef2f8;
+    --card:      #ffffff;
+    --line:      #e3e9f2;
+    --line-soft: #eef2f7;
+    --text:      #0f172a;
+    --mid:       #55627a;
+    --dim:       #8d9ab0;
+    --blue:      #2563eb;
+    --blue-ink:  #1d4ed8;
+    --blue-soft: #eaf1ff;
+    --blue-line: #cfe0ff;
+    --up:        #0f9d63;
+    --up-soft:   #e8f7f0;
+    --down:      #dc4b4b;
+    --down-soft: #fdeeee;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 18px rgba(16,24,40,.06);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { background: var(--ink); }
+  html, body { background: var(--bg); }
   body {
-    margin: 0; padding: 0 0 84px;
-    color: var(--text);
-    font-family: var(--mono); font-size: 12px; line-height: 1.45; letter-spacing: .2px;
+    margin: 0; padding: 0 0 86px;
+    color: var(--text); font-family: var(--sans);
+    font-size: 13px; line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    background: radial-gradient(120% 60% at 50% -10%, #26282e 0%, #131416 55%, #0a0a0b 100%);
-    background-attachment: fixed;
   }
-  /* стеклянный блик, виньетка корпуса и лёгкая развёртка — только фон */
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9;
-    background:
-      linear-gradient(160deg, rgba(255,255,255,.05) 0%, transparent 34%),
-      radial-gradient(130% 90% at 50% 50%, transparent 58%, rgba(0,0,0,.55) 100%),
-      repeating-linear-gradient(to bottom, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
-  }
+  .num, .mono, table, .big, .tape { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-  .pos { color: var(--bright); }
-  .neg { color: #8b8d95; }
-  .zero, .dim { color: var(--dim); }
-  .mid { color: var(--mid); }
-  b, .strong { font-weight: 600; color: var(--text); }
+  .pos { color: var(--up); } .neg { color: var(--down); } .zero { color: var(--dim); }
+  .dim { color: var(--dim); } .mid { color: var(--mid); }
+  .accent { color: var(--blue); }
+  b, .strong { font-weight: 600; }
 
-  /* --- бегущая строка: утопленный в корпус жёлоб --------------------------- */
+  /* --- бегущая строка -------------------------------------------------------- */
   .tape {
     position: sticky; top: 0; z-index: 6;
-    background: linear-gradient(180deg, #0c0d10, #131417);
-    box-shadow: var(--groove);
-    overflow: hidden; white-space: nowrap; padding: 6px 0; font-size: 11px;
+    background: var(--card); border-bottom: 1px solid var(--line);
+    overflow: hidden; white-space: nowrap; padding: 7px 0; font-size: 11.5px;
     color: var(--mid);
   }
-  .tape-inner { display: inline-block; padding-left: 8px; animation: scroll 44s linear infinite; }
+  .tape-inner { display: inline-block; padding-left: 10px; animation: scroll 44s linear infinite; }
   .tape span { margin-right: 20px; }
-  .tape b { color: var(--text); text-shadow: 0 1px 0 #000; }
+  .tape b { color: var(--blue); font-weight: 600; }
   @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) { .tape-inner { animation: none; } }
 
-  /* --- корпус и панели ------------------------------------------------------ */
-  .wrap { padding: 10px; display: grid; gap: 10px; }
+  /* --- карточки -------------------------------------------------------------- */
+  .wrap { padding: 12px; display: grid; gap: 12px; }
   /* min-width:0 обязателен: иначе неразрывный текст внутри грида растягивает страницу */
   .wrap, .wrap > *, .cols > *, .panel, .body { min-width: 0; }
   .panel {
-    background: linear-gradient(180deg, var(--panel-hi) 0%, var(--panel) 42%, #101115 100%);
-    border-radius: 7px;
-    box-shadow: var(--bevel);
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; box-shadow: var(--shadow);
   }
   .head {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 7px 10px;
-    font-size: 10px; letter-spacing: 1.3px; color: var(--dim); text-transform: uppercase;
-    text-shadow: 0 1px 0 rgba(0,0,0,.9);
-    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,0));
-    border-radius: 7px 7px 0 0;
-    box-shadow: inset 0 -1px 0 rgba(0,0,0,.6), 0 1px 0 var(--edge-hi);
+    padding: 11px 14px 9px;
+    font-size: 11px; letter-spacing: .8px; color: var(--dim); text-transform: uppercase;
+    font-weight: 600;
   }
-  .body { padding: 10px; }
-  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .body { padding: 0 14px 14px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-  /* --- показания ------------------------------------------------------------ */
-  .big {
-    font-size: 27px; font-weight: 600; letter-spacing: -.6px; color: #fff;
-    text-shadow: 0 1px 0 #000, 0 0 18px rgba(255,255,255,.16);
-  }
-  .kv { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; min-width: 0; }
+  /* --- показания ------------------------------------------------------------- */
+  .big { font-size: 30px; font-weight: 600; letter-spacing: -1px; color: var(--text); }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; min-width: 0; }
   .kv > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .kv span:first-child { color: var(--dim); }
+  .kv b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-  /* экран графика — утопленное стекло */
-  .glass {
-    margin-top: 10px; border-radius: 5px; padding: 6px 4px 2px;
-    background: linear-gradient(180deg, var(--screen), #0a0b0d);
-    box-shadow: var(--groove);
-  }
+  .glass { margin-top: 12px; border-radius: 10px; background: var(--blue-soft); padding: 2px; }
   svg { display: block; width: 100%; height: 88px; }
 
-  /* --- таблицы -------------------------------------------------------------- */
+  /* --- таблицы --------------------------------------------------------------- */
   /* фиксированная раскладка: колонки никогда не выталкивают страницу за экран */
-  table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; table-layout: fixed; }
   th {
-    text-align: left; font-weight: 500; color: var(--faint); font-size: 10px;
-    letter-spacing: .9px; padding: 0 6px 5px 0;
-    box-shadow: inset 0 -1px 0 rgba(0,0,0,.7), inset 0 -2px 0 var(--edge-hi);
+    text-align: left; font-weight: 600; color: var(--dim); font-size: 10px;
+    letter-spacing: .7px; padding: 0 6px 7px 0; border-bottom: 1px solid var(--line);
+    font-family: var(--sans); text-transform: uppercase;
   }
   th, td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  td { padding: 4px 6px 4px 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,.35); }
-  tbody tr:nth-child(even) td { background: rgba(255,255,255,.018); }
-  tbody tr:last-child td { box-shadow: none; }
-  col.c-q { width: 30%; } col.c-tag { width: 10%; } col.c-num { width: 14%; }
-  col.c-pnl { width: 18%; } col.c-time { width: 13%; } col.c-side { width: 10%; }
+  td { padding: 7px 6px 7px 0; border-bottom: 1px solid var(--line-soft); }
+  tbody tr:last-child td { border-bottom: 0; }
+  /* ИСХ шире, чем кажется нужным: узкая колонка обрезала шильду многоточием */
+  col.c-q { width: 28%; } col.c-tag { width: 13%; } col.c-num { width: 14%; }
+  col.c-pnl { width: 17%; } col.c-time { width: 13%; } col.c-side { width: 10%; }
   /* третья стратегия в двухколоночной сетке занимает всю ширину, а не половину */
   .cols > .panel:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .num { text-align: right; }
 
-  /* ярлык исхода — выпуклая шильда */
   .chip {
-    display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 10px;
-    color: var(--text); background: linear-gradient(180deg, #2a2d33, #1a1c20);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 1px 2px rgba(0,0,0,.7);
+    display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10.5px;
+    font-family: var(--sans); font-weight: 600;
+    color: var(--blue-ink); background: var(--blue-soft); border: 1px solid var(--blue-line);
   }
 
-  /* --- лента событий -------------------------------------------------------- */
-  .log { max-height: 200px; overflow-y: auto; }
-  .log div { padding: 1.5px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .log .t { color: var(--faint); margin-right: 6px; }
+  /* --- лента событий --------------------------------------------------------- */
+  .log { max-height: 210px; overflow-y: auto; margin-right: -4px; padding-right: 4px; }
+  .log div { padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+             color: var(--mid); border-bottom: 1px solid var(--line-soft); }
+  .log div:last-child { border-bottom: 0; }
+  .log .t { color: var(--dim); margin-right: 8px; font-family: var(--mono); font-size: 11px; }
   .tag {
-    display: inline-block; min-width: 62px; text-align: center; font-size: 9px;
-    letter-spacing: .8px; padding: 1px 4px; margin-right: 7px; border-radius: 3px;
-    background: linear-gradient(180deg, #23262c, #16181c);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 1px 2px rgba(0,0,0,.75);
+    display: inline-block; min-width: 64px; text-align: center; font-size: 10px;
+    font-weight: 600; letter-spacing: .4px; padding: 1px 6px; margin-right: 8px;
+    border-radius: 999px; color: var(--blue-ink);
+    background: var(--blue-soft); border: 1px solid var(--blue-line);
   }
-  .tag.hi { color: var(--bright);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,.2),
-                        0 0 10px rgba(255,255,255,.09), 0 1px 2px rgba(0,0,0,.75); }
-  .tag.lo { color: var(--faint); }
+  .tag.hi { color: var(--up); background: var(--up-soft); border-color: #c9ecdc; }
+  .tag.lo { color: var(--dim); background: #f3f5f9; border-color: var(--line); }
+  .tag.bad { color: var(--down); background: var(--down-soft); border-color: #f6d4d4; }
 
-  .empty { color: var(--dim); padding: 5px 0; }
+  .empty { color: var(--dim); padding: 8px 0; }
 
-  /* индикатор просадки — утопленный жёлоб с выпуклым ползунком */
-  .gauge { height: 6px; border-radius: 3px; margin-top: 7px;
-           background: #0b0c0e; box-shadow: var(--groove); overflow: hidden; }
-  .gauge > i { display: block; height: 100%;
-               background: linear-gradient(180deg, #b9bcc4, #6e727a);
-               box-shadow: 0 0 8px rgba(255,255,255,.18); }
+  .gauge { height: 6px; border-radius: 999px; margin-top: 8px;
+           background: #edf1f7; overflow: hidden; }
+  .gauge > i { display: block; height: 100%; border-radius: 999px; background: var(--blue); }
 
-  /* --- клавиатура ----------------------------------------------------------- */
+  /* --- кнопки ---------------------------------------------------------------- */
   .keys {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 8;
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-    background: linear-gradient(180deg, #101114, #08090a);
-    box-shadow: 0 -1px 0 var(--edge-hi), 0 -10px 24px rgba(0,0,0,.6);
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(238,242,248,.92); backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line);
   }
   .keys button {
-    border: 0; border-radius: 6px; cursor: pointer;
-    font-family: var(--mono); font-size: 11px; letter-spacing: .6px; padding: 12px 4px;
-    color: var(--text);
-    background: linear-gradient(180deg, #2b2e34 0%, #1c1e23 55%, #16181c 100%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 -2px 0 rgba(0,0,0,.75),
-                0 3px 0 #0c0d0f, 0 5px 10px rgba(0,0,0,.55);
-    text-shadow: 0 1px 0 rgba(0,0,0,.85);
-    transition: transform .05s, box-shadow .05s;
+    border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+    font-family: var(--sans); font-size: 12px; font-weight: 600; padding: 11px 4px;
+    color: var(--mid); background: var(--card);
+    box-shadow: 0 1px 2px rgba(16,24,40,.05);
+    transition: background .12s, color .12s, transform .06s;
   }
-  .keys button:active {
-    transform: translateY(3px);
-    box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 0 0 #0c0d0f;
-  }
-  .keys button:disabled { color: var(--faint); }
-  .keys .lit { color: var(--bright); text-shadow: 0 0 10px rgba(255,255,255,.35); }
+  .keys button:active { transform: scale(.97); background: #f5f8fd; }
+  .keys button:disabled { color: #b8c2d4; }
+  .keys .primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+  .keys .lit { color: var(--blue-ink); background: var(--blue-soft); border-color: var(--blue-line); }
 
-  .cursor::after { content: "▌"; color: var(--mid); animation: blink 1.1s steps(1) infinite; }
+  .cursor::after { content: "▌"; color: var(--blue); animation: blink 1.1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
-  .alert { box-shadow: var(--bevel), 0 0 0 1px rgba(255,255,255,.22); }
+  .alert { border-color: #f6c9c9; box-shadow: 0 0 0 3px var(--down-soft); }
 </style>
 </head>
 <body>
@@ -238,17 +209,17 @@
 </div>
 
 <div class="keys">
-  <button id="refresh">[R] СКАН</button>
-  <button id="pause">[P] ПАУЗА</button>
-  <button id="flat" class="lit">[F] ЗАКРЫТЬ</button>
-  <button id="mode-btn">[?] ИНФО</button>
+  <button id="refresh" class="primary">Обновить</button>
+  <button id="pause">Пауза</button>
+  <button id="flat">Закрыть всё</button>
+  <button id="mode-btn">Инфо</button>
 </div>
 
 <script>
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if (tg) {
   tg.ready(); tg.expand();
-  try { tg.setHeaderColor("#0a0a0b"); tg.setBackgroundColor("#0a0a0b"); } catch (e) {}
+  try { tg.setHeaderColor("#ffffff"); tg.setBackgroundColor("#eef2f8"); } catch (e) {}
 }
 const initData = tg ? tg.initData : "";
 let state = null, busy = false;
@@ -257,7 +228,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 // монохром: направление показывают стрелка и яркость, а не цвет
-const arrow = (v) => (v > 0 ? "▲" : v < 0 ? "▼" : "·");
+const arrow = (v) => (v > 0 ? "▲" : v < 0 ? "▼" : "");
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "zero");
 const money = (v) => arrow(v) + "$" + Math.abs(v).toFixed(2);
 const short$ = (v) => "$" + Math.round(Math.abs(v)).toLocaleString("en-US");
@@ -286,21 +257,20 @@ function chart(values) {
   const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
   const last = pts[pts.length - 1];
   const grid = [22, 44, 66].map((y) =>
-    `<line x1="0" y1="${y}" x2="320" y2="${y}" stroke="#fff" stroke-opacity=".05"></line>`).join("");
+    `<line x1="0" y1="${y}" x2="320" y2="${y}" stroke="#2563eb" stroke-opacity=".08"></line>`).join("");
   svg.innerHTML = `
     <defs>
       <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#ffffff" stop-opacity=".16"></stop>
-        <stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop>
+        <stop offset="0" stop-color="#2563eb" stop-opacity=".22"></stop>
+        <stop offset="1" stop-color="#2563eb" stop-opacity="0"></stop>
       </linearGradient>
     </defs>
     ${grid}
     <path d="${line} L320 88 L0 88 Z" fill="url(#fade)"></path>
-    <path d="${line}" fill="none" stroke="#0a0a0b" stroke-width="3" opacity=".85"
-      vector-effect="non-scaling-stroke"></path>
-    <path d="${line}" fill="none" stroke="#e9eaee" stroke-width="1.4"
-      vector-effect="non-scaling-stroke" stroke-linejoin="round"></path>
-    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="#fff"></circle>`;
+    <path d="${line}" fill="none" stroke="#2563eb" stroke-width="2"
+      vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"></path>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3" fill="#2563eb"
+      stroke="#fff" stroke-width="2"></circle>`;
 }
 
 function renderTape(rows) {
@@ -328,7 +298,7 @@ function renderPositions(rows) {
     <tbody>${rows.map((p) => `<tr>
       <td>${esc(cut(p.question, 40))}</td>
       <td><span class="chip">${esc(cut(p.outcome, 5))}</span></td>
-      <td class="num mid">${p.entry.toFixed(3)}</td>
+      <td class="num dim">${p.entry.toFixed(3)}</td>
       <td class="num ${cls(p.mark - p.entry)}">${p.mark.toFixed(3)}</td>
       <td class="num dim">${short$(p.cost)}</td>
       <td class="num ${cls(p.upnl)}">${money(p.upnl)}</td>
@@ -364,7 +334,7 @@ function renderFills(rows) {
       <th class="num">ЦЕНА</th><th class="num">P&L</th></tr></thead>
     <tbody>${rows.slice(0, 14).map((f) => `<tr>
       <td class="dim">${hhmmss(f.ts).slice(0, 5)}</td>
-      <td class="${f.side === "BUY" ? "strong" : "mid"}">${f.side}</td>
+      <td class="${f.side === "BUY" ? "accent" : "mid"}">${f.side}</td>
       <td>${esc(cut(f.question, 34))}</td>
       <td class="num dim">${f.size.toFixed(0)}</td>
       <td class="num mid">${f.price.toFixed(3)}</td>
@@ -374,8 +344,8 @@ function renderFills(rows) {
 }
 
 const LEVELS = {
-  buy:  ["ВХОД", ""], win: ["ПРОФИТ", "hi"], loss: ["УБЫТОК", "lo"],
-  risk: ["РИСК", "hi"], scan: ["СКАН", "lo"], info: ["ИНФО", "lo"],
+  buy:  ["ВХОД", ""], win: ["ПРОФИТ", "hi"], loss: ["УБЫТОК", "bad"],
+  risk: ["РИСК", "bad"], scan: ["СКАН", "lo"], info: ["ИНФО", "lo"],
 };
 
 function renderLog(rows) {
@@ -428,7 +398,7 @@ function render(s) {
   $("uptime").textContent = new Date().toTimeString().slice(0, 5) + (s.paused ? " · пауза" : "");
   $("status").textContent = s.status + " ";
   $("head-panel").className = "panel" + (s.blocked ? " alert" : "");
-  $("pause").textContent = s.paused ? "[P] ПУСК" : "[P] ПАУЗА";
+  $("pause").textContent = s.paused ? "Продолжить" : "Пауза";
   $("pause").classList.toggle("lit", !!s.paused);
   chart(s.equity_curve);
   renderTape(s.ticker);
