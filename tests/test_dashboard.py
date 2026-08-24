@@ -89,9 +89,17 @@ class TestPage(unittest.TestCase):
         self.assertNotIn("src=", html)                       # ничего не подгружается
         self.assertNotIn("@import", html)
         self.assertNotIn("http://", html)
-        # единственные внешние адреса — ссылки на биржи/обозреватели, не ресурсы
+        # внешние адреса допустимы только как ссылки на графики и обозреватели,
+        # и только как href — ничего не загружается в саму страницу
+        allowed = r"^https://(solscan\.io|dexscreener\.com|www\.tradingview\.com|"\
+                  r"www\.geckoterminal\.com)/"
         for match in re.findall(r'href="(https?://[^"]+)"', html):
-            self.assertRegex(match, r"^https://(solscan\.io|dexscreener\.com)/")
+            self.assertRegex(match, allowed)
+
+    def test_chart_links_point_to_real_charts(self):
+        html = dashboard.render(dashboard.collect(self.cfg, self.store))
+        self.assertIn("график:", html)
+        self.assertIn("tradingview.com/chart/?symbol=BINANCE%3ABTCUSDT", html)
 
     def test_page_shows_strategy_and_metrics(self):
         html = dashboard.render(dashboard.collect(self.cfg, self.store))
