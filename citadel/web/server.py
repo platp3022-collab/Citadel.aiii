@@ -28,8 +28,9 @@ from urllib.parse import parse_qs, urlparse
 
 from ..candlecache import path_for, read as read_cache
 from ..config import Config
-from ..pine import TV_INTERVAL, tv_site_url, tv_widget_url
+from ..pine import tv_site_url, tv_widget_url
 from ..storage import Storage
+from .feed import MARKET_TFS, SECOND_TFS, Feed, PricePoller, tf_seconds
 
 log = logging.getLogger("citadel.web")
 
@@ -142,89 +143,6 @@ class Runner:
         return ""
 
 
-class PricePoller(threading.Thread):
-    """
-    Тянет текущие цены сам, не дожидаясь бота: биржевые — через ccxt одним
-    запросом на все пары, DEX — через DexScreener пачкой по адресам пулов.
-    Благодаря этому график живой, даже когда торговый цикл не запущен.
-    """
-
-    def __init__(self, panel: "Panel", interval: float = 4.0):
-        super().__init__(daemon=True)
-        self.panel = panel
-        self.interval = max(1.0, interval)
-        self.stop_event = threading.Event()
-        self.error = ""
-        self.last_ok = 0.0
-        self._mode = ""
-        self._client = None
-
-    def stop(self) -> None:
-        self.stop_event.set()
-
-    # ── источники ───────────────────────────────────────────────────────────
-    def _cex_prices(self, cfg, symbols: list[str]) -> dict[str, float]:
-        from ..market import Market                                # noqa: PLC0415
-
-        if self._client is None or self._mode != "cex":
-            self._client = Market(cfg)
-            self._mode = "cex"
-        ex = self._client.ex
-        if ex is None:
-            return {}
-        out: dict[str, float] = {}
-        try:                                                       # одним запросом на все пары
-            tickers = ex.fetch_tickers(symbols)
-            for symbol, t in (tickers or {}).items():
-                price = t.get("last") or t.get("close")
-                if price:
-                    out[symbol] = float(price)
-        except Exception:                                          # noqa: BLE001 — не все умеют
-            for symbol in symbols:
-                try:
-                    out[symbol] = self._client.last_price(symbol)
-                except Exception as e:                             # noqa: BLE001
-                    self.error = f"{symbol}: {e}"
-        return out
-
-    def _dex_prices(self, cfg, symbols: list[str]) -> dict[str, float]:
-        from ..dex.dexscreener import DexScreener                  # noqa: PLC0415
-
-        if self._client is None or self._mode != "dex":
-            self._client = DexScreener()
-            self._mode = "dex"
-        by_chain: dict[str, list[str]] = {}
-        for symbol in symbols:
-            chain, _, pool = symbol.partition(":")
-            if pool:
-                by_chain.setdefault(chain, []).append(pool)
-        out: dict[str, float] = {}
-        for chain, pools in by_chain.items():
-            for pair in self._client.pairs(chain, pools):
-                if pair.price_usd > 0:
-                    out[pair.key] = pair.price_usd
-        return out
-
-    # ── цикл ────────────────────────────────────────────────────────────────
-    def run(self) -> None:
-        while not self.stop_event.is_set():
-            try:
-                cfg = self.panel.config()
-                symbols = list(cfg.symbols)
-                if symbols:
-                    prices = (self._dex_prices(cfg, symbols) if self.panel.mode == "dex"
-                              else self._cex_prices(cfg, symbols))
-                    if prices:
-                        self.panel.push_ticks(prices)
-                        self.last_ok = time.time()
-                        self.error = ""
-            except Exception as e:                                 # noqa: BLE001 — сеть/биржа
-                self.error = str(e)[:200]
-                log.debug("опрос цен не удался: %s", e)
-                self.stop_event.wait(self.interval * 2)            # притормаживаем после ошибки
-            self.stop_event.wait(self.interval)
-
-
 class Panel:
     """Состояние панели: конфиг, база бота, запущенный процесс."""
 
@@ -233,29 +151,27 @@ class Panel:
         self.allow_live = allow_live
         self.runner = Runner()
         self.overrides: dict[str, str] = {}
-        self.ticks: dict[str, deque] = {}          # symbol → [(время мс, цена)]
-        self.ticks_lock = threading.Lock()
+        self.feed = Feed()
         self.poller: PricePoller | None = None
 
-    # ── живые цены ──────────────────────────────────────────────────────────
+    # ── живые цены (детали — в feed.py) ─────────────────────────────────────
     def push_ticks(self, prices: dict[str, float]) -> None:
-        now = time.time() * 1000
-        with self.ticks_lock:
-            for symbol, price in prices.items():
-                buf = self.ticks.setdefault(symbol, deque(maxlen=5000))
-                if buf and abs(buf[-1][1] - price) < 1e-12 and now - buf[-1][0] < 30_000:
-                    continue                        # цена не изменилась — не копим мусор
-                buf.append((now, float(price)))
+        self.feed.push(prices)
 
     def tick_tail(self, symbol: str, since: float = 0.0) -> list[list[float]]:
-        with self.ticks_lock:
-            buf = list(self.ticks.get(symbol) or ())
-        return [[t, p] for t, p in buf if t > since]
+        return self.feed.tail(symbol, since)
 
     def last_tick(self, symbol: str) -> tuple[float, float] | None:
-        with self.ticks_lock:
-            buf = self.ticks.get(symbol)
-            return tuple(buf[-1]) if buf else None
+        return self.feed.last(symbol)
+
+    def timeframes(self) -> list[dict]:
+        """Что предложить в селекторе: секунды из тиков, остальное с рынка."""
+        cfg = self.config()
+        out = [{"tf": tf, "source": "тики"} for tf in SECOND_TFS]
+        out += [{"tf": tf, "source": "рынок"} for tf in MARKET_TFS]
+        if cfg.timeframe not in {x["tf"] for x in out}:
+            out.append({"tf": cfg.timeframe, "source": "рынок"})
+        return out
 
     # ── конфиг ──────────────────────────────────────────────────────────────
     def config(self) -> Config:
@@ -354,7 +270,7 @@ class Panel:
             "quote": cfg.quote, "db": cfg.db_path,
         }
 
-    def chart(self, symbol: str = "", bars: int = 220) -> dict:
+    def chart(self, symbol: str = "", bars: int = 220, tf: str = "") -> dict:
         """Свечи, сделки и уровни открытой позиции по одному инструменту."""
         cfg = self.config()
         symbols = list(cfg.symbols)
@@ -368,10 +284,14 @@ class Panel:
                 return {"symbols": [], "symbol": "", "candles": [], "trades": []}
 
             pairs = self._pairs(cfg)
-            prefix = "dex" if self.mode == "dex" else getattr(cfg, "exchange", "cex")
-            rows = read_cache(path_for(cfg.cache_dir, prefix, symbol, cfg.timeframe))
-            candles = [[int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4])]
-                       for r in rows[-bars:]]
+            tf = tf or cfg.timeframe
+            if tf in SECOND_TFS:
+                rows = self.feed.tick_candles(symbol, SECOND_TFS[tf], bars)
+                source = "тики"
+            else:
+                rows, source = self.feed.market_candles(cfg, self.mode, symbol, tf, bars)
+            candles = [[int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4]),
+                        float(r[5]) if len(r) > 5 else 0.0] for r in rows[-bars:]]
 
             trades = [{
                 "ts": int(t["ts"]) * 1000, "side": t["side"], "price": float(t["price"] or 0),
@@ -411,7 +331,9 @@ class Panel:
             return {
                 "symbol": symbol, "symbols": symbols,
                 "labels": {s: labels.get(s, s) for s in symbols},
-                "timeframe": cfg.timeframe, "candles": candles, "trades": trades,
+                "timeframe": tf, "bot_timeframe": cfg.timeframe, "source": source,
+                "timeframes": self.timeframes(), "tf_seconds": tf_seconds(tf),
+                "candles": candles, "trades": trades,
                 "position": position, "price": price, "price_ts": price_ts,
                 "strategy": strategy, "url": (pairs.get(symbol) or {}).get("url", ""),
                 "ticks": self.tick_tail(symbol, candles[-1][0] if candles else 0),
@@ -536,8 +458,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.panel.state())
         elif url.path == "/api/chart":
             symbol = (query.get("symbol") or [""])[0]
-            bars = int((query.get("bars") or ["220"])[0] or 220)
-            self._json(self.panel.chart(symbol, bars))
+            bars = max(10, min(1000, int((query.get("bars") or ["220"])[0] or 220)))
+            tf = (query.get("tf") or [""])[0]
+            self._json(self.panel.chart(symbol, bars, tf))
         elif url.path == "/api/embed":
             self._json(self.panel.embeds((query.get("symbol") or [""])[0]))
         elif url.path == "/api/ticks":

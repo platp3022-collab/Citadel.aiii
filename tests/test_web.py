@@ -15,7 +15,8 @@ from pathlib import Path
 from citadel.config import Config
 from citadel.genome import Genome
 from citadel.storage import Storage
-from citadel.web.server import COMMANDS, EDITABLE, Panel, PricePoller, Runner, serve
+from citadel.web.feed import SECOND_TFS, Feed, tf_seconds
+from citadel.web.server import COMMANDS, EDITABLE, Panel, Runner, serve
 
 
 class TestRunner(unittest.TestCase):
@@ -138,9 +139,9 @@ class TestLivePrices(unittest.TestCase):
         self.assertEqual(len(self.panel.tick_tail("BTC/USDT")), 1)
 
     def test_buffer_is_bounded(self):
-        for i in range(6000):
+        for i in range(25000):
             self.panel.push_ticks({"BTC/USDT": 100.0 + i})
-        self.assertLessEqual(len(self.panel.tick_tail("BTC/USDT")), 5000)
+        self.assertLessEqual(len(self.panel.tick_tail("BTC/USDT")), 20000)
 
     def test_no_ticks_for_unknown_symbol(self):
         self.assertEqual(self.panel.tick_tail("НЕТ"), [])
@@ -157,9 +158,9 @@ class TestLivePrices(unittest.TestCase):
         class FakeMarket:
             ex = FakeEx()
 
-        poller = PricePoller(self.panel)
-        poller._client, poller._mode = FakeMarket(), "cex"
-        prices = poller._cex_prices(Config(), ["BTC/USDT", "ETH/USDT"])
+        feed = Feed()
+        feed._clients["cex"] = FakeMarket()
+        prices = feed._cex_prices(Config(), ["BTC/USDT", "ETH/USDT"])
         self.assertEqual(prices, {"BTC/USDT": 10.0, "ETH/USDT": 11.0})
         self.assertEqual(calls, [["BTC/USDT", "ETH/USDT"]])          # один запрос на все пары
 
@@ -174,9 +175,9 @@ class TestLivePrices(unittest.TestCase):
             def last_price(self, symbol):
                 return 42.0
 
-        poller = PricePoller(self.panel)
-        poller._client, poller._mode = FakeMarket(), "cex"
-        self.assertEqual(poller._cex_prices(Config(), ["BTC/USDT"]), {"BTC/USDT": 42.0})
+        feed = Feed()
+        feed._clients["cex"] = FakeMarket()
+        self.assertEqual(feed._cex_prices(Config(), ["BTC/USDT"]), {"BTC/USDT": 42.0})
 
     def test_dex_poller_batches_by_chain(self):
         from citadel.dex.dexscreener import Pair
@@ -190,13 +191,94 @@ class TestLivePrices(unittest.TestCase):
                              base_address="M", quote_symbol="SOL", quote_address="S",
                              price_usd=1.5) for pool in pools]
 
-        poller = PricePoller(self.panel)
-        poller._client, poller._mode = FakeScreener(), "dex"
-        prices = poller._dex_prices(Config(), ["solana:P1", "solana:P2", "base:P3"])
+        feed = Feed()
+        feed._clients["screener"] = FakeScreener()
+        prices = feed._dex_prices(["solana:P1", "solana:P2", "base:P3"])
         self.assertEqual(prices["solana:P1"], 1.5)
         self.assertEqual(prices["base:P3"], 1.5)
         self.assertEqual(sorted(c[0] for c in calls), ["base", "solana"])   # по одному на сеть
         self.assertEqual(len(calls), 2)
+
+
+class TestCandleFeed(unittest.TestCase):
+    """Свечи: секундные собираются из тиков, минутные и старше берутся с рынка."""
+
+    def setUp(self):
+        self.feed = Feed()
+        base = int(time.time() * 1000) // 1000 * 1000
+        # 60 секунд цен по 4 тика в секунду, пила 100→104
+        for i in range(240):
+            self.feed.push({"X": 100.0 + (i % 5)})
+            self.feed.ticks["X"][-1] = (base + i * 250, 100.0 + (i % 5))
+
+    def test_tf_seconds(self):
+        self.assertEqual(tf_seconds("1s"), 1)
+        self.assertEqual(tf_seconds("15s"), 15)
+        self.assertEqual(tf_seconds("5m"), 300)
+        self.assertEqual(tf_seconds("4h"), 14400)
+        self.assertEqual(tf_seconds("1d"), 86400)
+
+    def test_tick_candles_have_correct_ohlc(self):
+        candles = self.feed.tick_candles("X", 1)
+        self.assertGreater(len(candles), 30)
+        for ts, o, h, l, c, v in candles:
+            self.assertLessEqual(l, o)
+            self.assertLessEqual(l, c)
+            self.assertGreaterEqual(h, o)
+            self.assertGreaterEqual(h, c)
+            self.assertEqual(v, 0.0)                  # объёма у тиковой свечи нет
+            self.assertEqual(ts % 1000, 0)            # секунды выровнены
+
+    def test_bigger_timeframe_has_fewer_candles(self):
+        one = self.feed.tick_candles("X", 1)
+        five = self.feed.tick_candles("X", 5)
+        self.assertGreater(len(one), len(five))
+        self.assertLessEqual(abs(len(one) / 5 - len(five)), 2)
+
+    def test_tick_candles_limit(self):
+        self.assertEqual(len(self.feed.tick_candles("X", 1, limit=10)), 10)
+
+    def test_no_ticks_no_candles(self):
+        self.assertEqual(self.feed.tick_candles("НЕТ", 1), [])
+
+    def test_market_candles_fall_back_to_bot_cache(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cfg = Config(cache_dir=str(Path(tmp.name)), timeframe="1h", exchange="binance")
+        from citadel import candlecache
+        rows = [[i * 3600_000, 1.0, 2.0, 0.5, 1.5, 10.0] for i in range(50)]
+        candlecache.write(candlecache.path_for(cfg.cache_dir, "binance", "BTC/USDT", "1h"), rows)
+        feed = Feed()
+        feed._clients["cex"] = type("Dead", (), {"ex": None})()      # сети нет
+        candles, source = feed.market_candles(cfg, "cex", "BTC/USDT", "1h", 30)
+        self.assertEqual(source, "кэш")
+        self.assertEqual(len(candles), 30)
+
+    def test_market_candles_use_exchange_when_available(self):
+        class FakeEx:
+            def fetch_ohlcv(self, symbol, tf, limit=None):
+                return [[i * 60_000, 1.0, 2.0, 0.5, 1.5, 3.0] for i in range(limit or 5)]
+
+        feed = Feed()
+        feed._clients["cex"] = type("M", (), {"ex": FakeEx()})()
+        candles, source = feed.market_candles(Config(), "cex", "BTC/USDT", "1m", 20)
+        self.assertEqual(source, "рынок")
+        self.assertEqual(len(candles), 20)
+        self.assertEqual(len(candles[0]), 6)                          # с объёмом
+
+    def test_market_candles_are_cached_briefly(self):
+        calls = []
+
+        class FakeEx:
+            def fetch_ohlcv(self, symbol, tf, limit=None):
+                calls.append(tf)
+                return [[i * 60_000, 1.0, 2.0, 0.5, 1.5, 3.0] for i in range(5)]
+
+        feed = Feed(ttl=60)
+        feed._clients["cex"] = type("M", (), {"ex": FakeEx()})()
+        for _ in range(4):
+            feed.market_candles(Config(), "cex", "BTC/USDT", "1m", 5)
+        self.assertEqual(len(calls), 1)                               # один запрос на все
 
 
 class TestEmbeddedCharts(unittest.TestCase):
@@ -305,6 +387,30 @@ class TestChartData(unittest.TestCase):
         self.assertEqual(len(d["ticks"]), 1)
         self.assertAlmostEqual(d["price"], 200.0)          # тик свежее записи бота
         self.assertIn("live_prices", d)
+
+    def test_seconds_timeframe_is_built_from_ticks(self):
+        for i in range(60):
+            self.panel.push_ticks({"BTC/USDT": 100.0 + (i % 4)})
+        d = self.panel.chart("BTC/USDT", tf="1s")
+        self.assertEqual(d["source"], "тики")
+        self.assertEqual(d["timeframe"], "1s")
+        self.assertEqual(d["tf_seconds"], 1)
+        self.assertGreaterEqual(len(d["candles"]), 1)
+        for candle in d["candles"]:
+            self.assertEqual(len(candle), 6)                   # ts + OHLC + объём
+
+    def test_minute_timeframe_falls_back_to_cache(self):
+        d = self.panel.chart("BTC/USDT", tf="1h")
+        self.assertEqual(d["source"], "кэш")                   # рынка в тестах нет
+        self.assertEqual(d["timeframe"], "1h")
+        self.assertGreater(len(d["candles"]), 100)
+
+    def test_payload_lists_timeframes(self):
+        d = self.panel.chart("BTC/USDT")
+        tfs = [t["tf"] for t in d["timeframes"]]
+        self.assertEqual(tfs[:4], ["1s", "5s", "15s", "30s"])
+        self.assertIn("1h", tfs)
+        self.assertEqual(d["bot_timeframe"], "1h")
 
     def test_bars_limit_is_respected(self):
         self.assertEqual(len(self.panel.chart("BTC/USDT", bars=50)["candles"]), 50)
