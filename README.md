@@ -1,4 +1,17 @@
-# Citadel.aiii — Мем-коин сканер
+# Citadel.aiii
+
+Два бота в одном репозитории:
+
+| Бот | Что делает | Запуск |
+|---|---|---|
+| **Мем-коин сканер** (`memebot.py`) | DexScreener + новости + проверка на rug pull, алерты в Telegram | `python memebot.py` |
+| **Citadel Trader** (`tradebot.py`) | спот-бот: сам выводит себе стратегию генетическим поиском и торгует по ней | `python tradebot.py trade` |
+
+Про торгового бота — отдельная инструкция: **[TRADER.md](TRADER.md)**.
+
+---
+
+## Мем-коин сканер
 
 Telegram-бот: DexScreener + новостной анализ + алерты в канал/чат. Логика целиком в `memebot.py`.
 

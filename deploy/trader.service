@@ -1,0 +1,17 @@
+[Unit]
+Description=Citadel Trader — spot crypto bot with self-generated strategy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/citadel
+EnvironmentFile=/opt/citadel/.env
+# бумажный счёт; для реальных ордеров добавь --live --yes и ключи биржи в .env
+ExecStart=/opt/citadel/.venv/bin/python /opt/citadel/tradebot.py trade
+Restart=always
+RestartSec=10
+User=citadel
+
+[Install]
+WantedBy=multi-user.target
