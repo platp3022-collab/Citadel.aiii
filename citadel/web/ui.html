@@ -88,6 +88,29 @@
   svg .axis{stroke:var(--line)}
   svg .line{fill:none;stroke:var(--accent);stroke-width:2}
   svg .area{fill:rgba(63,208,201,.10)}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px 0}
+  .tabs button{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
+    border-radius:7px;padding:5px 11px;font:inherit;font-size:12.5px;cursor:pointer;
+    font-family:var(--mono)}
+  .tabs button.on{border-color:var(--accent);color:var(--accent)}
+  .sel{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
+    border-radius:7px;padding:4px 8px;font:inherit;font-size:12px}
+  .legend{padding:0 14px 12px;color:var(--dim);font-size:12px;line-height:1.7}
+  svg.live{width:100%;height:auto;display:block;background:#070b0f;border-radius:9px}
+  svg.live .grid{stroke:var(--line);stroke-dasharray:3 4}
+  svg.live .price{fill:none;stroke:#7aa2f7;stroke-width:1.6}
+  svg.live .tick{fill:var(--dim);font-size:11px;font-family:var(--mono)}
+  svg.live .buy{fill:var(--green)}
+  svg.live .win{fill:var(--accent)}
+  svg.live .loss{fill:var(--red)}
+  svg.live .conn-win{stroke:var(--accent);stroke-width:1.4;stroke-dasharray:4 3;opacity:.75}
+  svg.live .conn-loss{stroke:var(--red);stroke-width:1.4;stroke-dasharray:4 3;opacity:.75}
+  svg.live .lvl-entry{stroke:#d7e2ee;stroke-width:1;stroke-dasharray:5 4;opacity:.8}
+  svg.live .lvl-stop{stroke:var(--red);stroke-width:1;stroke-dasharray:5 4;opacity:.85}
+  svg.live .lvl-take{stroke:var(--accent);stroke-width:1;stroke-dasharray:5 4;opacity:.85}
+  svg.live .hold{fill:rgba(63,208,201,.07)}
+  svg.live .now{fill:var(--amber)}
+  svg.live .lbl{font-size:10.5px;font-family:var(--mono)}
   .toast{position:fixed;right:18px;bottom:18px;background:var(--panel);color:var(--text);
     border:1px solid var(--line);border-left:3px solid var(--red);border-radius:8px;
     padding:11px 14px;max-width:420px;display:none;z-index:9}
@@ -124,6 +147,24 @@
       </div>
       <div class="note" id="liveNote"></div>
     </div>
+  </section>
+
+  <section>
+    <h2>Сделки на графике
+      <span class="sp">
+        <span id="chartInfo" class="tag"></span>
+        <select id="barsSel" class="sel">
+          <option value="120">120 баров</option>
+          <option value="220" selected>220 баров</option>
+          <option value="500">500 баров</option>
+        </select>
+      </span>
+    </h2>
+    <div class="tabs" id="chartTabs"></div>
+    <div class="body" id="chartBox">
+      <div class="empty">данных пока нет — скачай историю и запусти торговлю</div>
+    </div>
+    <div class="legend" id="chartLegend"></div>
   </section>
 
   <section>
@@ -204,6 +245,11 @@ const CMDS = {
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "—"
   : Number(v).toLocaleString("ru-RU", {minimumFractionDigits: d, maximumFractionDigits: d});
+const fmtPrice = (v) => {
+  const a = Math.abs(v);
+  const digits = a >= 1000 ? 2 : a >= 10 ? 3 : a >= 1 ? 4 : a >= 0.01 ? 6 : 8;
+  return fmt(v, digits);
+};
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function toast(msg) {
@@ -287,7 +333,10 @@ async function setMode(mode) {
   $("m-cex").className = mode === "cex" ? "on" : "";
   $("m-dex").className = mode === "dex" ? "on" : "";
   await post("/api/mode", {mode});
+  chartSymbol = "";
+  $("chartTabs").dataset.want = "";
   refresh();
+  pollChart();
 }
 
 // ── терминал ───────────────────────────────────────────────────────────────
@@ -317,6 +366,178 @@ async function pollLog() {
   logCursor = data.counter;
   if (data.lines.length && atBottom) term.scrollTop = term.scrollHeight;
   $("runCmd").textContent = data.running ? data.command : "";
+}
+
+// ── живой график входов и выходов ──────────────────────────────────────────
+let chartSymbol = "";
+let chartBars = 220;
+
+function fmtTime(ms) {
+  const d = new Date(ms);
+  return d.toLocaleDateString("ru-RU", {day: "2-digit", month: "2-digit"}) + " " +
+         d.toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"});
+}
+
+function pairTrades(trades) {
+  // связываем покупку с её продажей, чтобы нарисовать «путь сделки»
+  const open = [];
+  const pairs = [];
+  for (const t of trades) {
+    if (t.side === "buy") open.push(t);
+    else if (open.length) pairs.push({buy: open.shift(), sell: t});
+  }
+  return {pairs, dangling: open};
+}
+
+function drawChart(d) {
+  const box = $("chartBox");
+  if (!d.candles || d.candles.length < 3) {
+    box.innerHTML = '<div class="empty">свечей нет — нажми «Скачать историю»</div>';
+    $("chartLegend").innerHTML = "";
+    return;
+  }
+  const W = 1000, H = 380, L = 86, R = 132, T = 22, B = 30;
+  const c = d.candles;
+  let x0 = c[0][0], x1 = c[c.length - 1][0];
+  const lastTradeTs = d.trades.length ? d.trades[d.trades.length - 1].ts : 0;
+  const nowTs = Math.max(d.price_ts || 0, lastTradeTs);
+  if (nowTs > x1 && nowTs - x1 < (x1 - x0) * 0.2) x1 = nowTs;   // свежие сделки в кадре
+
+  let lo = Math.min(...c.map(k => k[3])), hi = Math.max(...c.map(k => k[2]));
+  for (const t of d.trades) { if (t.ts >= x0) { lo = Math.min(lo, t.price); hi = Math.max(hi, t.price); } }
+  if (d.position) {
+    for (const v of [d.position.entry, d.position.stop, d.position.take, d.position.trail]) {
+      if (v > 0) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    }
+  }
+  if (d.price > 0) { lo = Math.min(lo, d.price); hi = Math.max(hi, d.price); }
+  const padY = (hi - lo) * 0.06 || hi * 0.01 || 1;
+  lo -= padY; hi += padY;
+  const spanX = (x1 - x0) || 1, spanY = (hi - lo) || 1;
+  const X = t => L + (t - x0) / spanX * (W - L - R);
+  const Y = v => T + (hi - v) / spanY * (H - T - B);
+  const g = [];
+
+  for (let i = 1; i <= 4; i++) {
+    const v = lo + spanY * i / 5;
+    g.push(`<line class="grid" x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}"/>`);
+    g.push(`<text class="tick" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtPrice(v)}</text>`);
+  }
+
+  // зона удержания открытой позиции
+  if (d.position && d.position.opened_at) {
+    const xa = Math.max(L, X(d.position.opened_at));
+    g.push(`<rect class="hold" x="${xa.toFixed(1)}" y="${T}" width="${(W - R - xa).toFixed(1)}" height="${H - T - B}"/>`);
+  }
+
+  // цена
+  g.push(`<path class="price" d="${c.map((k, i) => `${i ? "L" : "M"}${X(k[0]).toFixed(1)},${Y(k[4]).toFixed(1)}`).join("")}"/>`);
+
+  // связки «вход → выход»
+  const {pairs} = pairTrades(d.trades);
+  for (const p of pairs) {
+    if (p.sell.ts < x0) continue;
+    const cls = p.sell.pnl >= 0 ? "conn-win" : "conn-loss";
+    g.push(`<line class="${cls}" x1="${X(p.buy.ts).toFixed(1)}" y1="${Y(p.buy.price).toFixed(1)}"
+       x2="${X(p.sell.ts).toFixed(1)}" y2="${Y(p.sell.price).toFixed(1)}"/>`);
+  }
+
+  // метки входов и выходов
+  for (const t of d.trades) {
+    if (t.ts < x0 || t.ts > x1) continue;
+    const x = X(t.ts), y = Y(t.price);
+    const money = t.side === "sell" ? `\nP&L ${t.pnl >= 0 ? "+" : ""}${fmt(t.pnl)}` : "";
+    const tip = `${t.side === "buy" ? "Покупка" : "Продажа"} · ${fmtTime(t.ts)}\n` +
+                `цена ${fmtPrice(t.price)} · объём ${fmt(t.qty, 6)}\n${t.reason}${money}`;
+    if (t.side === "buy") {
+      g.push(`<g><title>${esc(tip)}</title>
+        <path class="buy" d="M${x.toFixed(1)},${(y + 7).toFixed(1)} l-6,11 l12,0 Z"/>
+        <circle class="buy" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2"/></g>`);
+    } else {
+      const cls = t.pnl >= 0 ? "win" : "loss";
+      g.push(`<g><title>${esc(tip)}</title>
+        <path class="${cls}" d="M${x.toFixed(1)},${(y - 7).toFixed(1)} l-6,-11 l12,0 Z"/>
+        <circle class="${cls}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2"/></g>`);
+    }
+  }
+
+  // уровни открытой позиции
+  if (d.position) {
+    const rows = [["lvl-entry", d.position.entry, "вход"],
+                  ["lvl-stop", d.position.stop, "стоп"],
+                  ["lvl-take", d.position.take, "тейк"]];
+    if (d.position.trail > d.position.stop) rows.push(["lvl-stop", d.position.trail, "трейлинг"]);
+    const used = d.price > 0 ? [Y(d.price) - 8] : [];
+    for (const [cls, v, name] of rows) {
+      if (!(v > 0)) continue;
+      let ty = Y(v) + 4;
+      while (used.some(u => Math.abs(u - ty) < 13)) ty += 13;   // разводим наложившиеся подписи
+      used.push(ty);
+      g.push(`<line class="${cls}" x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}"/>
+        <text class="lbl tick" x="${W - R + 6}" y="${ty.toFixed(1)}">${name} ${fmtPrice(v)}</text>`);
+    }
+  }
+
+  // живая цена
+  if (d.price > 0) {
+    const y = Y(d.price), x = X(Math.min(x1, Math.max(x0, d.price_ts || x1)));
+    g.push(`<circle class="now" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4"/>
+      <line class="grid" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${W - R}" y2="${y.toFixed(1)}"/>
+      <text class="lbl now" x="${W - R + 6}" y="${(y - 8).toFixed(1)}">сейчас ${fmtPrice(d.price)}</text>`);
+  }
+
+  g.push(`<text class="tick" x="${L}" y="${H - 8}">${fmtTime(x0)}</text>`);
+  g.push(`<text class="tick" x="${W - R}" y="${H - 8}" text-anchor="end">${fmtTime(x1)}</text>`);
+
+  box.innerHTML = `<svg class="live" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="цена, входы и выходы">${g.join("")}</svg>`;
+
+  // подпись под графиком
+  const closed = pairs.length;
+  const wins = pairs.filter(p => p.sell.pnl > 0).length;
+  let note = `▲ вход · ▼ выход (бирюзовый — в плюс, красный — в минус) · пунктир — путь сделки. ` +
+             `Закрытых сделок в окне: ${closed}${closed ? `, из них в плюс ${wins}` : ""}. ` +
+             `Наведи курсор на метку — покажет время, цену и причину.`;
+  if (d.position) {
+    const chg = (d.price / d.position.entry - 1) * 100;
+    note = `<b class="${chg >= 0 ? "up" : "down"}">В позиции с ${fmtTime(d.position.opened_at)}: ` +
+           `вход ${fmtPrice(d.position.entry)}, сейчас ${fmtPrice(d.price)} ` +
+           `(${chg >= 0 ? "+" : ""}${fmt(chg)}%), ${d.position.bars} бар(ов) в рынке.</b><br>` + note;
+  }
+  $("chartLegend").innerHTML = note;
+  $("chartInfo").textContent = (d.strategy ? `стратегия #${d.strategy.id}` : "стратегии нет") +
+    " · " + d.timeframe;
+}
+
+function renderTabs(d) {
+  const box = $("chartTabs");
+  const want = (d.symbols || []).map(s => (d.labels && d.labels[s]) || s).join("|");
+  if (box.dataset.want === want) {
+    box.querySelectorAll("button").forEach(b =>
+      b.className = b.dataset.symbol === d.symbol ? "on" : "");
+    return;
+  }
+  box.dataset.want = want;
+  box.innerHTML = "";
+  for (const sym of d.symbols || []) {
+    const b = document.createElement("button");
+    b.textContent = (d.labels && d.labels[sym]) || sym;
+    b.dataset.symbol = sym;
+    b.className = sym === d.symbol ? "on" : "";
+    b.onclick = () => { chartSymbol = sym; pollChart(); };
+    box.appendChild(b);
+  }
+}
+
+async function pollChart() {
+  let d;
+  try {
+    d = await api("/api/chart?symbol=" + encodeURIComponent(chartSymbol) + "&bars=" + chartBars);
+  } catch (e) { return; }
+  if (d.error) return;
+  chartSymbol = d.symbol || "";
+  renderTabs(d);
+  drawChart(d);
 }
 
 // ── состояние ──────────────────────────────────────────────────────────────
@@ -445,10 +666,14 @@ async function refresh() {
   if (firstLoad) { firstLoad = false; }
 }
 
+$("barsSel").onchange = (e) => { chartBars = Number(e.target.value); pollChart(); };
+
 refresh();
 pollLog();
+pollChart();
 setInterval(refresh, 3000);
 setInterval(pollLog, 900);
+setInterval(pollChart, 2500);
 </script>
 </body>
 </html>

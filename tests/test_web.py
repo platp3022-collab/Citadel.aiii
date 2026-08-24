@@ -118,6 +118,79 @@ class TestPanelState(unittest.TestCase):
         self.assertTrue(hasattr(cfg, "chain"))
 
 
+class TestChartData(unittest.TestCase):
+    """Данные для живого графика входов и выходов."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = Config(symbols=("BTC/USDT", "ETH/USDT"),
+                          db_path=str(Path(self.tmp.name) / "t.db"),
+                          cache_dir=str(Path(self.tmp.name) / "c"))
+        store = Storage(self.cfg.db_path)
+        sid = store.save_strategy("BTC/USDT", "1h", Genome(entry=("rsi14_over_50",)), 1.2, {})
+        store.activate(sid, "BTC/USDT")
+        now = int(time.time())
+        for i, (side, price, pnl, ts) in enumerate([
+                ("buy", 100.0, 0.0, now - 5000), ("sell", 110.0, 9.0, now - 4000),
+                ("buy", 105.0, 0.0, now - 3000), ("sell", 99.0, -6.0, now - 2000)]):
+            store.log_trade("BTC/USDT", side, 1.0, price, price, 0.1, pnl, "take", False)
+            store.db.execute("UPDATE trades SET ts=? WHERE id=?", (ts, i + 1))
+        store.log_trade("ETH/USDT", "buy", 2.0, 50.0, 100.0, 0.1, 0.0, "entry", False)
+        store.upsert_position("BTC/USDT", qty=1.0, entry_price=120.0, entry_fee=0.1, stop=110.0,
+                              take=140.0, trail=0.0, peak=125.0, opened_at=now - 1000,
+                              opened_bar=0, bars=3, strategy_id=sid)
+        store.set("prices", {"BTC/USDT": [123.45, now]})
+        store.db.commit()
+        store.close()
+        from citadel import candlecache
+        rows = [[(now - (200 - i) * 3600) * 1000, 100, 105, 95, 100 + i, 1.0] for i in range(200)]
+        candlecache.write(candlecache.path_for(self.cfg.cache_dir, self.cfg.exchange,
+                                               "BTC/USDT", "1h"), rows)
+        self.panel = Panel("cex")
+        self.panel.overrides = {"CITADEL_DB_PATH": self.cfg.db_path,
+                                "CITADEL_CACHE_DIR": self.cfg.cache_dir,
+                                "CITADEL_SYMBOLS": "BTC/USDT,ETH/USDT"}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_chart_has_everything_the_page_draws(self):
+        d = self.panel.chart("BTC/USDT")
+        self.assertEqual(d["symbol"], "BTC/USDT")
+        self.assertEqual(d["symbols"], ["BTC/USDT", "ETH/USDT"])
+        self.assertEqual(len(d["candles"]), 200)
+        self.assertEqual(len(d["trades"]), 4)
+        self.assertEqual(d["position"]["entry"], 120.0)
+        self.assertEqual(d["position"]["stop"], 110.0)
+        self.assertAlmostEqual(d["price"], 123.45)      # живая цена, а не закрытие свечи
+        self.assertEqual(d["strategy"]["id"], 1)
+
+    def test_trades_are_sorted_for_pairing(self):
+        trades = self.panel.chart("BTC/USDT")["trades"]
+        self.assertEqual([t["side"] for t in trades], ["buy", "sell", "buy", "sell"])
+        self.assertEqual(trades, sorted(trades, key=lambda t: t["ts"]))
+        self.assertLess(trades[3]["pnl"], 0)            # вторая сделка убыточная
+
+    def test_bars_limit_is_respected(self):
+        self.assertEqual(len(self.panel.chart("BTC/USDT", bars=50)["candles"]), 50)
+
+    def test_unknown_symbol_falls_back_to_first(self):
+        self.assertEqual(self.panel.chart("НЕТ-ТАКОГО")["symbol"], "BTC/USDT")
+
+    def test_symbol_without_candles_still_answers(self):
+        d = self.panel.chart("ETH/USDT")
+        self.assertEqual(d["candles"], [])
+        self.assertEqual(len(d["trades"]), 1)
+        self.assertIsNone(d["position"])
+        self.assertIsNone(d["strategy"])
+
+    def test_no_symbols_at_all(self):
+        self.panel.overrides["CITADEL_SYMBOLS"] = "ZZZ/USDT"
+        d = self.panel.chart("")
+        self.assertEqual(d["symbol"], "ZZZ/USDT")
+        self.assertEqual(d["candles"], [])
+
+
 class TestHttpApi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -164,6 +237,12 @@ class TestHttpApi(unittest.TestCase):
         self.assertNotIn("__TOKEN__", html)
         self.assertIn(self.token, html)
         self.assertIn("Citadel", html)
+
+    def test_chart_endpoint(self):
+        code, data = self.call("/api/chart?bars=30")
+        self.assertEqual(code, 200)
+        self.assertIn("candles", data)
+        self.assertIn("symbols", data)
 
     def test_state_and_log_endpoints(self):
         code, state = self.call("/api/state")

@@ -162,6 +162,8 @@ class Trader:
     def tick(self) -> None:
         fresh = self._refresh_bars()                 # 1. подтянуть закрывшиеся свечи
         prices = self.prices()                       # 2. текущие цены
+        if prices:                                   # панель рисует по ним живую цену
+            self.store.set("prices", {s: [p, time.time()] for s, p in prices.items() if p})
         equity = self.broker.equity(prices)
         self.store.log_equity(equity, self.broker.cash)
         allowed, reason = self.trading_allowed(equity)

@@ -247,6 +247,63 @@ class Panel:
             "quote": cfg.quote, "db": cfg.db_path,
         }
 
+    def chart(self, symbol: str = "", bars: int = 220) -> dict:
+        """Свечи, сделки и уровни открытой позиции по одному инструменту."""
+        cfg = self.config()
+        symbols = list(cfg.symbols)
+        store = Storage(cfg.db_path)
+        try:
+            if not symbols:
+                symbols = sorted({t["symbol"] for t in store.recent_trades(200)})
+            if symbol not in symbols:
+                symbol = symbols[0] if symbols else ""
+            if not symbol:
+                return {"symbols": [], "symbol": "", "candles": [], "trades": []}
+
+            pairs = self._pairs(cfg)
+            prefix = "dex" if self.mode == "dex" else getattr(cfg, "exchange", "cex")
+            rows = read_cache(path_for(cfg.cache_dir, prefix, symbol, cfg.timeframe))
+            candles = [[int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4])]
+                       for r in rows[-bars:]]
+
+            trades = [{
+                "ts": int(t["ts"]) * 1000, "side": t["side"], "price": float(t["price"] or 0),
+                "qty": float(t["qty"] or 0), "pnl": float(t["pnl"] or 0),
+                "reason": t["reason"] or "", "live": bool(t["live"]),
+            } for t in store.recent_trades(400) if t["symbol"] == symbol]
+            trades.reverse()                                   # по возрастанию времени
+
+            row = store.get_position(symbol)
+            position = None
+            if row and row["qty"] > 0:
+                position = {"qty": float(row["qty"]), "entry": float(row["entry_price"]),
+                            "stop": float(row["stop"] or 0), "take": float(row["take"] or 0),
+                            "trail": float(row["trail"] or 0),
+                            "opened_at": int(row["opened_at"] or 0) * 1000,
+                            "bars": int(row["bars"] or 0)}
+
+            live = (store.get("prices") or {}).get(symbol)
+            price = float(live[0]) if live else (candles[-1][4] if candles else 0.0)
+            price_ts = float(live[1]) * 1000 if live else (candles[-1][0] if candles else 0)
+
+            strategy = None
+            srow = store.active_strategy(symbol)
+            if srow:
+                from ..genome import Genome                     # noqa: PLC0415
+                strategy = {"id": srow["id"], "score": float(srow["score"] or 0.0),
+                            "describe": Genome.from_json(srow["genome"]).describe()}
+            labels = {key: f"{p.get('base_symbol', '?')}/{p.get('quote_symbol', '?')}"
+                      for key, p in pairs.items()}
+            return {
+                "symbol": symbol, "symbols": symbols,
+                "labels": {s: labels.get(s, s) for s in symbols},
+                "timeframe": cfg.timeframe, "candles": candles, "trades": trades,
+                "position": position, "price": price, "price_ts": price_ts,
+                "strategy": strategy, "url": (pairs.get(symbol) or {}).get("url", ""),
+            }
+        finally:
+            store.close()
+
     # ── вспомогательное ─────────────────────────────────────────────────────
     def _pairs(self, cfg: Config) -> dict:
         if self.mode != "dex":
@@ -315,6 +372,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path == "/api/state":
             self._json(self.panel.state())
+        elif url.path == "/api/chart":
+            symbol = (query.get("symbol") or [""])[0]
+            bars = int((query.get("bars") or ["220"])[0] or 220)
+            self._json(self.panel.chart(symbol, bars))
         elif url.path == "/api/log":
             since = int((query.get("since") or ["0"])[0] or 0)
             lines, counter = self.panel.runner.tail(since)

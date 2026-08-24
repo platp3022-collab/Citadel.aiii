@@ -31,6 +31,13 @@ def money(v: float, digits: int = 2) -> str:
     return f"{v:,.{digits}f}".replace(",", " ")
 
 
+def price_fmt(v: float) -> str:
+    """Цена с разумным числом знаков: у BTC и у мем-коина они разные."""
+    a = abs(v)
+    digits = 2 if a >= 1000 else 3 if a >= 10 else 4 if a >= 1 else 6 if a >= 0.01 else 8
+    return money(v, digits)
+
+
 def when(ts_seconds: float) -> str:
     return datetime.fromtimestamp(ts_seconds, timezone.utc).strftime("%d.%m %H:%M")
 
@@ -75,7 +82,7 @@ def line_chart(points: list[tuple[float, float]], width: int = 900, height: int 
 
 
 def price_chart(candles: list[list[float]], trades: list[dict], width: int = 900,
-                height: int = 260) -> str:
+                height: int = 260, position: dict | None = None) -> str:
     """Цена и метки сделок бота на ней: где купил и где продал."""
     if len(candles) < 3:
         return '<div class="empty">свечей в кэше нет — запусти `fetch`</div>'
@@ -102,6 +109,41 @@ def price_chart(candles: list[list[float]], trades: list[dict], width: int = 900
 
     path = "".join(f"{'L' if i else 'M'}{px(c[0]):.1f},{py(c[4]):.1f}"
                    for i, c in enumerate(candles))
+    # связки «вход → выход»: видно путь каждой сделки
+    conns = []
+    stack: list[dict] = []
+    for t in trades:
+        if t["side"] == "buy":
+            stack.append(t)
+        elif stack:
+            buy = stack.pop(0)
+            if t["ts"] * 1000 >= x0:
+                cls = "conn-win" if t["pnl"] >= 0 else "conn-loss"
+                conns.append(f'<line class="{cls}" x1="{px(buy["ts"] * 1000):.1f}" '
+                             f'y1="{py(buy["price"]):.1f}" x2="{px(t["ts"] * 1000):.1f}" '
+                             f'y2="{py(t["price"]):.1f}"/>')
+
+    levels = []
+    used: list[float] = []
+    if position:
+        if position.get("opened_at"):
+            xa = max(pad, px(position["opened_at"] * 1000))
+            levels.append(f'<rect class="hold" x="{xa:.1f}" y="{pad}" '
+                          f'width="{max(0.0, width - pad - xa):.1f}" height="{height - pad * 2}"/>')
+        for name, key, cls in (("вход", "entry", "lvl-entry"), ("стоп", "stop", "lvl-stop"),
+                               ("тейк", "take", "lvl-take")):
+            v = float(position.get(key) or 0)
+            if v <= 0 or not (lo <= v <= hi):
+                continue
+            ty = py(v) - 5
+            while any(abs(u - ty) < 13 for u in used):     # подписи не должны наезжать
+                ty -= 13
+            used.append(ty)
+            levels.append(f'<line class="{cls}" x1="{pad}" y1="{py(v):.1f}" '
+                          f'x2="{width - pad}" y2="{py(v):.1f}"/>'
+                          f'<text class="tick" x="{width - pad - 4}" y="{ty:.1f}" '
+                          f'text-anchor="end">{name} {price_fmt(v)}</text>')
+
     marks = []
     shown = 0
     for t in trades:
@@ -123,10 +165,12 @@ def price_chart(candles: list[list[float]], trades: list[dict], width: int = 900
                 'обнови свечи командой <code>fetch</code></div>')
     return f"""<svg viewBox="0 0 {width} {height}" class="chart" preserveAspectRatio="none"
   role="img" aria-label="цена и сделки">
+  {''.join(levels)}
   <path d="{path}" fill="none" stroke="#7aa2f7" stroke-width="1.6"/>
+  {''.join(conns)}
   {''.join(marks)}
-  <text class="tick" x="{pad}" y="{pad - 12}">{money(hi, 6)}</text>
-  <text class="tick" x="{pad}" y="{height - pad + 16}">{money(lo, 6)}</text>
+  <text class="tick" x="{pad}" y="{pad - 12}">{price_fmt(hi)}</text>
+  <text class="tick" x="{pad}" y="{height - pad + 16}">{price_fmt(lo)}</text>
   <text class="tick" x="{width - pad}" y="{height - pad + 16}" text-anchor="end">{when(x1 / 1000)}</text>
 </svg>{hint}"""
 
@@ -180,16 +224,19 @@ def collect(cfg: Config, store: Storage, mode: str = "cex") -> dict:
             "take": float(row["take"] or 0),
             "change": (price / entry - 1) * 100 if entry else 0.0,
             "url": (pairs.get(symbol) or {}).get("url", ""),
+            "opened_at": int(row["opened_at"] or 0),
         })
 
     symbols = list(cfg.symbols) or sorted({t["symbol"] for t in trades})
     strategies = []
     for symbol in symbols:
         row = store.active_strategy(symbol)
+        held = next((p for p in positions if p["symbol"] == symbol), None)
         item = {"symbol": symbol, "label": label(symbol),
                 "url": (pairs.get(symbol) or {}).get("url", ""),
                 "candles": candles_of(symbol),
-                "trades": [t for t in trades if t["symbol"] == symbol]}
+                "trades": [t for t in trades if t["symbol"] == symbol],
+                "position": held}
         if row:
             item.update({"id": row["id"], "score": float(row["score"] or 0),
                          "describe": Genome.from_json(row["genome"]).describe(),
@@ -244,6 +291,12 @@ tr:last-child td{border-bottom:0}
 .chart{width:100%;height:auto;display:block}
 .chart .grid{stroke:var(--line);stroke-dasharray:3 4}
 .chart .tick{fill:var(--dim);font-size:11px;font-family:var(--mono)}
+.chart .conn-win{stroke:var(--accent);stroke-width:1.3;stroke-dasharray:4 3;opacity:.75}
+.chart .conn-loss{stroke:var(--red);stroke-width:1.3;stroke-dasharray:4 3;opacity:.75}
+.chart .lvl-entry{stroke:#d7e2ee;stroke-width:1;stroke-dasharray:5 4;opacity:.75}
+.chart .lvl-stop{stroke:var(--red);stroke-width:1;stroke-dasharray:5 4;opacity:.8}
+.chart .lvl-take{stroke:var(--accent);stroke-width:1;stroke-dasharray:5 4;opacity:.8}
+.chart .hold{fill:rgba(63,208,201,.07)}
 .chart .buy{fill:var(--green)}.chart .buy-dot{fill:var(--green)}
 .chart .sell-win{fill:var(--accent)}.chart .sell-win-dot{fill:var(--accent)}
 .chart .sell-loss{fill:var(--red)}.chart .sell-loss-dot{fill:var(--red)}
@@ -278,9 +331,9 @@ def render(data: dict, refresh_seconds: int = 0) -> str:
         rows = "".join(
             f'<tr><td>{link(p["label"], p["url"])}</td>'
             f'<td class="num">{money(p["qty"], 6)}</td>'
-            f'<td class="num">{money(p["entry"], 6)}</td>'
-            f'<td class="num">{money(p["price"], 6)}</td>'
-            f'<td class="num">{money(p["stop"], 6)}</td>'
+            f'<td class="num">{price_fmt(p["entry"])}</td>'
+            f'<td class="num">{price_fmt(p["price"])}</td>'
+            f'<td class="num">{price_fmt(p["stop"])}</td>'
             f'<td class="num {"up" if p["change"] >= 0 else "down"}">'
             f'{p["change"]:+.2f}%</td></tr>' for p in d["positions"])
         positions = ('<table><thead><tr><th>Пара</th><th class="num">Объём</th>'
@@ -307,7 +360,7 @@ def render(data: dict, refresh_seconds: int = 0) -> str:
     {metrics_tag("обучение", t)}{metrics_tag("валидация", v)}
   </div>
   <pre>{esc(s["describe"])}</pre>
-  {price_chart(s["candles"], s["trades"])}
+  {price_chart(s["candles"], s["trades"], position=s.get("position"))}
 </div>""")
     strategies = "".join(blocks) or '<div class="empty">стратегий пока нет</div>'
 
@@ -322,7 +375,7 @@ def render(data: dict, refresh_seconds: int = 0) -> str:
             tx = (f' <a href="https://solscan.io/tx/{esc(t["tx"])}">tx</a>' if t["tx"] else "")
             rows.append(f'<tr><td>{when(t["ts"])}</td><td>{side}</td>'
                         f'<td>{esc(t["label"])}{tx}</td>'
-                        f'<td class="num">{money(t["price"], 6)}</td>'
+                        f'<td class="num">{price_fmt(t["price"])}</td>'
                         f'<td class="num">{pnl}</td><td>{esc(t["reason"])}</td></tr>')
         trades = ('<table><thead><tr><th>Время (UTC)</th><th>Что</th><th>Пара</th>'
                   '<th class="num">Цена</th><th class="num">P&amp;L</th><th>Причина</th>'
@@ -362,7 +415,8 @@ def render(data: dict, refresh_seconds: int = 0) -> str:
 
   <section><h2>Стратегии и сделки на графике</h2>
     <div class="legend">▲ зелёный — покупка · ▼ бирюзовый — продажа в плюс ·
-      ▼ красный — продажа в минус. Линия — цена закрытия из кэша свечей.</div>
+      ▼ красный — продажа в минус · пунктир между ними — путь сделки.
+      Подсветка справа и линии вход/стоп/тейк — открытая позиция.</div>
     {strategies}</section>
 
   <section><h2>Журнал сделок <span class="sp">последние {min(len(d["trades"]), 60)}</span></h2>
