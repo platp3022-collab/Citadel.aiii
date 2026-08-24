@@ -50,6 +50,17 @@ class DexTrader(Trader):
     def label(self, symbol: str) -> str:
         return self.market.name(symbol)
 
+    def trade_note(self, symbol: str, fill=None) -> str:
+        """Ссылки, по которым сделку видно глазами: график пары и сама транзакция."""
+        lines = []
+        pair = self.market.pair(symbol)
+        if pair and pair.url:
+            lines.append(f'📈 <a href="{pair.url}">график на DexScreener</a>')
+        if fill is not None and getattr(fill, "order_id", ""):
+            lines.append(f'🔗 <a href="https://solscan.io/tx/{fill.order_id}">'
+                         f'транзакция в Solscan</a>')
+        return ("\n" + "\n".join(lines)) if lines else ""
+
     # ════════════════════════════════════════════════════════════════════════
     #  Подбор пар
     # ════════════════════════════════════════════════════════════════════════
@@ -126,6 +137,12 @@ class DexTrader(Trader):
         else:
             self.notifier.send("🔎 Ни одна пара не прошла фильтры — жду следующего круга")
         return universe
+
+    def report(self) -> str:
+        text = super().report()
+        links = [f"• {self.label(k)}: {p.url}"
+                 for k in self.cfg.symbols if (p := self.market.pair(k)) and p.url]
+        return text + ("\n\n<b>Графики:</b>\n" + "\n".join(links) if links else "")
 
     def set_universe(self, symbols: list[str]) -> None:
         self.cfg.symbols = tuple(symbols)

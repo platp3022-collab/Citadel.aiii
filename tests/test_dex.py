@@ -397,3 +397,52 @@ class TestDiscovery(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVisibility(unittest.TestCase):
+    """Сделку должно быть видно: имя пары, ссылка на график, ссылка на транзакцию."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = DexConfig(db_path=str(Path(self.tmp.name) / "d.db"),
+                             cache_dir=str(Path(self.tmp.name) / "c"),
+                             start_balance=500.0, min_notional=1.0)
+        self.store = Storage(self.cfg.db_path)
+        self.key = "solana:POOL1"
+        self.cfg.symbols = (self.key,)
+        n = 500
+        candles = {self.key: make_candles(n, seed=7, start_ts=NOW_MS - n * 900_000,
+                                          step_ms=900_000)}
+        pairs = {self.key: parse_pair(raw_pair())}
+        self.market = FakeDexMarket(self.cfg, candles, pairs, 300)
+        self.trader = DexTrader(self.cfg, self.store, self.market,
+                                DexPaperBroker(self.cfg, self.store, self.market),
+                                Notifier(enabled=False, echo=False))
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    def test_label_is_human_readable(self):
+        self.assertIn("WIF/SOL", self.trader.label(self.key))
+
+    def test_note_has_chart_link(self):
+        note = self.trader.trade_note(self.key)
+        self.assertIn("dexscreener.com/solana/POOL1", note)
+        self.assertIn("график", note)
+
+    def test_note_has_transaction_link_for_live_swap(self):
+        from citadel.broker import Fill
+        fill = Fill(self.key, "buy", 1.0, 2.0, 2.0, 0.0, "5xTxSignature")
+        note = self.trader.trade_note(self.key, fill)
+        self.assertIn("solscan.io/tx/5xTxSignature", note)
+
+    def test_paper_fill_has_no_transaction_link(self):
+        from citadel.broker import Fill
+        note = self.trader.trade_note(self.key, Fill(self.key, "buy", 1.0, 2.0, 2.0, 0.0))
+        self.assertNotIn("solscan", note)
+
+    def test_report_lists_chart_links(self):
+        text = self.trader.report()
+        self.assertIn("Графики:", text)
+        self.assertIn("dexscreener.com/solana/POOL1", text)

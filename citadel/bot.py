@@ -67,6 +67,10 @@ class Trader:
         """Как показывать инструмент человеку (на DEX — имя пары вместо адреса пула)."""
         return symbol
 
+    def trade_note(self, symbol: str, fill: Fill | None = None) -> str:
+        """Хвост уведомления о сделке: на DEX — ссылки на пару и транзакцию."""
+        return ""
+
     def _candles(self, symbol: str, limit: int | None = None):
         return self.market.fetch_ohlcv(symbol, self.cfg.timeframe,
                                        limit or self.cfg.history, offline=self.offline)
@@ -81,7 +85,8 @@ class Trader:
         cand = evolve(feats, self.cfg, rnd)
         st.trained_at = time.time()
         if cand is None:
-            self.notifier.send(f"🔍 {symbol}: годной стратегии не нашлось — по этому символу не торгую")
+            self.notifier.send(f"🔍 {self.label(symbol)}: годной стратегии не нашлось "
+                               f"— по этому символу не торгую")
             if st.genome and not force:
                 return st.genome
             return None
@@ -94,7 +99,7 @@ class Trader:
             self.store.activate(sid, symbol)
             st.genome, st.strategy_id, st.valid_score = cand.genome, sid, cand.valid_score
             self.notifier.send(
-                f"🧠 <b>{symbol}: новая стратегия #{sid}</b> (скор {cand.valid_score:.2f})\n"
+                f"🧠 <b>{self.label(symbol)}: новая стратегия #{sid}</b> (скор {cand.valid_score:.2f})\n"
                 f"<pre>{cand.genome.describe()}</pre>\n"
                 f"обучение: {cand.train.summary()}\nвалидация: {cand.valid.summary()}")
         else:
@@ -269,10 +274,12 @@ class Trader:
         self.store.log_trade(symbol, "buy", fill.qty, fill.price, fill.cost, fill.fee, 0.0,
                              "entry", self.broker.live, fill.order_id)
         self.notifier.send(
-            f"🟢 <b>Покупка {symbol}</b>\nцена {fill.price:.6g}, объём {fill.qty:.8g} "
-            f"(≈{fill.cost:.2f} {self.cfg.quote})\nстоп {fill.price - g.stop_atr * atr:.6g}"
+            f"🟢 <b>Покупка {self.label(symbol)}</b>\nцена {fill.price:.6g}, "
+            f"объём {fill.qty:.8g} (≈{fill.cost:.2f} {self.cfg.quote})\n"
+            f"стоп {fill.price - g.stop_atr * atr:.6g}"
             + (f", тейк {take:.6g}" if take else "")
-            + f"\nстратегия #{st.strategy_id} · {self.broker.name}")
+            + f"\nстратегия #{st.strategy_id} · {self.broker.name}"
+            + self.trade_note(symbol, fill))
 
     def _manage_position(self, row, price: float) -> None:
         symbol = row["symbol"]
@@ -306,7 +313,7 @@ class Trader:
             fill: Fill = self.broker.sell(symbol, qty, price)
         except Exception as e:                            # noqa: BLE001 — биржа могла отклонить
             log.error("%s: не удалось продать: %s", symbol, e)
-            self.notifier.send(f"⚠️ {symbol}: ордер на продажу не прошёл — {e}")
+            self.notifier.send(f"⚠️ {self.label(symbol)}: ордер на продажу не прошёл — {e}")
             return
         # полная стоимость входа = оборот + комиссия покупки, иначе P&L будет завышен
         entry_cost = float(row["entry_price"]) * fill.qty + float(row["entry_fee"] or 0.0)
@@ -317,9 +324,10 @@ class Trader:
         self.store.drop_position(symbol)
         icon = "🔴" if pnl < 0 else "✅"
         self.notifier.send(
-            f"{icon} <b>Продажа {symbol}</b> ({_REASON.get(reason, reason)})\n"
+            f"{icon} <b>Продажа {self.label(symbol)}</b> ({_REASON.get(reason, reason)})\n"
             f"вход {float(row['entry_price']):.6g} → выход {fill.price:.6g}\n"
-            f"P&L {pnl:+.2f} {self.cfg.quote} ({pnl_pct:+.2f}%)")
+            f"P&L {pnl:+.2f} {self.cfg.quote} ({pnl_pct:+.2f}%)"
+            + self.trade_note(symbol, fill))
 
     def _pause_once(self, reason: str) -> None:
         if self.store.get("paused_reason") != reason:
