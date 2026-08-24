@@ -43,6 +43,7 @@ class Feed:
         self.lock = threading.Lock()
         self.ttl = ttl                      # сколько секунд держим свечи с рынка
         self._cache: dict[tuple, tuple[float, list]] = {}
+        self._fail_until: dict[tuple, float] = {}   # куда сейчас бесполезно ходить
         self._clients: dict[str, object] = {}
         self._client_lock = threading.Lock()
 
@@ -97,6 +98,9 @@ class Feed:
         hit = self._cache.get(key)
         if hit and now - hit[0] < self.ttl:
             return hit[1], "рынок"
+        if now < self._fail_until.get(key, 0.0):
+            # рынок только что не ответил: не заставляем панель ждать повторно
+            return (hit[1], "рынок") if hit else self._from_cache(cfg, mode, symbol, tf, limit)
         try:
             rows = (self._dex_candles(symbol, tf, limit) if mode == "dex"
                     else self._cex_candles(cfg, symbol, tf, limit))
@@ -105,8 +109,13 @@ class Feed:
                 return rows, "рынок"
         except Exception as e:                      # noqa: BLE001 — сеть/биржа, идём в кэш
             log.debug("свечи %s %s не пришли: %s", symbol, tf, e)
+            self._fail_until[key] = now + 30.0
         if hit:
             return hit[1], "рынок"
+        return self._from_cache(cfg, mode, symbol, tf, limit)
+
+    def _from_cache(self, cfg: Config, mode: str, symbol: str, tf: str,
+                    limit: int) -> tuple[list[list[float]], str]:
         prefix = "dex" if mode == "dex" else getattr(cfg, "exchange", "cex")
         rows = read_cache(path_for(cfg.cache_dir, prefix, symbol, tf))
         if not rows and tf != cfg.timeframe:        # хотя бы то, что бот уже скачал
@@ -129,6 +138,7 @@ class Feed:
 
     def _dex_candles(self, symbol: str, tf: str, limit: int) -> list[list[float]]:
         from ..dex.geckoterminal import GeckoTerminal                 # noqa: PLC0415
+        from ..dex.http import HttpClient                             # noqa: PLC0415
 
         chain, _, pool = symbol.partition(":")
         if not pool:
@@ -136,7 +146,10 @@ class Feed:
         with self._client_lock:
             client = self._clients.get("dex")
             if client is None:
-                client = GeckoTerminal()
+                # панель не должна ждать длинных ретраев: страница живая, а не пакетная
+                client = GeckoTerminal(HttpClient(
+                    min_interval=1.0, timeout=8.0, retries=1,
+                    headers={"Accept": "application/json;version=20230302"}))
                 self._clients["dex"] = client
         return client.ohlcv(chain, pool, tf, limit=limit)
 
@@ -211,6 +224,9 @@ class PricePoller(threading.Thread):
             try:
                 cfg = self.panel.config()
                 symbols = list(cfg.symbols)
+                focus = getattr(self.panel, "focus_symbol", "")
+                if focus and focus not in symbols:      # смотрим монету из ленты
+                    symbols.append(focus)
                 if symbols:
                     prices = self.panel.feed.fetch_prices(cfg, self.panel.mode, symbols)
                     if prices:

@@ -158,6 +158,9 @@ class Panel:
         self.stream: BinanceStream | None = None
         self.base_interval = 4.0
         self.focus_tf = ""                    # какой таймфрейм сейчас смотрят
+        self.focus_symbol = ""                # его же цену опрашиваем, даже если он не в работе
+        self.extra_pairs: dict[str, dict] = {}   # просмотренные пулы, ещё не взятые в работу
+        self._new_cache: tuple[float, str, list] = (0.0, "", [])
 
     # ── живые цены (детали — в feed.py) ─────────────────────────────────────
     def push_ticks(self, prices: dict[str, float]) -> None:
@@ -202,6 +205,84 @@ class Panel:
         if self.focus_tf in SECOND_TFS:
             return min(self.base_interval, 1.5)
         return self.base_interval
+
+    # ── лента новых монет ───────────────────────────────────────────────────
+    def new_coins(self, trending: bool = False, pages: int = 1,
+                  limit: int = 25) -> dict:
+        """Только что созданные пулы с разметкой рисков (кэш на минуту)."""
+        if self.mode != "dex":
+            return {"coins": [], "error": "лента новых монет есть только в режиме DEX"}
+        cfg = self.config()
+        key = f"{cfg.chain}|{int(trending)}|{pages}"
+        now = time.time()
+        if self._new_cache[1] == key and now - self._new_cache[0] < 60:
+            return {"coins": self._new_cache[2][:limit], "chain": cfg.chain, "cached": True}
+        try:
+            from ..dex.geckoterminal import GeckoTerminal              # noqa: PLC0415
+            from ..dex.newcoins import NewCoinScanner                  # noqa: PLC0415
+
+            scanner = NewCoinScanner(GeckoTerminal())
+            found = scanner.fetch(cfg.chain, pages=pages, trending=trending)
+        except Exception as e:                                         # noqa: BLE001 — сеть
+            return {"coins": [], "error": str(e)[:200], "chain": cfg.chain}
+
+        universe = set(cfg.symbols)
+        coins = []
+        for coin in found:
+            pair = coin.pair
+            self.extra_pairs[pair.key] = vars(pair)
+            coins.append({
+                "symbol": pair.key, "name": pair.name, "chain": pair.chain, "dex": pair.dex,
+                "price": pair.price_usd, "liquidity": pair.liquidity_usd,
+                "volume": pair.volume_h24, "buys": pair.txns_h24_buys,
+                "sells": pair.txns_h24_sells, "age_hours": pair.age_hours,
+                "change": pair.price_change_h24, "fdv": pair.fdv,
+                "score": round(coin.score, 2), "flags": coin.flags, "good": coin.good,
+                "url": pair.url or f"https://dexscreener.com/{pair.chain}/{pair.pair_address}",
+                "working": pair.key in universe,
+            })
+        self._new_cache = (now, key, coins)
+        return {"coins": coins[:limit], "chain": cfg.chain, "cached": False}
+
+    def add_to_universe(self, symbol: str) -> dict:
+        """Берём монету в работу: она попадает в список бота и в его метаданные."""
+        cfg = self.config()
+        chain, _, pool = symbol.partition(":")
+        if not pool:
+            return {"error": "ожидался ключ вида chain:адрес_пула"}
+        raw = self.extra_pairs.get(symbol)
+        if raw is None:
+            return {"error": "пул не найден в ленте — обнови список"}
+        try:
+            store = Storage(cfg.db_path)
+        except Exception as e:                                         # noqa: BLE001
+            return {"error": str(e)[:200]}
+        try:
+            universe = list(store.get("universe", []) or []) or list(cfg.symbols)
+            if symbol not in universe:
+                universe.append(symbol)
+            store.set("universe", universe)
+        finally:
+            store.close()
+        pairs = self._read_pairs_file(cfg)
+        pairs[symbol] = raw
+        self._write_pairs_file(cfg, pairs)
+        self.overrides["CITADEL_SYMBOLS"] = ",".join(universe)
+        return {"ok": True, "universe": universe}
+
+    def _read_pairs_file(self, cfg: Config) -> dict:
+        try:
+            return json.loads(Path(cfg.pairs_path).read_text(encoding="utf-8"))
+        except (OSError, ValueError, AttributeError):
+            return {}
+
+    def _write_pairs_file(self, cfg: Config, pairs: dict) -> None:
+        try:
+            path = Path(cfg.pairs_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(pairs, ensure_ascii=False, indent=1), encoding="utf-8")
+        except (OSError, AttributeError) as e:
+            log.warning("не удалось сохранить список пар: %s", e)
 
     def timeframes(self) -> list[dict]:
         """Что предложить в селекторе: секунды из тиков, остальное с рынка."""
@@ -317,10 +398,15 @@ class Panel:
         try:
             if not symbols:
                 symbols = sorted({t["symbol"] for t in store.recent_trades(200)})
-            if symbol not in symbols:
+            viewing_extra = (self.mode == "dex" and symbol and symbol not in symbols
+                             and ":" in symbol)
+            if viewing_extra:
+                symbols = symbols + [symbol]     # смотрим пул из ленты, не беря его в работу
+            elif symbol not in symbols:
                 symbol = symbols[0] if symbols else ""
             if not symbol:
                 return {"symbols": [], "symbol": "", "candles": [], "trades": []}
+            self.focus_symbol = symbol
 
             pairs = self._pairs(cfg)
             tf = tf or cfg.timeframe
@@ -381,6 +467,7 @@ class Panel:
                 "embeds": self.embeds(symbol)["views"],
                 "last_trade_id": store.last_trade_id(),
                 "stream": self.stream_state(),
+                "watch_only": viewing_extra,
                 "live_prices": self.poller is not None and not self.poller.stop_event.is_set(),
                 "poll_error": self.poller.error if self.poller else "",
             }
@@ -470,10 +557,9 @@ class Panel:
     def _pairs(self, cfg: Config) -> dict:
         if self.mode != "dex":
             return {}
-        try:
-            return json.loads(Path(cfg.pairs_path).read_text(encoding="utf-8"))
-        except (OSError, ValueError, AttributeError):
-            return {}
+        pairs = dict(self.extra_pairs)          # то, что смотрим из ленты
+        pairs.update(self._read_pairs_file(cfg))   # то, что бот уже знает — приоритетнее
+        return pairs
 
     def _last_price(self, cfg: Config, pairs: dict, symbol: str) -> float:
         """Последняя известная цена: из метаданных пары или из кэша свечей."""
@@ -548,6 +634,10 @@ class Handler(BaseHTTPRequestHandler):
             bars = max(10, min(1000, int((query.get("bars") or ["220"])[0] or 220)))
             tf = (query.get("tf") or [""])[0]
             self._json(self.panel.chart(symbol, bars, tf))
+        elif url.path == "/api/new":
+            self._json(self.panel.new_coins(
+                trending=(query.get("trending") or ["0"])[0] in ("1", "true"),
+                pages=max(1, min(3, int((query.get("pages") or ["1"])[0] or 1)))))
         elif url.path == "/api/embed":
             self._json(self.panel.embeds((query.get("symbol") or [""])[0]))
         elif url.path == "/api/ticks":
@@ -598,6 +688,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": error} if error else {"ok": True})
         elif url.path == "/api/stop":
             self._json({"error": panel.runner.stop()})
+        elif url.path == "/api/universe":
+            self._json(panel.add_to_universe(str(payload.get("symbol", ""))))
         elif url.path == "/api/mode":
             mode = payload.get("mode", "cex")
             if mode not in COMMANDS:

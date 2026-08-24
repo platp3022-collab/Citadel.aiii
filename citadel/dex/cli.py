@@ -53,6 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     dc = sub.add_parser("discover", help="подобрать пары: DexScreener + фильтры безопасности")
     dc.add_argument("--show-rejected", action="store_true", help="показать, кого и почему отсеяли")
+    nw = sub.add_parser("new", help="лента новых монет: только что созданные пулы")
+    nw.add_argument("--trending", action="store_true", help="не новые, а те, вокруг чего движение")
+    nw.add_argument("--pages", type=int, default=1, help="страниц ленты (по 20 пулов)")
+    nw.add_argument("--top", type=int, default=15, help="сколько показать")
+    nw.add_argument("--add", type=int, default=0, help="добавить N лучших в работу")
+    nw.add_argument("--min-liquidity", type=float, default=10_000.0)
+    nw.add_argument("--min-volume", type=float, default=20_000.0)
+
     sub.add_parser("pairs", help="текущий список пар и их состояние")
     sub.add_parser("fetch", help="скачать свечи по выбранным парам")
 
@@ -130,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
         DexPaperBroker(cfg, store, market)
     trader = DexTrader(cfg, store, market, broker, notifier, args.offline)
 
+    if args.cmd == "new":
+        return cmd_new(cfg, store, market, args)
     if args.cmd == "pairs":
         return cmd_pairs(trader)
     if args.cmd == "fetch":
@@ -169,6 +179,50 @@ def cmd_discover(cfg: DexConfig, store: Storage, market: DexMarket,
         pair = market.pair(key)
         print(f"  • {pair.describe() if pair else key}\n    {key}")
     return 0 if universe else 1
+
+
+def cmd_new(cfg: DexConfig, store: Storage, market: DexMarket, args) -> int:
+    from .newcoins import NewCoinScanner, assess
+
+    print(BANNER)
+    if args.offline:
+        print("лента новых монет требует сети — сними --offline")
+        return 1
+    scanner = NewCoinScanner(market.gecko, market.screener)
+    coins = scanner.fetch(cfg.chain, pages=args.pages, trending=args.trending)
+    coins = [assess(c.pair, args.min_liquidity, args.min_volume) for c in coins]
+    coins.sort(key=lambda c: c.score, reverse=True)
+    if not coins:
+        print("лента пуста — сеть недоступна или в ней сейчас нет новых пулов")
+        return 1
+
+    title = "движение сейчас" if args.trending else "новые пулы"
+    print(f"\n{title} · {cfg.chain} · показываю {min(args.top, len(coins))} из {len(coins)}\n")
+    for i, coin in enumerate(coins[:args.top], 1):
+        mark = "🟢" if coin.score >= 1.5 else "🟡" if coin.score >= 0 else "🔴"
+        print(f"{i:>2}. {mark} {coin.describe()}")
+        print(f"      {coin.pair.key}")
+        for text in coin.good:
+            print(f"      + {text}")
+        for text in coin.flags:
+            print(f"      − {text}")
+        print(f"      https://dexscreener.com/{coin.pair.chain}/{coin.pair.pair_address}")
+    print("\nЭто лента, а не рекомендация: большинство новых монет уходит в ноль.")
+
+    if args.add:
+        picked = [c.pair for c in coins[:args.add]]
+        universe = list(store.get("universe", []) or []) or list(cfg.symbols)
+        for pair in picked:
+            market.remember(pair)
+            if pair.key not in universe:
+                universe.append(pair.key)
+        store.set("universe", universe)
+        print(f"\nдобавил в работу: {', '.join(p.name for p in picked)}")
+        print("теперь: python dexbot.py fetch && python dexbot.py evolve")
+        print("У новой монеты истории мало — на 15m стратегию искать не на чем.\n"
+              "Для свежих пулов ставь CITADEL_TIMEFRAME=1m или 5m, иначе поиск скажет,\n"
+              "что данных недостаточно, и торговать по ней не будет.")
+    return 0
 
 
 def cmd_pairs(trader: DexTrader) -> int:

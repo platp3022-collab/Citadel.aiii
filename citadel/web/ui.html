@@ -113,6 +113,14 @@
   .sel{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
     border-radius:7px;padding:4px 8px;font:inherit;font-size:12px}
   .legend{padding:0 14px 12px;color:var(--dim);font-size:12px;line-height:1.7}
+  .risk{color:var(--red)}
+  .plus{color:var(--green)}
+  .mini{padding:3px 8px;font-size:11.5px;border-radius:6px}
+  .badge{display:inline-block;min-width:34px;text-align:center;padding:1px 6px;border-radius:5px;
+    font-family:var(--mono);font-size:11px}
+  .badge.ok{background:#0f2b28;color:var(--accent)}
+  .badge.mid{background:#2b2110;color:var(--amber)}
+  .badge.bad{background:#2b1010;color:var(--red)}
   svg.live{width:100%;height:auto;display:block;background:#070b0f;border-radius:9px}
   svg.live .grid{stroke:var(--line);stroke-dasharray:3 4}
   svg.live .price{fill:none;stroke:#7aa2f7;stroke-width:1.6}
@@ -205,6 +213,23 @@
       <div class="empty">данных пока нет — скачай историю и запусти торговлю</div>
     </div>
     <div class="legend" id="chartLegend"></div>
+  </section>
+
+  <section id="newSection" style="display:none">
+    <h2>Новые монеты
+      <span class="sp">
+        <span id="newInfo" class="tag"></span>
+        <select id="newKind" class="sel">
+          <option value="new">только созданные</option>
+          <option value="trending">движение сейчас</option>
+        </select>
+        <button class="act" style="padding:4px 10px;font-size:12px" onclick="pollNew(true)">обновить</button>
+      </span>
+    </h2>
+    <div id="newList"><div class="empty">загружаю ленту…</div></div>
+    <div class="legend">Лента новых пулов — то же, что показывают Axiom и DexScreener.
+      Это не рекомендация: большинство новых монет уходит в ноль. «График» открывает
+      монету для просмотра, «в работу» добавляет её боту.</div>
   </section>
 
   <section>
@@ -418,6 +443,7 @@ let chartView = "bot";     // bot | tradingview | dexscreener | geckoterminal
 let chartData = null;
 let tickCursor = 0;
 let tradeCursor = 0;       // id последней известной сделки — новые дорисовываем сразу
+let chartSeq = 0;          // номер запроса: ответ по старой паре не должен перетирать новый
 let embedUrl = "";
 let chartMarks = [];
 
@@ -849,11 +875,15 @@ function renderTabs(d) {
 }
 
 async function pollChart() {
+  const seq = ++chartSeq;
+  const asked = chartSymbol;
   let d;
   try {
     d = await api("/api/chart?symbol=" + encodeURIComponent(chartSymbol) +
                   "&bars=" + chartBars + "&tf=" + encodeURIComponent(chartTf));
   } catch (e) { return; }
+  // пока ждали ответ, могли переключить пару — тогда этот ответ уже неактуален
+  if (seq !== chartSeq || asked !== chartSymbol) return;
   if (d.error) return;
   chartSymbol = d.symbol || "";
   chartTf = d.timeframe || "";
@@ -868,11 +898,13 @@ async function pollChart() {
 
 async function pollTicks() {
   if (!chartData || !chartSymbol || chartView !== "bot") return;
+  const asked = chartSymbol;
   let d;
   try {
     d = await api("/api/ticks?symbol=" + encodeURIComponent(chartSymbol) +
                   "&since=" + tickCursor + "&trade_id=" + tradeCursor);
   } catch (e) { return; }
+  if (asked !== chartSymbol || !chartData) return;
   if (d.stream) chartData.stream = d.stream;
   if (d.position !== undefined) chartData.position = d.position;
   if (d.trades && d.trades.length) applyFreshTrades(d);
@@ -904,6 +936,79 @@ async function pollTicks() {
   } else {
     drawChart(chartData);
   }
+}
+
+// ── лента новых монет ──────────────────────────────────────────────────────
+let newBusy = false;
+
+function ageText(hours) {
+  if (hours < 1) return Math.round(hours * 60) + " мин";
+  if (hours < 48) return hours.toFixed(1) + " ч";
+  return (hours / 24).toFixed(1) + " д";
+}
+
+function renderNew(d) {
+  const box = $("newList");
+  if (d.error) {
+    box.innerHTML = `<div class="empty">лента недоступна: ${esc(d.error)}</div>`;
+    return;
+  }
+  const coins = d.coins || [];
+  if (!coins.length) {
+    box.innerHTML = '<div class="empty">в ленте пусто — попробуй «обновить» или другую сеть</div>';
+    return;
+  }
+  box.innerHTML = `<table><thead><tr><th>Монета</th><th class="num">Возраст</th>
+    <th class="num">Ликвидность</th><th class="num">Объём 24ч</th><th class="num">Покуп/прод</th>
+    <th class="num">Оценка</th><th>Что видно</th><th></th></tr></thead><tbody>` +
+    coins.map((c, i) => {
+      const cls = c.score >= 1.5 ? "ok" : c.score >= 0 ? "mid" : "bad";
+      const notes = c.good.map(t => `<span class="plus">+ ${esc(t)}</span>`)
+        .concat(c.flags.map(t => `<span class="risk">− ${esc(t)}</span>`)).join("<br>");
+      return `<tr>
+        <td><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>
+          <div class="tag">${esc(c.dex)}</div></td>
+        <td class="num">${ageText(c.age_hours)}</td>
+        <td class="num">$${fmt(c.liquidity, 0)}</td>
+        <td class="num">$${fmt(c.volume, 0)}</td>
+        <td class="num">${c.buys}/${c.sells}</td>
+        <td class="num"><span class="badge ${cls}">${fmt(c.score, 1)}</span></td>
+        <td style="font-family:var(--sans);font-size:12px;line-height:1.6">${notes}</td>
+        <td class="num" style="white-space:nowrap">
+          <button class="act mini" data-watch="${esc(c.symbol)}">график</button>
+          ${c.working ? '<span class="tag">в работе</span>'
+                      : `<button class="act mini go" data-add="${esc(c.symbol)}">в работу</button>`}
+        </td></tr>`;
+    }).join("") + "</tbody></table>";
+
+  box.querySelectorAll("button[data-watch]").forEach(b => b.onclick = () => {
+    chartSymbol = b.dataset.watch; chartData = null; tickCursor = 0; embedUrl = "";
+    destroyLwc();
+    $("chartViews").dataset.want = ""; $("chartTabs").dataset.want = "";
+    pollChart();
+    document.querySelector("#chartBox").scrollIntoView({behavior: "smooth", block: "center"});
+  });
+  box.querySelectorAll("button[data-add]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const res = await post("/api/universe", {symbol: b.dataset.add});
+    if (res && res.ok) {
+      toast("Монета взята в работу. Дальше: «Скачать историю» → «Найти стратегию». " +
+            "У свежего пула истории мало — поставь таймфрейм 1m или 5m.", "trade");
+      pollNew(true); refresh(); pollChart();
+    } else { b.disabled = false; }
+  });
+  $("newInfo").textContent = `${coins.length} пулов · ${d.chain}` + (d.cached ? " · из кэша" : "");
+}
+
+async function pollNew(force) {
+  if (MODE !== "dex" || newBusy) return;
+  newBusy = true;
+  try {
+    const kind = $("newKind").value === "trending" ? "1" : "0";
+    const d = await api("/api/new?trending=" + kind + (force ? "&pages=1" : ""));
+    renderNew(d);
+  } catch (e) { /* сеть — покажем в следующий раз */ }
+  finally { newBusy = false; }
 }
 
 // ── состояние ──────────────────────────────────────────────────────────────
@@ -1011,6 +1116,13 @@ async function refresh() {
   MODE = s.mode;
   $("m-cex").className = MODE === "cex" ? "on" : "";
   $("m-dex").className = MODE === "dex" ? "on" : "";
+  const newSection = $("newSection");
+  if (MODE === "dex" && newSection.style.display === "none") {
+    newSection.style.display = "";
+    pollNew();
+  } else if (MODE !== "dex") {
+    newSection.style.display = "none";
+  }
   $("dot").className = "dot" + (s.running ? " on" : "");
   $("statusText").textContent = s.running ? "выполняется: " + s.command
     : (s.paused ? "пауза: " + s.paused : "простой");
@@ -1037,6 +1149,7 @@ $("tfSel").onchange = (e) => {
   chartTf = e.target.value; chartData = null; destroyLwc(); pollChart();
 };
 $("styleSel").onchange = (e) => { chartStyle = e.target.value; destroyLwc(); drawChart(chartData); };
+$("newKind").onchange = () => pollNew(true);
 
 refresh();
 pollLog();
@@ -1044,7 +1157,8 @@ pollChart();
 setInterval(refresh, 3000);
 setInterval(pollLog, 900);
 setInterval(pollChart, 10000);     // свечи и сделки подтягиваем реже
-setInterval(pollTicks, 1000);      // цена — каждую секунду
+setInterval(pollTicks, 1000);
+setInterval(() => pollNew(), 60000);      // цена — каждую секунду
 </script>
 </body>
 </html>

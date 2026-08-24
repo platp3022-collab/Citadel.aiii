@@ -331,6 +331,22 @@ class TestCandleFeed(unittest.TestCase):
         self.assertEqual(len(candles), 20)
         self.assertEqual(len(candles[0]), 6)                          # с объёмом
 
+    def test_failed_market_request_is_not_repeated_at_once(self):
+        """Панель не должна ждать сеть на каждом запросе, если рынок только что молчал."""
+        calls = []
+
+        class DeadEx:
+            def fetch_ohlcv(self, symbol, tf, limit=None):
+                calls.append(tf)
+                raise RuntimeError("сеть недоступна")
+
+        feed = Feed()
+        feed._clients["cex"] = type("M", (), {"ex": DeadEx()})()
+        for _ in range(5):
+            candles, source = feed.market_candles(Config(), "cex", "BTC/USDT", "1m", 10)
+            self.assertEqual(source, "кэш")
+        self.assertEqual(len(calls), 1)                       # одна попытка, потом пауза
+
     def test_market_candles_are_cached_briefly(self):
         calls = []
 
@@ -344,6 +360,59 @@ class TestCandleFeed(unittest.TestCase):
         for _ in range(4):
             feed.market_candles(Config(), "cex", "BTC/USDT", "1m", 5)
         self.assertEqual(len(calls), 1)                               # один запрос на все
+
+
+class TestWatchOnlyPools(unittest.TestCase):
+    """Монету из ленты можно посмотреть, не беря в работу, а потом взять."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.panel = Panel("dex")
+        self.panel.overrides = {"CITADEL_SYMBOLS": "solana:POOL1",
+                                "CITADEL_DB_PATH": str(Path(self.tmp.name) / "d.db"),
+                                "CITADEL_CACHE_DIR": str(Path(self.tmp.name) / "c")}
+        self.panel.extra_pairs["solana:NEWPOOL"] = {
+            "chain": "solana", "dex": "raydium", "pair_address": "NEWPOOL",
+            "base_symbol": "SOLDOG", "base_address": "M", "quote_symbol": "SOL",
+            "quote_address": "S", "price_usd": 1.5, "liquidity_usd": 1.2e6,
+            "volume_h24": 4.1e6, "volume_h1": 0.0, "txns_h24_buys": 7200,
+            "txns_h24_sells": 6800, "price_change_h24": 0.0, "fdv": 1e7,
+            "created_at_ms": 0, "url": "", "socials": [], "websites": []}
+        self.panel.feed._fail_until[("dex", "solana:NEWPOOL", "15m", 220)] = time.time() + 60
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_chart_shows_pool_that_is_not_in_work(self):
+        d = self.panel.chart("solana:NEWPOOL", 220, "15m")
+        self.assertEqual(d["symbol"], "solana:NEWPOOL")
+        self.assertTrue(d["watch_only"])
+        self.assertIn("solana:NEWPOOL", d["symbols"])
+        self.assertIn("solana:POOL1", d["symbols"])          # рабочие пары остались
+        self.assertEqual(d["labels"]["solana:NEWPOOL"], "SOLDOG/SOL")
+
+    def test_watching_sets_focus_for_price_polling(self):
+        self.panel.chart("solana:NEWPOOL", 50, "1m")
+        self.assertEqual(self.panel.focus_symbol, "solana:NEWPOOL")
+
+    def test_taking_into_work_updates_universe_and_pairs(self):
+        res = self.panel.add_to_universe("solana:NEWPOOL")
+        self.assertTrue(res.get("ok"))
+        self.assertIn("solana:NEWPOOL", res["universe"])
+        store = Storage(self.panel.config().db_path)
+        self.assertIn("solana:NEWPOOL", store.get("universe"))
+        store.close()
+        pairs = self.panel._read_pairs_file(self.panel.config())
+        self.assertEqual(pairs["solana:NEWPOOL"]["base_symbol"], "SOLDOG")
+        d = self.panel.chart("solana:NEWPOOL", 50, "15m")
+        self.assertFalse(d["watch_only"])                    # теперь она рабочая
+
+    def test_unknown_pool_is_refused(self):
+        self.assertIn("error", self.panel.add_to_universe("solana:НЕИЗВЕСТНЫЙ"))
+        self.assertIn("error", self.panel.add_to_universe("мусор"))
+
+    def test_new_coins_only_in_dex_mode(self):
+        self.assertIn("error", Panel("cex").new_coins())
 
 
 class TestEmbeddedCharts(unittest.TestCase):

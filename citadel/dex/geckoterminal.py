@@ -86,6 +86,32 @@ class GeckoTerminal:
                 break
         return [rows[k] for k in sorted(rows)][-limit:]
 
+    # ── ленты пулов ─────────────────────────────────────────────────────────
+    def new_pools(self, chain: str = "", pages: int = 1) -> list[dict]:
+        """
+        Только что созданные пулы — то же, что показывают «новые пары» в
+        Axiom и DexScreener. Без ключа, до 20 пулов на страницу.
+        """
+        return self._pool_feed("new_pools", chain, pages)
+
+    def trending_pools(self, chain: str = "", pages: int = 1) -> list[dict]:
+        """Пулы, вокруг которых сейчас движение."""
+        return self._pool_feed("trending_pools", chain, pages)
+
+    def _pool_feed(self, feed: str, chain: str, pages: int) -> list[dict]:
+        out: list[dict] = []
+        for page in range(1, max(1, pages) + 1):
+            url = (f"{BASE}/networks/{network_of(chain)}/{feed}" if chain
+                   else f"{BASE}/networks/{feed}")
+            data = self.http.get_json(url, {"page": page})
+            rows = data.get("data") or []
+            if not rows:
+                break
+            out.extend(rows)
+            if len(rows) < 20:
+                break
+        return out
+
     def pool(self, chain: str, pool: str) -> dict:
         """Справка по пулу: цена, ликвидность, объём — как её видит GeckoTerminal."""
         data = self.http.get_json(f"{BASE}/networks/{network_of(chain)}/pools/{pool}")
