@@ -88,6 +88,11 @@
   svg .axis{stroke:var(--line)}
   svg .line{fill:none;stroke:var(--accent);stroke-width:2}
   svg .area{fill:rgba(63,208,201,.10)}
+  .live-price{font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:.01em}
+  .live-price .chg{font-size:12px;margin-left:6px;font-weight:400}
+  .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;
+    background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 1.6s infinite}
+  .live-dot.off{background:var(--dim);box-shadow:none;animation:none}
   .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px 0}
   .tabs button{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
     border-radius:7px;padding:5px 11px;font:inherit;font-size:12.5px;cursor:pointer;
@@ -110,6 +115,8 @@
   svg.live .lvl-take{stroke:var(--accent);stroke-width:1;stroke-dasharray:5 4;opacity:.85}
   svg.live .hold{fill:rgba(63,208,201,.07)}
   svg.live .now{fill:var(--amber)}
+  svg.live .tail{fill:none;stroke:var(--amber);stroke-width:1.8}
+  svg.live .now-line{stroke:var(--amber);stroke-width:1;stroke-dasharray:4 4;opacity:.7}
   svg.live .lbl{font-size:10.5px;font-family:var(--mono)}
   .toast{position:fixed;right:18px;bottom:18px;background:var(--panel);color:var(--text);
     border:1px solid var(--line);border-left:3px solid var(--red);border-radius:8px;
@@ -152,8 +159,11 @@
   <section>
     <h2>Сделки на графике
       <span class="sp">
+        <span id="livePrice" class="live-price"></span>
+        <span id="liveState" class="tag"></span>
         <span id="chartInfo" class="tag"></span>
         <select id="barsSel" class="sel">
+          <option value="live">живая цена</option>
           <option value="120">120 баров</option>
           <option value="220" selected>220 баров</option>
           <option value="500">500 баров</option>
@@ -371,6 +381,9 @@ async function pollLog() {
 // ── живой график входов и выходов ──────────────────────────────────────────
 let chartSymbol = "";
 let chartBars = 220;
+let chartData = null;      // последний ответ /api/chart — чтобы перерисовывать по тикам
+let tickCursor = 0;
+let liveOnly = false;      // режим «только живая цена»: по оси времени одни тики
 
 function fmtTime(ms) {
   const d = new Date(ms);
@@ -389,7 +402,72 @@ function pairTrades(trades) {
   return {pairs, dangling: open};
 }
 
+function drawLive(d) {
+  // режим «живая цена»: только тики, как бегущая лента в терминале
+  const box = $("chartBox");
+  const ticks = d.ticks || [];
+  if (ticks.length < 2) {
+    box.innerHTML = '<div class="empty">жду первые цены… ' +
+      (d.live_prices === false ? 'панель запущена с --no-live-prices' :
+       'панель опрашивает рынок раз в несколько секунд') + '</div>';
+    return;
+  }
+  const W = 1000, H = 380, L = 86, R = 132, T = 22, B = 30;
+  const x0 = ticks[0][0], x1 = Math.max(ticks[ticks.length - 1][0], Date.now());
+  let lo = Math.min(...ticks.map(t => t[1])), hi = Math.max(...ticks.map(t => t[1]));
+  const near = (d.trades || []).filter(t => t.ts >= x0);
+  for (const t of near) { lo = Math.min(lo, t.price); hi = Math.max(hi, t.price); }
+  if (d.position) {
+    for (const v of [d.position.entry, d.position.stop, d.position.take]) {
+      if (v > 0 && v > lo * 0.9 && v < hi * 1.1) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    }
+  }
+  const padY = (hi - lo) * 0.12 || hi * 0.002 || 1;
+  lo -= padY; hi += padY;
+  const spanX = (x1 - x0) || 1, spanY = (hi - lo) || 1;
+  const X = t => L + (t - x0) / spanX * (W - L - R);
+  const Y = v => T + (hi - v) / spanY * (H - T - B);
+  const g = [];
+  for (let i = 1; i <= 4; i++) {
+    const v = lo + spanY * i / 5;
+    g.push(`<line class="grid" x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}"/>
+      <text class="tick" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtPrice(v)}</text>`);
+  }
+  if (d.position) {
+    for (const [cls, v, name] of [["lvl-entry", d.position.entry, "вход"],
+                                  ["lvl-stop", Math.max(d.position.stop, d.position.trail), "стоп"],
+                                  ["lvl-take", d.position.take, "тейк"]]) {
+      if (!(v > lo && v < hi)) continue;
+      g.push(`<line class="${cls}" x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}"/>
+        <text class="lbl tick" x="${W - R + 6}" y="${(Y(v) + 4).toFixed(1)}">${name} ${fmtPrice(v)}</text>`);
+    }
+  }
+  g.push(`<path class="tail" d="${ticks.map((t, i) =>
+    `${i ? "L" : "M"}${X(t[0]).toFixed(1)},${Y(t[1]).toFixed(1)}`).join("")}"/>`);
+  for (const t of near) {
+    const x = X(t.ts), y = Y(t.price);
+    const cls = t.side === "buy" ? "buy" : (t.pnl >= 0 ? "win" : "loss");
+    const dy = t.side === "buy" ? 7 : -7, dir = t.side === "buy" ? 11 : -11;
+    g.push(`<g><title>${esc((t.side === "buy" ? "Покупка" : "Продажа") + " " + fmtTime(t.ts) +
+      "\nцена " + fmtPrice(t.price) + "\n" + t.reason)}</title>
+      <path class="${cls}" d="M${x.toFixed(1)},${(y + dy).toFixed(1)} l-6,${dir} l12,0 Z"/></g>`);
+  }
+  const last = ticks[ticks.length - 1];
+  g.push(`<circle class="now" cx="${X(last[0]).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="4.5"/>
+    <line class="now-line" x1="${L}" y1="${Y(last[1]).toFixed(1)}" x2="${W - R}" y2="${Y(last[1]).toFixed(1)}"/>
+    <text class="lbl now" x="${W - R + 6}" y="${(Y(last[1]) + 4).toFixed(1)}">${fmtPrice(last[1])}</text>`);
+  g.push(`<text class="tick" x="${L}" y="${H - 8}">${fmtTime(x0)}</text>
+    <text class="tick" x="${W - R}" y="${H - 8}" text-anchor="end">сейчас</text>`);
+  box.innerHTML = `<svg class="live" viewBox="0 0 ${W} ${H}" role="img"
+    aria-label="живая цена">${g.join("")}</svg>`;
+  const mins = Math.round((x1 - x0) / 60000);
+  $("chartLegend").innerHTML = `Живая цена: ${ticks.length} обновлений за последние ` +
+    `${mins < 1 ? "меньше минуты" : mins + " мин"}. Переключи селектор на «220 баров», ` +
+    `чтобы увидеть историю и все сделки.`;
+}
+
 function drawChart(d) {
+  if (liveOnly) { drawLive(d); return; }
   const box = $("chartBox");
   if (!d.candles || d.candles.length < 3) {
     box.innerHTML = '<div class="empty">свечей нет — нажми «Скачать историю»</div>';
@@ -400,8 +478,9 @@ function drawChart(d) {
   const c = d.candles;
   let x0 = c[0][0], x1 = c[c.length - 1][0];
   const lastTradeTs = d.trades.length ? d.trades[d.trades.length - 1].ts : 0;
-  const nowTs = Math.max(d.price_ts || 0, lastTradeTs);
-  if (nowTs > x1 && nowTs - x1 < (x1 - x0) * 0.2) x1 = nowTs;   // свежие сделки в кадре
+  const lastTickTs = (d.ticks && d.ticks.length) ? d.ticks[d.ticks.length - 1][0] : 0;
+  const nowTs = Math.max(d.price_ts || 0, lastTradeTs, lastTickTs);
+  if (nowTs > x1) x1 = Math.min(nowTs, x1 + (x1 - x0) * 0.25);  // место под живой хвост
 
   let lo = Math.min(...c.map(k => k[3])), hi = Math.max(...c.map(k => k[2]));
   for (const t of d.trades) { if (t.ts >= x0) { lo = Math.min(lo, t.price); hi = Math.max(hi, t.price); } }
@@ -411,6 +490,7 @@ function drawChart(d) {
     }
   }
   if (d.price > 0) { lo = Math.min(lo, d.price); hi = Math.max(hi, d.price); }
+  for (const t of d.ticks || []) { lo = Math.min(lo, t[1]); hi = Math.max(hi, t[1]); }
   const padY = (hi - lo) * 0.06 || hi * 0.01 || 1;
   lo -= padY; hi += padY;
   const spanX = (x1 - x0) || 1, spanY = (hi - lo) || 1;
@@ -430,8 +510,17 @@ function drawChart(d) {
     g.push(`<rect class="hold" x="${xa.toFixed(1)}" y="${T}" width="${(W - R - xa).toFixed(1)}" height="${H - T - B}"/>`);
   }
 
-  // цена
+  // цена по закрытым свечам
   g.push(`<path class="price" d="${c.map((k, i) => `${i ? "L" : "M"}${X(k[0]).toFixed(1)},${Y(k[4]).toFixed(1)}`).join("")}"/>`);
+
+  // живой хвост: тики после закрытия последней свечи — то, что происходит прямо сейчас
+  const tail = (d.ticks || []).filter(t => t[0] >= c[c.length - 1][0]);
+  if (tail.length) {
+    const start = [c[c.length - 1][0], c[c.length - 1][4]];
+    const pts = [start, ...tail];
+    g.push(`<path class="tail" d="${pts.map((t, i) =>
+      `${i ? "L" : "M"}${X(t[0]).toFixed(1)},${Y(t[1]).toFixed(1)}`).join("")}"/>`);
+  }
 
   // связки «вход → выход»
   const {pairs} = pairTrades(d.trades);
@@ -481,6 +570,7 @@ function drawChart(d) {
   // живая цена
   if (d.price > 0) {
     const y = Y(d.price), x = X(Math.min(x1, Math.max(x0, d.price_ts || x1)));
+    g.push(`<line class="now-line" x1="${L}" y1="${y.toFixed(1)}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`);
     g.push(`<circle class="now" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4"/>
       <line class="grid" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${W - R}" y2="${y.toFixed(1)}"/>
       <text class="lbl now" x="${W - R + 6}" y="${(y - 8).toFixed(1)}">сейчас ${fmtPrice(d.price)}</text>`);
@@ -507,6 +597,32 @@ function drawChart(d) {
   $("chartLegend").innerHTML = note;
   $("chartInfo").textContent = (d.strategy ? `стратегия #${d.strategy.id}` : "стратегии нет") +
     " · " + d.timeframe;
+
+  // крупная живая цена и изменение от закрытия последней свечи
+  const base = c[c.length - 1][4];
+  const chg = base ? (d.price / base - 1) * 100 : 0;
+  updatePrice(d.price, chg);
+  const st = $("liveState");
+  if (d.live_prices === false) {
+    st.innerHTML = '<span class="live-dot off"></span>цены от бота';
+    st.title = "Панель запущена с --no-live-prices";
+  } else if (d.poll_error) {
+    st.innerHTML = '<span class="live-dot off"></span>цены не приходят';
+    st.title = d.poll_error;
+  } else {
+    st.innerHTML = '<span class="live-dot"></span>живые цены';
+    st.title = "Панель сама опрашивает биржу/DexScreener";
+  }
+}
+
+function updatePrice(price, chg) {
+  const el = $("livePrice");
+  const prev = Number(el.dataset.price || 0);
+  const arrow = price > prev ? "▲" : price < prev ? "▼" : "·";
+  el.dataset.price = price;
+  el.innerHTML = `<span class="${chg >= 0 ? "up" : "down"}">${fmtPrice(price)}</span>` +
+    `<span class="chg ${price >= prev ? "up" : "down"}">${arrow}</span>` +
+    `<span class="chg ${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "+" : ""}${fmt(chg)}%</span>`;
 }
 
 function renderTabs(d) {
@@ -524,7 +640,7 @@ function renderTabs(d) {
     b.textContent = (d.labels && d.labels[sym]) || sym;
     b.dataset.symbol = sym;
     b.className = sym === d.symbol ? "on" : "";
-    b.onclick = () => { chartSymbol = sym; pollChart(); };
+    b.onclick = () => { chartSymbol = sym; chartData = null; tickCursor = 0; pollChart(); };
     box.appendChild(b);
   }
 }
@@ -536,8 +652,30 @@ async function pollChart() {
   } catch (e) { return; }
   if (d.error) return;
   chartSymbol = d.symbol || "";
+  chartData = d;
+  tickCursor = (d.ticks && d.ticks.length) ? d.ticks[d.ticks.length - 1][0] : 0;
   renderTabs(d);
   drawChart(d);
+}
+
+async function pollTicks() {
+  // лёгкий запрос раз в секунду: только новые цены, график перерисовываем локально
+  if (!chartData || !chartSymbol) return;
+  let d;
+  try {
+    d = await api("/api/ticks?symbol=" + encodeURIComponent(chartSymbol) + "&since=" + tickCursor);
+  } catch (e) { return; }
+  if (!d.ticks || !d.ticks.length) return;
+  chartData.ticks = (chartData.ticks || []).concat(d.ticks).slice(-2000);
+  tickCursor = d.ticks[d.ticks.length - 1][0];
+  chartData.price = d.ticks[d.ticks.length - 1][1];
+  chartData.price_ts = tickCursor;
+  drawChart(chartData);
+  if (liveOnly) {
+    const c = chartData.candles;
+    const base = c && c.length ? c[c.length - 1][4] : chartData.ticks[0][1];
+    updatePrice(chartData.price, base ? (chartData.price / base - 1) * 100 : 0);
+  }
 }
 
 // ── состояние ──────────────────────────────────────────────────────────────
@@ -666,14 +804,19 @@ async function refresh() {
   if (firstLoad) { firstLoad = false; }
 }
 
-$("barsSel").onchange = (e) => { chartBars = Number(e.target.value); pollChart(); };
+$("barsSel").onchange = (e) => {
+  liveOnly = e.target.value === "live";
+  if (!liveOnly) chartBars = Number(e.target.value);
+  pollChart();
+};
 
 refresh();
 pollLog();
 pollChart();
 setInterval(refresh, 3000);
 setInterval(pollLog, 900);
-setInterval(pollChart, 2500);
+setInterval(pollChart, 15000);     // свечи и сделки меняются редко
+setInterval(pollTicks, 1000);      // цена — каждую секунду
 </script>
 </body>
 </html>

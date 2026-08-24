@@ -141,6 +141,89 @@ class Runner:
         return ""
 
 
+class PricePoller(threading.Thread):
+    """
+    Тянет текущие цены сам, не дожидаясь бота: биржевые — через ccxt одним
+    запросом на все пары, DEX — через DexScreener пачкой по адресам пулов.
+    Благодаря этому график живой, даже когда торговый цикл не запущен.
+    """
+
+    def __init__(self, panel: "Panel", interval: float = 4.0):
+        super().__init__(daemon=True)
+        self.panel = panel
+        self.interval = max(1.0, interval)
+        self.stop_event = threading.Event()
+        self.error = ""
+        self.last_ok = 0.0
+        self._mode = ""
+        self._client = None
+
+    def stop(self) -> None:
+        self.stop_event.set()
+
+    # ── источники ───────────────────────────────────────────────────────────
+    def _cex_prices(self, cfg, symbols: list[str]) -> dict[str, float]:
+        from ..market import Market                                # noqa: PLC0415
+
+        if self._client is None or self._mode != "cex":
+            self._client = Market(cfg)
+            self._mode = "cex"
+        ex = self._client.ex
+        if ex is None:
+            return {}
+        out: dict[str, float] = {}
+        try:                                                       # одним запросом на все пары
+            tickers = ex.fetch_tickers(symbols)
+            for symbol, t in (tickers or {}).items():
+                price = t.get("last") or t.get("close")
+                if price:
+                    out[symbol] = float(price)
+        except Exception:                                          # noqa: BLE001 — не все умеют
+            for symbol in symbols:
+                try:
+                    out[symbol] = self._client.last_price(symbol)
+                except Exception as e:                             # noqa: BLE001
+                    self.error = f"{symbol}: {e}"
+        return out
+
+    def _dex_prices(self, cfg, symbols: list[str]) -> dict[str, float]:
+        from ..dex.dexscreener import DexScreener                  # noqa: PLC0415
+
+        if self._client is None or self._mode != "dex":
+            self._client = DexScreener()
+            self._mode = "dex"
+        by_chain: dict[str, list[str]] = {}
+        for symbol in symbols:
+            chain, _, pool = symbol.partition(":")
+            if pool:
+                by_chain.setdefault(chain, []).append(pool)
+        out: dict[str, float] = {}
+        for chain, pools in by_chain.items():
+            for pair in self._client.pairs(chain, pools):
+                if pair.price_usd > 0:
+                    out[pair.key] = pair.price_usd
+        return out
+
+    # ── цикл ────────────────────────────────────────────────────────────────
+    def run(self) -> None:
+        while not self.stop_event.is_set():
+            try:
+                cfg = self.panel.config()
+                symbols = list(cfg.symbols)
+                if symbols:
+                    prices = (self._dex_prices(cfg, symbols) if self.panel.mode == "dex"
+                              else self._cex_prices(cfg, symbols))
+                    if prices:
+                        self.panel.push_ticks(prices)
+                        self.last_ok = time.time()
+                        self.error = ""
+            except Exception as e:                                 # noqa: BLE001 — сеть/биржа
+                self.error = str(e)[:200]
+                log.debug("опрос цен не удался: %s", e)
+                self.stop_event.wait(self.interval * 2)            # притормаживаем после ошибки
+            self.stop_event.wait(self.interval)
+
+
 class Panel:
     """Состояние панели: конфиг, база бота, запущенный процесс."""
 
@@ -149,6 +232,29 @@ class Panel:
         self.allow_live = allow_live
         self.runner = Runner()
         self.overrides: dict[str, str] = {}
+        self.ticks: dict[str, deque] = {}          # symbol → [(время мс, цена)]
+        self.ticks_lock = threading.Lock()
+        self.poller: PricePoller | None = None
+
+    # ── живые цены ──────────────────────────────────────────────────────────
+    def push_ticks(self, prices: dict[str, float]) -> None:
+        now = time.time() * 1000
+        with self.ticks_lock:
+            for symbol, price in prices.items():
+                buf = self.ticks.setdefault(symbol, deque(maxlen=5000))
+                if buf and abs(buf[-1][1] - price) < 1e-12 and now - buf[-1][0] < 30_000:
+                    continue                        # цена не изменилась — не копим мусор
+                buf.append((now, float(price)))
+
+    def tick_tail(self, symbol: str, since: float = 0.0) -> list[list[float]]:
+        with self.ticks_lock:
+            buf = list(self.ticks.get(symbol) or ())
+        return [[t, p] for t, p in buf if t > since]
+
+    def last_tick(self, symbol: str) -> tuple[float, float] | None:
+        with self.ticks_lock:
+            buf = self.ticks.get(symbol)
+            return tuple(buf[-1]) if buf else None
 
     # ── конфиг ──────────────────────────────────────────────────────────────
     def config(self) -> Config:
@@ -282,9 +388,16 @@ class Panel:
                             "opened_at": int(row["opened_at"] or 0) * 1000,
                             "bars": int(row["bars"] or 0)}
 
+            # приоритет у собственного опроса панели: он свежее, чем запись бота
+            tick = self.last_tick(symbol)
             live = (store.get("prices") or {}).get(symbol)
-            price = float(live[0]) if live else (candles[-1][4] if candles else 0.0)
-            price_ts = float(live[1]) * 1000 if live else (candles[-1][0] if candles else 0)
+            if tick:
+                price, price_ts = tick[1], tick[0]
+            elif live:
+                price, price_ts = float(live[0]), float(live[1]) * 1000
+            else:
+                price = candles[-1][4] if candles else 0.0
+                price_ts = candles[-1][0] if candles else 0
 
             strategy = None
             srow = store.active_strategy(symbol)
@@ -300,6 +413,9 @@ class Panel:
                 "timeframe": cfg.timeframe, "candles": candles, "trades": trades,
                 "position": position, "price": price, "price_ts": price_ts,
                 "strategy": strategy, "url": (pairs.get(symbol) or {}).get("url", ""),
+                "ticks": self.tick_tail(symbol, candles[-1][0] if candles else 0),
+                "live_prices": self.poller is not None and not self.poller.stop_event.is_set(),
+                "poll_error": self.poller.error if self.poller else "",
             }
         finally:
             store.close()
@@ -376,6 +492,14 @@ class Handler(BaseHTTPRequestHandler):
             symbol = (query.get("symbol") or [""])[0]
             bars = int((query.get("bars") or ["220"])[0] or 220)
             self._json(self.panel.chart(symbol, bars))
+        elif url.path == "/api/ticks":
+            symbol = (query.get("symbol") or [""])[0]
+            since = float((query.get("since") or ["0"])[0] or 0)
+            tail = self.panel.tick_tail(symbol, since)
+            poller = self.panel.poller
+            self._json({"symbol": symbol, "ticks": tail,
+                        "live": poller is not None and not poller.stop_event.is_set(),
+                        "error": poller.error if poller else ""})
         elif url.path == "/api/log":
             since = int((query.get("since") or ["0"])[0] or 0)
             lines, counter = self.panel.runner.tail(since)
@@ -440,10 +564,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765, mode: str = "cex",
-          allow_live: bool = False) -> tuple[ThreadingHTTPServer, str]:
+          allow_live: bool = False, live_prices: bool = True,
+          poll_interval: float = 4.0) -> tuple[ThreadingHTTPServer, str]:
     """Поднимает сервер и возвращает (сервер, адрес с токеном)."""
     token = secrets.token_urlsafe(16)
-    handler = type("BoundHandler", (Handler,), {"panel": Panel(mode, allow_live), "token": token})
+    panel = Panel(mode, allow_live)
+    if live_prices:
+        panel.poller = PricePoller(panel, poll_interval)
+        panel.poller.start()
+    handler = type("BoundHandler", (Handler,), {"panel": panel, "token": token})
     httpd = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{httpd.server_address[1]}/?token={token}"
     return httpd, url

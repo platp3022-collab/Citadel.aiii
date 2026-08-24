@@ -15,7 +15,7 @@ from pathlib import Path
 from citadel.config import Config
 from citadel.genome import Genome
 from citadel.storage import Storage
-from citadel.web.server import COMMANDS, EDITABLE, Panel, Runner, serve
+from citadel.web.server import COMMANDS, EDITABLE, Panel, PricePoller, Runner, serve
 
 
 class TestRunner(unittest.TestCase):
@@ -118,6 +118,87 @@ class TestPanelState(unittest.TestCase):
         self.assertTrue(hasattr(cfg, "chain"))
 
 
+class TestLivePrices(unittest.TestCase):
+    """Собственный опрос цен: панель показывает живую цену и без запущенного бота."""
+
+    def setUp(self):
+        self.panel = Panel("cex")
+
+    def test_ticks_accumulate_and_filter_by_time(self):
+        self.panel.push_ticks({"BTC/USDT": 100.0})
+        self.panel.push_ticks({"BTC/USDT": 101.0})
+        tail = self.panel.tick_tail("BTC/USDT")
+        self.assertEqual([p for _, p in tail], [100.0, 101.0])
+        self.assertEqual(self.panel.tick_tail("BTC/USDT", tail[0][0]), [tail[1]])
+        self.assertEqual(self.panel.last_tick("BTC/USDT")[1], 101.0)
+
+    def test_same_price_is_not_duplicated(self):
+        for _ in range(10):
+            self.panel.push_ticks({"BTC/USDT": 100.0})
+        self.assertEqual(len(self.panel.tick_tail("BTC/USDT")), 1)
+
+    def test_buffer_is_bounded(self):
+        for i in range(6000):
+            self.panel.push_ticks({"BTC/USDT": 100.0 + i})
+        self.assertLessEqual(len(self.panel.tick_tail("BTC/USDT")), 5000)
+
+    def test_no_ticks_for_unknown_symbol(self):
+        self.assertEqual(self.panel.tick_tail("НЕТ"), [])
+        self.assertIsNone(self.panel.last_tick("НЕТ"))
+
+    def test_cex_poller_uses_one_batch_request(self):
+        calls = []
+
+        class FakeEx:
+            def fetch_tickers(self, symbols):
+                calls.append(list(symbols))
+                return {s: {"last": 10.0 + i} for i, s in enumerate(symbols)}
+
+        class FakeMarket:
+            ex = FakeEx()
+
+        poller = PricePoller(self.panel)
+        poller._client, poller._mode = FakeMarket(), "cex"
+        prices = poller._cex_prices(Config(), ["BTC/USDT", "ETH/USDT"])
+        self.assertEqual(prices, {"BTC/USDT": 10.0, "ETH/USDT": 11.0})
+        self.assertEqual(calls, [["BTC/USDT", "ETH/USDT"]])          # один запрос на все пары
+
+    def test_cex_poller_falls_back_to_single_tickers(self):
+        class FakeEx:
+            def fetch_tickers(self, symbols):
+                raise RuntimeError("биржа не умеет пачкой")
+
+        class FakeMarket:
+            ex = FakeEx()
+
+            def last_price(self, symbol):
+                return 42.0
+
+        poller = PricePoller(self.panel)
+        poller._client, poller._mode = FakeMarket(), "cex"
+        self.assertEqual(poller._cex_prices(Config(), ["BTC/USDT"]), {"BTC/USDT": 42.0})
+
+    def test_dex_poller_batches_by_chain(self):
+        from citadel.dex.dexscreener import Pair
+
+        calls = []
+
+        class FakeScreener:
+            def pairs(self, chain, pools):
+                calls.append((chain, list(pools)))
+                return [Pair(chain=chain, dex="raydium", pair_address=pool, base_symbol="X",
+                             base_address="M", quote_symbol="SOL", quote_address="S",
+                             price_usd=1.5) for pool in pools]
+
+        poller = PricePoller(self.panel)
+        poller._client, poller._mode = FakeScreener(), "dex"
+        prices = poller._dex_prices(Config(), ["solana:P1", "solana:P2", "base:P3"])
+        self.assertEqual(prices["solana:P1"], 1.5)
+        self.assertEqual(prices["base:P3"], 1.5)
+        self.assertEqual(sorted(c[0] for c in calls), ["base", "solana"])   # по одному на сеть
+        self.assertEqual(len(calls), 2)
+
+
 class TestChartData(unittest.TestCase):
     """Данные для живого графика входов и выходов."""
 
@@ -170,6 +251,13 @@ class TestChartData(unittest.TestCase):
         self.assertEqual([t["side"] for t in trades], ["buy", "sell", "buy", "sell"])
         self.assertEqual(trades, sorted(trades, key=lambda t: t["ts"]))
         self.assertLess(trades[3]["pnl"], 0)            # вторая сделка убыточная
+
+    def test_chart_carries_live_ticks(self):
+        self.panel.push_ticks({"BTC/USDT": 200.0})
+        d = self.panel.chart("BTC/USDT")
+        self.assertEqual(len(d["ticks"]), 1)
+        self.assertAlmostEqual(d["price"], 200.0)          # тик свежее записи бота
+        self.assertIn("live_prices", d)
 
     def test_bars_limit_is_respected(self):
         self.assertEqual(len(self.panel.chart("BTC/USDT", bars=50)["candles"]), 50)
@@ -237,6 +325,12 @@ class TestHttpApi(unittest.TestCase):
         self.assertNotIn("__TOKEN__", html)
         self.assertIn(self.token, html)
         self.assertIn("Citadel", html)
+
+    def test_ticks_endpoint(self):
+        code, data = self.call("/api/ticks?symbol=BTC/USDT&since=0")
+        self.assertEqual(code, 200)
+        self.assertIn("ticks", data)
+        self.assertIn("live", data)
 
     def test_chart_endpoint(self):
         code, data = self.call("/api/chart?bars=30")

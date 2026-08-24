@@ -7,6 +7,7 @@
     python webui.py                 # откроет Microsoft Edge (или браузер по умолчанию)
     python webui.py --mode dex      # сразу в режиме DEX
     python webui.py --allow-live    # разрешить кнопку реальной торговли
+    python webui.py --price-interval 2   # опрашивать цену чаще
     python webui.py --no-browser    # просто поднять сервер и напечатать адрес
 
 Сервер слушает только 127.0.0.1 и требует токен из адресной строки, поэтому
@@ -55,13 +56,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--allow-live", action="store_true",
                    help="разрешить кнопку реальной торговли (по умолчанию запрещена)")
     p.add_argument("--no-browser", action="store_true", help="не открывать браузер")
+    p.add_argument("--no-live-prices", action="store_true",
+                   help="не опрашивать цены самому (тогда цена обновляется только ботом)")
+    p.add_argument("--price-interval", type=float, default=4.0,
+                   help="как часто панель спрашивает цену, секунд (по умолчанию 4)")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     from citadel.web.server import serve
 
     try:
-        httpd, url = serve(args.host, args.port, args.mode, args.allow_live)
+        httpd, url = serve(args.host, args.port, args.mode, args.allow_live,
+                           live_prices=not args.no_live_prices,
+                           poll_interval=args.price_interval)
     except OSError as e:
         print(f"Не удалось занять порт {args.port}: {e}\nПопробуй --port 8766")
         return 1
@@ -71,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     print("  закрой это окно — панель остановится\n")
     if args.allow_live:
         print("  ⚠  реальная торговля из панели РАЗРЕШЕНА (--allow-live)\n")
+    if not args.no_live_prices:
+        print(f"  живые цены: панель сама опрашивает рынок раз в {args.price_interval:g} с\n")
 
     if not args.no_browser:
         where = open_in_edge(url)
