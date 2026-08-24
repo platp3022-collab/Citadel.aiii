@@ -17,7 +17,9 @@ import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
+from . import dashboard
 from .backtest import Result
 from .broker import Fill
 from .config import TIMEFRAME_SECONDS, Config
@@ -47,6 +49,9 @@ class Trader:
         self.cfg, self.store, self.market = cfg, store, market
         self.broker, self.notifier, self.offline = broker, notifier, offline
         self.state: dict[str, SymbolState] = {s: SymbolState() for s in cfg.symbols}
+        self.dashboard_path: Path | None = None      # куда обновлять HTML-страницу
+        self.dashboard_mode = "cex"
+        self._dashboard_at = 0.0
         self.bar_seconds = TIMEFRAME_SECONDS.get(cfg.timeframe, 3600)
         self._load_strategies()
 
@@ -335,6 +340,20 @@ class Trader:
             self.notifier.send(f"⛔️ Торговля на паузе: {reason}. Открытые позиции доводятся до выхода.")
 
     # ── отчёт ───────────────────────────────────────────────────────────────
+    def refresh_dashboard(self, force: bool = False) -> None:
+        """Перерисовывает HTML-страницу состояния (не чаще раза в минуту)."""
+        if self.dashboard_path is None:
+            return
+        now = time.time()
+        if not force and now - self._dashboard_at < 60:
+            return
+        self._dashboard_at = now
+        try:
+            dashboard.write(self.cfg, self.store, self.dashboard_path,
+                            self.dashboard_mode, refresh_seconds=30)
+        except Exception as e:                       # noqa: BLE001 — страница не важнее торговли
+            log.warning("не удалось обновить страницу состояния: %s", e)
+
     def report(self) -> str:
         prices = self.prices()
         equity = self.broker.equity(prices)
@@ -374,6 +393,7 @@ class Trader:
         self.maybe_retrain()
         self.notifier.send(f"🚀 Citadel Trader запущен · {self.broker.name} · "
                            f"{', '.join(self.cfg.symbols)} · {self.cfg.timeframe}")
+        self.refresh_dashboard(force=True)
         last_retrain_check = last_report = time.time()
         while True:
             try:
@@ -391,6 +411,7 @@ class Trader:
             if now - last_report > 86400:
                 last_report = now
                 self.notifier.send(self.report())
+            self.refresh_dashboard()
             time.sleep(self.cfg.poll_seconds)
 
 

@@ -68,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--live", action="store_true", help="реальные ордера на бирже")
     tr.add_argument("--once", action="store_true", help="один круг и выход")
     tr.add_argument("--yes", action="store_true", help="не спрашивать подтверждение для --live")
+    tr.add_argument("--dashboard", nargs="?", const="", metavar="ФАЙЛ",
+                    help="обновлять HTML-страницу состояния во время торговли")
 
     pn = sub.add_parser("pine", help="выгрузить стратегию в Pine Script для TradingView")
     pn.add_argument("--symbol")
@@ -75,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--trades", action="store_true",
                     help="ещё и оверлей с реальными сделками бота")
     pn.add_argument("--out", help="каталог для .pine файлов (по умолчанию data/pine)")
+
+    db = sub.add_parser("dashboard", help="собрать HTML-страницу с состоянием (открывается двойным кликом)")
+    db.add_argument("--out", help="куда сохранить файл (по умолчанию data/dashboard.html)")
+    db.add_argument("--open", action="store_true", help="сразу открыть в браузере")
+    db.add_argument("--refresh", type=int, default=0,
+                    help="страница будет сама перезагружаться раз в N секунд")
 
     sub.add_parser("report", help="состояние счёта, позиции, стратегии")
     rs = sub.add_parser("reset", help="сбросить бумажный счёт и позиции")
@@ -127,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_backtest(cfg, store, market, args)
     if args.cmd == "pine":
         return cmd_pine(cfg, store, args)
+    if args.cmd == "dashboard":
+        return cmd_dashboard(cfg, store, args, mode="cex")
     if args.cmd == "report":
         trader = Trader(cfg, store, market, make_broker(cfg, store, market), notifier, args.offline)
         print(trader.report().replace("<b>", "").replace("</b>", ""))
@@ -234,6 +244,18 @@ def cmd_pine(cfg: Config, store: Storage, args) -> int:
     return rc
 
 
+def cmd_dashboard(cfg: Config, store: Storage, args, mode: str = "cex") -> int:
+    from . import dashboard
+
+    path = dashboard.write(cfg, store, args.out or None, mode, args.refresh)
+    print(f"страница собрана: {path}")
+    print("открой её двойным кликом — ничего запускать не нужно")
+    if args.open:
+        where = dashboard.open_in_browser(path)
+        print(f"открываю: {where}" if where else "браузер не открылся — открой файл вручную")
+    return 0
+
+
 def cmd_trade(cfg: Config, store: Storage, market: Market, notifier: Notifier, args) -> int:
     if cfg.live:
         print("⚠️  РЕЖИМ РЕАЛЬНОЙ ТОРГОВЛИ: бот будет отправлять настоящие ордера на "
@@ -244,6 +266,15 @@ def cmd_trade(cfg: Config, store: Storage, market: Market, notifier: Notifier, a
                 return 1
     broker = make_broker(cfg, store, market)
     trader = Trader(cfg, store, market, broker, notifier, args.offline)
+    if args.dashboard is not None:
+        from pathlib import Path as _Path
+
+        from . import dashboard as _dash
+
+        trader.dashboard_path = _Path(args.dashboard) if args.dashboard else (
+            _Path(cfg.db_path).parent / "dashboard.html")
+        print(f"страница состояния: {trader.dashboard_path} (обновляется раз в минуту)")
+        _dash.write(cfg, store, trader.dashboard_path, "cex", refresh_seconds=30)
     print(BANNER)
     print(f"режим: {broker.name} · {cfg.exchange} · {', '.join(cfg.symbols)} · {cfg.timeframe}")
     try:

@@ -46,6 +46,7 @@ class DexTrader(Trader):
         self.screener: DexScreener = market.screener
         self.rugcheck = RugCheck()
         self.discovered_at = float(store.get("discovered_at", 0.0) or 0.0)
+        self.dashboard_mode = "dex"
 
     def label(self, symbol: str) -> str:
         return self.market.name(symbol)

@@ -68,9 +68,18 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--live", action="store_true", help="реальные свопы через Jupiter")
     tr.add_argument("--once", action="store_true")
     tr.add_argument("--yes", action="store_true")
+    tr.add_argument("--dashboard", nargs="?", const="", metavar="ФАЙЛ",
+                    help="обновлять HTML-страницу состояния во время торговли")
 
     pn = sub.add_parser("pine", help="выгрузить стратегии в Pine Script")
     pn.add_argument("--out")
+
+    db = sub.add_parser("dashboard",
+                        help="собрать HTML-страницу с состоянием (открывается двойным кликом)")
+    db.add_argument("--out", help="куда сохранить (по умолчанию data/dashboard-dex.html)")
+    db.add_argument("--open", action="store_true", help="сразу открыть в браузере")
+    db.add_argument("--refresh", type=int, default=0,
+                    help="страница будет сама перезагружаться раз в N секунд")
 
     sub.add_parser("report", help="счёт, позиции, стратегии, сделки")
     rs = sub.add_parser("reset", help="сбросить бумажный счёт и сделки")
@@ -109,6 +118,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "reset":
         return cmd_reset(cfg, store, args)
+    if args.cmd == "dashboard":
+        from ..cli import cmd_dashboard
+        return cmd_dashboard(cfg, store, args, mode="dex")
 
     market = DexMarket(cfg, offline=args.offline)
     if args.cmd == "discover":
@@ -266,6 +278,13 @@ def cmd_pine(trader: DexTrader, args) -> int:
 
 
 def cmd_trade(trader: DexTrader, args) -> int:
+    if getattr(args, "dashboard", None) is not None:
+        from .. import dashboard as _dash
+
+        trader.dashboard_path = Path(args.dashboard) if args.dashboard else (
+            Path(trader.cfg.db_path).parent / "dashboard-dex.html")
+        print(f"страница состояния: {trader.dashboard_path} (обновляется раз в минуту)")
+        _dash.write(trader.cfg, trader.store, trader.dashboard_path, "dex", refresh_seconds=30)
     if trader.cfg.live:
         print("⚠️  РЕАЛЬНЫЕ СВОПЫ на Solana: бот будет тратить средства кошелька "
               f"{trader.cfg.quote_symbol}.")
