@@ -63,6 +63,10 @@ class Trader:
                 st.valid_score = float(row["score"] or 0.0)
                 log.info("%s: загружена стратегия #%d (скор %.2f)", symbol, row["id"], st.valid_score)
 
+    def label(self, symbol: str) -> str:
+        """Как показывать инструмент человеку (на DEX — имя пары вместо адреса пула)."""
+        return symbol
+
     def _candles(self, symbol: str, limit: int | None = None):
         return self.market.fetch_ohlcv(symbol, self.cfg.timeframe,
                                        limit or self.cfg.history, offline=self.offline)
@@ -101,7 +105,9 @@ class Trader:
     def maybe_retrain(self) -> None:
         for symbol, st in self.state.items():
             age_h = (time.time() - st.trained_at) / 3600.0
-            if st.genome is None or age_h >= self.cfg.retrain_hours:
+            # trained_at == 0 — поиска ещё не было; иначе ждём окно, даже если
+            # прошлый поиск ничего не нашёл (иначе бот будет искать в каждом круге)
+            if st.trained_at == 0.0 or age_h >= self.cfg.retrain_hours:
                 self.train(symbol)
 
     # ════════════════════════════════════════════════════════════════════════
@@ -151,7 +157,13 @@ class Trader:
         allowed, reason = self.trading_allowed(equity)
 
         for row in self.store.all_positions():       # 3. стоп/тейк/трейлинг
-            px = prices.get(row["symbol"])
+            symbol = row["symbol"]
+            px = prices.get(symbol)
+            reason = self.emergency_exit_reason(symbol)
+            if reason and px:
+                log.warning("%s: аварийный выход — %s", symbol, reason)
+                self._close(symbol, px, reason)
+                continue
             if px:
                 self._manage_position(row, px)
 
@@ -207,6 +219,15 @@ class Trader:
         if entry_ok:
             self._open(symbol, st)
 
+    # ── точки расширения для DEX-версии ─────────────────────────────────────
+    def extra_size_cap(self, symbol: str, price: float) -> float | None:
+        """Дополнительный потолок объёма (на DEX — доля ликвидности пула)."""
+        return None
+
+    def emergency_exit_reason(self, symbol: str) -> str | None:
+        """Причина немедленно выйти из позиции вне зависимости от сигналов."""
+        return None
+
     # ── сделки ──────────────────────────────────────────────────────────────
     def _open(self, symbol: str, st: SymbolState) -> None:
         f, g = st.features, st.genome
@@ -227,8 +248,11 @@ class Trader:
         qty = min(equity * (g.risk_pct / 100.0) / risk_per_unit,
                   equity * self.cfg.max_position_frac / price,
                   cash / (price * (1 + self.cfg.taker_fee)) * 0.995)
-        qty = self.market.amount_to_precision(symbol, qty) if self.market.ex else qty
-        min_cost = self.market.min_notional(symbol) if self.market.ex else self.cfg.min_notional
+        cap = self.extra_size_cap(symbol, price)         # DEX ограничивает ликвидностью пула
+        if cap is not None:
+            qty = min(qty, cap)
+        qty = self.market.amount_to_precision(symbol, qty)
+        min_cost = self.market.min_notional(symbol)
         if qty <= 0 or qty * price < min_cost:
             log.info("%s: сигнал есть, но объём %.8f ниже минимума — пропускаю", symbol, qty)
             return
@@ -316,23 +340,25 @@ class Trader:
             for p in positions:
                 px = prices.get(p["symbol"], p["entry_price"])
                 chg = (px / p["entry_price"] - 1) * 100 if p["entry_price"] else 0.0
-                lines.append(f"• {p['symbol']}: {p['qty']:.6g} @ {p['entry_price']:.6g} → {px:.6g} ({chg:+.2f}%)")
+                lines.append(f"• {self.label(p['symbol'])}: {p['qty']:.6g} @ "
+                             f"{p['entry_price']:.6g} → {px:.6g} ({chg:+.2f}%)")
         else:
             lines.append("\nОткрытых позиций нет.")
         lines.append("\n<b>Стратегии:</b>")
         for symbol, st in self.state.items():
             if st.genome:
-                lines.append(f"• {symbol} #{st.strategy_id} (скор {st.valid_score:.2f}): "
-                             + ", ".join(st.genome.entry))
+                lines.append(f"• {self.label(symbol)} #{st.strategy_id} "
+                             f"(скор {st.valid_score:.2f}): " + ", ".join(st.genome.entry))
             else:
-                lines.append(f"• {symbol}: стратегии нет — не торгую")
+                lines.append(f"• {self.label(symbol)}: стратегии нет — не торгую")
         trades = self.store.recent_trades(5)
         if trades:
             lines.append("\n<b>Последние сделки:</b>")
             for t in trades:
                 when = datetime.fromtimestamp(t["ts"], timezone.utc).strftime("%d.%m %H:%M")
                 pnl = f" {t['pnl']:+.2f}" if t["side"] == "sell" else ""
-                lines.append(f"• {when} {t['side']} {t['symbol']} @ {t['price']:.6g}{pnl}")
+                lines.append(f"• {when} {t['side']} {self.label(t['symbol'])} "
+                             f"@ {t['price']:.6g}{pnl}")
         return "\n".join(lines)
 
     def run(self, once: bool = False) -> None:

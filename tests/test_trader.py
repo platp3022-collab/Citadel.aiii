@@ -225,3 +225,47 @@ class TestStorage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRetrainSchedule(unittest.TestCase):
+    """Поиск стратегии не должен запускаться на каждом круге, если он ничего не дал."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = Config(symbols=("BTC/USDT",), db_path=str(Path(self.tmp.name) / "t.db"),
+                          cache_dir=str(Path(self.tmp.name) / "c"), retrain_hours=24.0)
+        self.store = Storage(self.cfg.db_path)
+        n = 400
+        self.candles = {"BTC/USDT": make_candles(n, seed=3,
+                                                 start_ts=int(time.time() * 1000) - n * 3600000)}
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    def _trader(self):
+        market = ReplayMarket(self.cfg, self.candles, 300)
+        return Trader(self.cfg, self.store, market, PaperBroker(self.cfg, self.store, market),
+                      Notifier(enabled=False, echo=False))
+
+    def test_failed_search_is_not_repeated_until_window(self):
+        trader = self._trader()
+        calls = []
+        trader.train = lambda symbol, force=False: (calls.append(symbol),
+                                                    setattr(trader.state[symbol], "trained_at",
+                                                            time.time()), None)[2]
+        trader.maybe_retrain()
+        trader.maybe_retrain()
+        trader.maybe_retrain()
+        self.assertEqual(len(calls), 1, "поиск повторился, хотя окно ещё не истекло")
+
+    def test_search_runs_again_after_window(self):
+        trader = self._trader()
+        calls = []
+        trader.train = lambda symbol, force=False: (calls.append(symbol),
+                                                    setattr(trader.state[symbol], "trained_at",
+                                                            time.time()), None)[2]
+        trader.maybe_retrain()
+        trader.state["BTC/USDT"].trained_at = time.time() - 25 * 3600
+        trader.maybe_retrain()
+        self.assertEqual(len(calls), 2)

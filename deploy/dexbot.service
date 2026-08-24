@@ -1,0 +1,17 @@
+[Unit]
+Description=Citadel DEX — on-chain bot with self-generated strategy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/citadel
+EnvironmentFile=/opt/citadel/.env
+# бумажный счёт; для реальных свопов: --live --yes, ключ кошелька в .env
+ExecStart=/opt/citadel/.venv/bin/python /opt/citadel/dexbot.py trade
+Restart=always
+RestartSec=15
+User=citadel
+
+[Install]
+WantedBy=multi-user.target

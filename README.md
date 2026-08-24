@@ -5,9 +5,10 @@
 | Бот | Что делает | Запуск |
 |---|---|---|
 | **Мем-коин сканер** (`memebot.py`) | DexScreener + новости + проверка на rug pull, алерты в Telegram | `python memebot.py` |
-| **Citadel Trader** (`tradebot.py`) | спот-бот: сам выводит себе стратегию генетическим поиском, торгует по ней и выгружает её в TradingView | `python tradebot.py trade` |
+| **Citadel Trader** (`tradebot.py`) | спот-бот на бирже: сам выводит себе стратегию генетическим поиском, торгует по ней и выгружает её в TradingView | `python tradebot.py trade` |
+| **Citadel DEX** (`dexbot.py`) | тот же бот на DEX: сам подбирает пары через DexScreener и торгует свопами через Jupiter | `python dexbot.py trade` |
 
-Про торгового бота — отдельная инструкция: **[TRADER.md](TRADER.md)**.
+Инструкции: **[TRADER.md](TRADER.md)** — биржевой бот, **[DEX.md](DEX.md)** — DEX-версия.
 
 ---
 

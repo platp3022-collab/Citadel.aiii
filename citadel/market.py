@@ -7,11 +7,11 @@
 """
 from __future__ import annotations
 
-import csv
 import logging
 import time
 from pathlib import Path
 
+from . import candlecache
 from .config import TIMEFRAME_SECONDS, Config
 from .features import Candles
 
@@ -47,8 +47,7 @@ class Market:
 
     # ── свечи ───────────────────────────────────────────────────────────────
     def cache_path(self, symbol: str, timeframe: str) -> Path:
-        safe = symbol.replace("/", "-").replace(":", "-")
-        return Path(self.cfg.cache_dir) / f"{self.cfg.exchange}_{safe}_{timeframe}.csv"
+        return candlecache.path_for(self.cfg.cache_dir, self.cfg.exchange, symbol, timeframe)
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int,
                     offline: bool = False, use_cache: bool = True) -> Candles:
@@ -91,34 +90,13 @@ class Market:
 
     @staticmethod
     def _merge(a: list, b: list) -> list:
-        by_ts = {int(r[0]): [int(r[0])] + [float(x) for x in r[1:6]] for r in a}
-        by_ts.update({int(r[0]): [int(r[0])] + [float(x) for x in r[1:6]] for r in b})
-        return [by_ts[k] for k in sorted(by_ts)]
+        return candlecache.merge(a, b)
 
     def _read_cache(self, symbol: str, timeframe: str) -> list[list[float]]:
-        p = self.cache_path(symbol, timeframe)
-        if not p.exists():
-            return []
-        out = []
-        with p.open(newline="", encoding="utf-8") as fh:
-            for row in csv.reader(fh):
-                if not row or row[0].startswith("ts"):
-                    continue
-                try:
-                    out.append([int(row[0])] + [float(x) for x in row[1:6]])
-                except ValueError:
-                    continue
-        return out
+        return candlecache.read(self.cache_path(symbol, timeframe))
 
     def _write_cache(self, symbol: str, timeframe: str, rows: list[list[float]]) -> None:
-        p = self.cache_path(symbol, timeframe)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
-        with tmp.open("w", newline="", encoding="utf-8") as fh:
-            w = csv.writer(fh)
-            w.writerow(["ts", "open", "high", "low", "close", "volume"])
-            w.writerows(rows)
-        tmp.replace(p)
+        candlecache.write(self.cache_path(symbol, timeframe), rows)
 
     # ── справочная информация ───────────────────────────────────────────────
     def load_markets(self) -> dict:
