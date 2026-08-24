@@ -69,6 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--once", action="store_true", help="один круг и выход")
     tr.add_argument("--yes", action="store_true", help="не спрашивать подтверждение для --live")
 
+    pn = sub.add_parser("pine", help="выгрузить стратегию в Pine Script для TradingView")
+    pn.add_argument("--symbol")
+    pn.add_argument("--strategy", type=int, help="id стратегии из базы")
+    pn.add_argument("--trades", action="store_true",
+                    help="ещё и оверлей с реальными сделками бота")
+    pn.add_argument("--out", help="каталог для .pine файлов (по умолчанию data/pine)")
+
     sub.add_parser("report", help="состояние счёта, позиции, стратегии")
     rs = sub.add_parser("reset", help="сбросить бумажный счёт и позиции")
     rs.add_argument("--yes", action="store_true")
@@ -118,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_evolve(cfg, store, market, args)
     if args.cmd == "backtest":
         return cmd_backtest(cfg, store, market, args)
+    if args.cmd == "pine":
+        return cmd_pine(cfg, store, args)
     if args.cmd == "report":
         trader = Trader(cfg, store, market, make_broker(cfg, store, market), notifier, args.offline)
         print(trader.report().replace("<b>", "").replace("</b>", ""))
@@ -177,6 +186,51 @@ def cmd_backtest(cfg: Config, store: Storage, market: Market, args) -> int:
             for t in res.trades:
                 print(f"  {t.entry_i:>5} → {t.exit_i:<5} {t.entry_price:>12.6g} → {t.exit_price:<12.6g}"
                       f" {t.pnl:+10.2f} ({t.pnl_pct:+6.2f}%) {t.reason}")
+    return rc
+
+
+def cmd_pine(cfg: Config, store: Storage, args) -> int:
+    from pathlib import Path
+
+    from .pine import to_pine, trades_overlay, tv_symbol
+
+    out_dir = Path(args.out) if args.out else Path(cfg.db_path).parent / "pine"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rc = 0
+    for symbol in cfg.symbols:
+        if args.strategy:
+            row = store.db.execute("SELECT * FROM strategies WHERE id=?", (args.strategy,)).fetchone()
+        else:
+            row = store.active_strategy(symbol)
+        if not row:
+            print(f"{symbol}: активной стратегии нет — сначала `python tradebot.py evolve`")
+            rc = 1
+            continue
+        g = Genome.from_json(row["genome"])
+        src = to_pine(g, symbol, row["timeframe"], strategy_id=row["id"],
+                      score=row["score"], capital=cfg.start_balance,
+                      commission_pct=cfg.taker_fee * 100, max_position_frac=cfg.max_position_frac,
+                      exchange=cfg.exchange)
+        safe = symbol.replace("/", "-")
+        path = out_dir / f"citadel_{safe}_{row['timeframe']}_strategy{row['id']}.pine"
+        path.write_text(src, encoding="utf-8")
+        print(f"\n{symbol}: стратегия #{row['id']} → {path}")
+        print(f"  в TradingView: открой график {tv_symbol(symbol, cfg.exchange)} на "
+              f"{row['timeframe']}, Pine Editor → вставь файл → Add to chart")
+
+        if args.trades:
+            rows = store.db.execute(
+                "SELECT * FROM trades WHERE symbol=? ORDER BY ts", (symbol,)).fetchall()
+            buys = [(int(t["ts"]) * 1000, float(t["price"])) for t in rows if t["side"] == "buy"]
+            sells = [(int(t["ts"]) * 1000, float(t["price"]), float(t["pnl"] or 0.0))
+                     for t in rows if t["side"] == "sell"]
+            if not buys and not sells:
+                print("  сделок в базе пока нет — оверлей не создан")
+            else:
+                overlay = trades_overlay(symbol, row["timeframe"], buys, sells)
+                tp = out_dir / f"citadel_{safe}_{row['timeframe']}_trades.pine"
+                tp.write_text(overlay, encoding="utf-8")
+                print(f"  сделки бота ({len(buys)} покупок, {len(sells)} продаж) → {tp}")
     return rc
 
 
