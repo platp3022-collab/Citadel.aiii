@@ -105,11 +105,11 @@ def apply_overrides(cfg: Config, a: argparse.Namespace) -> Config:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    cfg = apply_overrides(Config.from_env(), args)
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.DEBUG if args.verbose else getattr(logging, cfg.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
 
-    cfg = apply_overrides(Config.from_env(), args)
     cfg.ensure_dirs()
     store = Storage(cfg.db_path)
     notifier = Notifier(cfg.telegram_token, cfg.telegram_chat_id, enabled=not args.dry)

@@ -59,7 +59,7 @@ class Config:
     seed: int = 0                       # 0 = случайный сид поиска
 
     # ── исполнение ──────────────────────────────────────────────────────────
-    live: bool = False                  # True = реальные ордера (нужен ещё флаг --live и ключи)
+    live: bool = False                  # только через флаг --live, из .env НЕ включается
     min_notional: float = 10.0          # минимальный размер ордера в quote-валюте
     poll_seconds: float = 20.0          # шаг основного цикла
 
@@ -79,6 +79,8 @@ class Config:
         load_env()
         cfg = cls()
         for f in fields(cls):
+            if f.name == "live":        # реальную торговлю включает только флаг --live
+                continue
             raw = os.environ.get("CITADEL_" + f.name.upper())
             if raw is None or raw == "":
                 continue

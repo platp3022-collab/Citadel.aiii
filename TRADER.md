@@ -165,7 +165,11 @@ CITADEL_TIMEFRAME=4h
 CITADEL_START_BALANCE=1000
 CITADEL_MAX_POSITIONS=2
 CITADEL_RETRAIN_HOURS=12
+CITADEL_LOG_LEVEL=INFO
 ```
+
+Реальная торговля через `.env` **не включается** — только явным флагом `--live`,
+чтобы случайная переменная окружения не начала тратить деньги.
 
 Уведомления о сделках и смене стратегии уходят в Telegram, если в `.env` есть
 `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` (те же, что у мем-коин сканера).
