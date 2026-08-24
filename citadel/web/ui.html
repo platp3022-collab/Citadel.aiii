@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Citadel · панель управления</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111820; --panel-2:#0e141b; --line:#1e2a36;
+    --text:#d7e2ee; --dim:#7d90a4; --accent:#3fd0c9; --accent-2:#7aa2f7;
+    --green:#4ade80; --red:#f87171; --amber:#fbbf24;
+    --mono:ui-monospace,"SFMono-Regular","Cascadia Mono","Consolas","Liberation Mono",monospace;
+    --sans:system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px}
+  a{color:var(--accent-2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel-2);
+    position:sticky;top:0;z-index:5}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:.14em;color:var(--accent)}
+  .brand small{color:var(--dim);font-weight:400;letter-spacing:.04em;margin-left:8px}
+  .modes{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .modes button{background:transparent;border:0;color:var(--dim);padding:7px 14px;
+    font:inherit;cursor:pointer}
+  .modes button.on{background:var(--accent);color:#04231f;font-weight:600}
+  .status{margin-left:auto;display:flex;align-items:center;gap:10px;font-family:var(--mono);
+    font-size:12px;color:var(--dim)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+  .dot.on{background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 1.4s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  main{padding:18px;display:grid;gap:16px;max-width:1400px;margin:0 auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .card .k{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  .card .v{font-family:var(--mono);font-size:22px;margin-top:6px}
+  .grid{display:grid;grid-template-columns:1.25fr .75fr;gap:16px}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  section h2{margin:0;padding:11px 14px;font-size:13px;font-weight:600;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:10px}
+  section h2 .sp{margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0}
+  .body{padding:14px}
+  .btns{display:flex;flex-wrap:wrap;gap:8px}
+  button.act{background:var(--panel-2);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:9px 13px;font:inherit;cursor:pointer;transition:.15s}
+  button.act:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  button.act:disabled{opacity:.4;cursor:not-allowed}
+  button.go{border-color:#1d5e57;background:#0f2b28;color:var(--accent)}
+  button.stop{border-color:#5e2020;background:#2b1010;color:var(--red)}
+  button.live{border-color:#5e4620;background:#2b2110;color:var(--amber)}
+  .opts{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;color:var(--dim);font-size:13px}
+  .opts label{display:flex;align-items:center;gap:6px;cursor:pointer}
+  #term{background:#05080b;font-family:var(--mono);font-size:12.5px;line-height:1.55;
+    padding:12px 14px;height:340px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+  #term .cmd{color:var(--accent)}
+  #term .warn{color:var(--amber)}
+  #term .err{color:var(--red)}
+  #term .ok{color:var(--green)}
+  #term .dim{color:var(--dim)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:8px 14px;
+    border-bottom:1px solid var(--line)}
+  td{padding:8px 14px;border-bottom:1px solid rgba(30,42,54,.5);font-family:var(--mono)}
+  tr:last-child td{border-bottom:0}
+  .num{text-align:right}
+  .up{color:var(--green)} .down{color:var(--red)}
+  .empty{padding:18px 14px;color:var(--dim)}
+  .scroll{max-height:430px;overflow-y:auto}
+  .scroll thead th{position:sticky;top:0;background:var(--panel);z-index:1}
+  .strat{padding:12px 14px;border-bottom:1px solid rgba(30,42,54,.5)}
+  .strat:last-child{border-bottom:0}
+  .strat .top{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .strat .name{font-family:var(--mono);color:var(--text)}
+  .strat .score{color:var(--accent);font-family:var(--mono);font-size:12px}
+  .strat pre{margin:8px 0 0;font-family:var(--mono);font-size:12px;color:var(--dim);
+    white-space:pre-wrap}
+  .tag{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:999px;
+    font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+  .settings label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dim)}
+  .settings input{background:var(--panel-2);border:1px solid var(--line);border-radius:7px;
+    color:var(--text);padding:7px 9px;font-family:var(--mono);font-size:13px}
+  .settings input:focus{outline:0;border-color:var(--accent)}
+  .note{color:var(--dim);font-size:12px;margin-top:10px;line-height:1.5}
+  svg .axis{stroke:var(--line)}
+  svg .line{fill:none;stroke:var(--accent);stroke-width:2}
+  svg .area{fill:rgba(63,208,201,.10)}
+  .toast{position:fixed;right:18px;bottom:18px;background:var(--panel);color:var(--text);
+    border:1px solid var(--line);border-left:3px solid var(--red);border-radius:8px;
+    padding:11px 14px;max-width:420px;display:none;z-index:9}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">CITADEL<small>панель управления</small></div>
+  <div class="modes">
+    <button id="m-cex" onclick="setMode('cex')">Биржа</button>
+    <button id="m-dex" onclick="setMode('dex')">DEX</button>
+  </div>
+  <div class="status">
+    <span class="dot" id="dot"></span><span id="statusText">простой</span>
+  </div>
+</header>
+
+<main>
+  <div class="cards">
+    <div class="card"><div class="k">Эквити</div><div class="v" id="c-eq">—</div></div>
+    <div class="card"><div class="k">Свободно</div><div class="v" id="c-cash">—</div></div>
+    <div class="card"><div class="k">P&amp;L от старта</div><div class="v" id="c-pnl">—</div></div>
+    <div class="card"><div class="k">Позиций</div><div class="v" id="c-pos">—</div></div>
+    <div class="card"><div class="k">Стратегий</div><div class="v" id="c-str">—</div></div>
+  </div>
+
+  <section>
+    <h2>Команды <span class="sp" id="cmdHint"></span></h2>
+    <div class="body">
+      <div class="btns" id="cmdButtons"></div>
+      <div class="opts">
+        <label><input type="checkbox" id="opt-dry" checked> не слать в Telegram (--dry)</label>
+        <label><input type="checkbox" id="opt-offline"> только кэш, без сети (--offline)</label>
+      </div>
+      <div class="note" id="liveNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Терминал <span class="sp"><span id="runCmd" class="tag"></span>
+      <button class="act" style="padding:4px 9px;font-size:12px" onclick="clearTerm()">очистить</button></span></h2>
+    <div id="term"></div>
+  </section>
+
+  <div class="grid">
+    <section>
+      <h2>Эквити</h2>
+      <div class="body" id="chart"><div class="empty">данных пока нет — торговый цикл ещё не писал историю счёта</div></div>
+    </section>
+    <section>
+      <h2>Позиции</h2>
+      <div id="positions" class="scroll"><div class="empty">открытых позиций нет</div></div>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section>
+      <h2>Стратегии</h2>
+      <div id="strategies" class="scroll"><div class="empty">стратегий пока нет — запусти «Найти стратегию»</div></div>
+    </section>
+    <section>
+      <h2>Сделки</h2>
+      <div id="trades" class="scroll"><div class="empty">сделок пока нет</div></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Настройки</h2>
+    <div class="body">
+      <div class="settings" id="settings"></div>
+      <div class="btns" style="margin-top:12px">
+        <button class="act go" onclick="saveSettings()">Применить</button>
+      </div>
+      <div class="note">Настройки применяются к следующим запускам команд. Постоянные значения
+        держи в <code>.env</code> — панель их не переписывает.</div>
+    </div>
+  </section>
+
+  <div class="note" style="text-align:center">
+    Панель работает локально и управляет теми же <code>tradebot.py</code> и <code>dexbot.py</code>.
+    Прибыльный бэктест ничего не гарантирует — торгуй только тем, что готов потерять.
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+let MODE = "cex";
+let logCursor = 0;
+let firstLoad = true;
+
+const CMDS = {
+  cex: [
+    ["fetch", "Скачать историю", ""],
+    ["evolve", "Найти стратегию", "go"],
+    ["backtest", "Бэктест", ""],
+    ["pine", "Выгрузить в TradingView", ""],
+    ["report", "Отчёт", ""],
+    ["trade", "▶ Торговать (бумага)", "go"],
+  ],
+  dex: [
+    ["discover", "Подобрать пары", "go"],
+    ["pairs", "Список пар", ""],
+    ["fetch", "Скачать историю", ""],
+    ["evolve", "Найти стратегию", "go"],
+    ["backtest", "Бэктест", ""],
+    ["pine", "Выгрузить в TradingView", ""],
+    ["report", "Отчёт", ""],
+    ["trade", "▶ Торговать (бумага)", "go"],
+  ],
+};
+
+const $ = (id) => document.getElementById(id);
+const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "—"
+  : Number(v).toLocaleString("ru-RU", {minimumFractionDigits: d, maximumFractionDigits: d});
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.style.display = "block";
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.style.display = "none", 6000);
+}
+
+async function api(path, opts) {
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(path + sep + "token=" + encodeURIComponent(TOKEN), opts);
+  // отказ по правилам (например, реальная торговля выключена) тоже приходит
+  // с телом-объяснением — показываем его, а не общее «нет доступа»
+  const data = await res.json().catch(() => ({error: "сервер ответил не JSON, код " + res.status}));
+  if (!res.ok && !data.error) throw new Error("сервер ответил кодом " + res.status);
+  return data;
+}
+
+async function post(path, body) {
+  const data = await api(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body || {}),
+  });
+  if (data.error) toast(data.error);
+  return data;
+}
+
+// ── команды ────────────────────────────────────────────────────────────────
+function renderButtons(state) {
+  const box = $("cmdButtons");
+  const running = state && state.running;
+  box.innerHTML = "";
+  for (const [cmd, title, cls] of CMDS[MODE]) {
+    const b = document.createElement("button");
+    b.className = "act " + (cls || "");
+    b.textContent = title;
+    b.disabled = !!running;
+    b.onclick = () => run(cmd);
+    box.appendChild(b);
+  }
+  if (state && state.allow_live) {
+    const b = document.createElement("button");
+    b.className = "act live";
+    b.textContent = "⚠ Торговать вживую";
+    b.disabled = !!running;
+    b.onclick = () => {
+      if (confirm("Реальные деньги. Бот будет отправлять настоящие ордера/свопы. Продолжить?")) {
+        run("trade", true);
+      }
+    };
+    box.appendChild(b);
+  }
+  const s = document.createElement("button");
+  s.className = "act stop";
+  s.textContent = "■ Стоп";
+  s.disabled = !running;
+  s.onclick = () => post("/api/stop");
+  box.appendChild(s);
+
+  $("liveNote").innerHTML = (state && state.allow_live)
+    ? "Реальная торговля разрешена: панель запущена с <code>--allow-live</code>."
+    : "Реальная торговля из панели выключена. Чтобы включить: <code>python webui.py --allow-live</code>.";
+}
+
+async function run(cmd, live) {
+  await post("/api/run", {
+    mode: MODE, cmd,
+    dry: $("opt-dry").checked,
+    offline: $("opt-offline").checked,
+    live: !!live,
+  });
+  pollLog();
+  refresh();
+}
+
+async function setMode(mode) {
+  MODE = mode;
+  $("m-cex").className = mode === "cex" ? "on" : "";
+  $("m-dex").className = mode === "dex" ? "on" : "";
+  await post("/api/mode", {mode});
+  refresh();
+}
+
+// ── терминал ───────────────────────────────────────────────────────────────
+function clearTerm() { $("term").innerHTML = ""; }
+
+function lineClass(text) {
+  if (text.startsWith("$ ")) return "cmd";
+  if (/ERROR|Traceback|не удалось|ошибка|❌|⛔️/i.test(text)) return "err";
+  if (/WARNING|⚠️|годной стратегии нет/i.test(text)) return "warn";
+  if (/✅|🟢|стратегия найдена|— команда завершена/i.test(text)) return "ok";
+  if (/^\d\d:\d\d:\d\d\s+(INFO|DEBUG)/.test(text)) return "dim";
+  return "";
+}
+
+async function pollLog() {
+  let data;
+  try { data = await api("/api/log?since=" + logCursor); }
+  catch (e) { return; }
+  const term = $("term");
+  const atBottom = term.scrollHeight - term.scrollTop - term.clientHeight < 60;
+  for (const line of data.lines) {
+    const div = document.createElement("div");
+    div.className = lineClass(line);
+    div.textContent = line;
+    term.appendChild(div);
+  }
+  logCursor = data.counter;
+  if (data.lines.length && atBottom) term.scrollTop = term.scrollHeight;
+  $("runCmd").textContent = data.running ? data.command : "";
+}
+
+// ── состояние ──────────────────────────────────────────────────────────────
+function renderPositions(list) {
+  const box = $("positions");
+  if (!list.length) { box.innerHTML = '<div class="empty">открытых позиций нет</div>'; return; }
+  box.innerHTML = `<table><thead><tr><th>Пара</th><th class="num">Объём</th>
+    <th class="num">Вход</th><th class="num">Сейчас</th><th class="num">Изм.</th></tr></thead><tbody>` +
+    list.map(p => `<tr>
+      <td>${p.url ? `<a href="${esc(p.url)}" target="_blank">${esc(p.label)}</a>` : esc(p.label)}</td>
+      <td class="num">${fmt(p.qty, 6)}</td>
+      <td class="num">${fmt(p.entry, 6)}</td>
+      <td class="num">${fmt(p.price, 6)}</td>
+      <td class="num ${p.change >= 0 ? "up" : "down"}">${p.change >= 0 ? "+" : ""}${fmt(p.change)}%</td>
+    </tr>`).join("") + "</tbody></table>";
+}
+
+function renderStrategies(list) {
+  const box = $("strategies");
+  if (!list.length) { box.innerHTML = '<div class="empty">пар пока нет</div>'; return; }
+  box.innerHTML = list.map(s => {
+    if (!s.id) return `<div class="strat"><div class="top"><span class="name">${esc(s.label)}</span>
+      <span class="tag">стратегии нет — не торгую</span></div></div>`;
+    const v = (s.metrics && s.metrics.valid) || {};
+    const stats = v.n_trades !== undefined
+      ? `<span class="tag">валидация: сделок ${v.n_trades} · доход ${fmt(v.net_return * 100, 1)}% ·
+         просадка ${fmt(v.max_dd * 100, 1)}% · PF ${fmt(v.profit_factor, 2)}</span>` : "";
+    return `<div class="strat">
+      <div class="top">
+        <span class="name">${s.url ? `<a href="${esc(s.url)}" target="_blank">${esc(s.label)}</a>` : esc(s.label)}</span>
+        <span class="score">#${s.id} · скор ${fmt(s.score)}</span> ${stats}
+      </div>
+      <pre>${esc(s.describe)}</pre>
+    </div>`;
+  }).join("");
+}
+
+function renderTrades(list) {
+  const box = $("trades");
+  if (!list.length) { box.innerHTML = '<div class="empty">сделок пока нет</div>'; return; }
+  box.innerHTML = `<table><thead><tr><th>Время</th><th>Что</th><th>Пара</th>
+    <th class="num">Цена</th><th class="num">P&amp;L</th><th>Причина</th></tr></thead><tbody>` +
+    list.map(t => {
+      const d = new Date(t.ts);
+      const when = d.toLocaleDateString("ru-RU", {day: "2-digit", month: "2-digit"}) + " " +
+                   d.toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"});
+      const side = t.side === "buy"
+        ? '<span class="up">покупка</span>' : '<span class="down">продажа</span>';
+      const pnl = t.side === "sell"
+        ? `<span class="${t.pnl >= 0 ? "up" : "down"}">${t.pnl >= 0 ? "+" : ""}${fmt(t.pnl)}</span>` : "—";
+      const tx = t.tx ? ` <a href="https://solscan.io/tx/${esc(t.tx)}" target="_blank">tx</a>` : "";
+      return `<tr><td>${when}</td><td>${side}</td>
+        <td>${t.url ? `<a href="${esc(t.url)}" target="_blank">${esc(t.label)}</a>` : esc(t.label)}${tx}</td>
+        <td class="num">${fmt(t.price, 6)}</td><td class="num">${pnl}</td>
+        <td>${esc(t.reason || "")}</td></tr>`;
+    }).join("") + "</tbody></table>";
+}
+
+function renderChart(curve) {
+  const box = $("chart");
+  if (!curve || curve.length < 2) {
+    box.innerHTML = '<div class="empty">данных пока нет — торговый цикл ещё не писал историю счёта</div>';
+    return;
+  }
+  const W = 640, H = 220, P = 28;
+  const ys = curve.map(p => p[1]);
+  const lo = Math.min(...ys), hi = Math.max(...ys), span = (hi - lo) || 1;
+  const x = i => P + i * (W - P * 2) / (curve.length - 1);
+  const y = v => H - P - (v - lo) / span * (H - P * 2);
+  const line = curve.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+  const area = `${line}L${x(curve.length - 1).toFixed(1)},${H - P}L${P},${H - P}Z`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="220" role="img"
+      aria-label="кривая эквити"> 
+    <line class="axis" x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}"/>
+    <line class="axis" x1="${P}" y1="${P}" x2="${P}" y2="${H - P}"/>
+    <path class="area" d="${area}"/><path class="line" d="${line}"/>
+    <text x="${P}" y="${P - 10}" fill="#7d90a4" font-size="11">${fmt(hi)}</text>
+    <text x="${P}" y="${H - P + 16}" fill="#7d90a4" font-size="11">${fmt(lo)}</text>
+  </svg>`;
+}
+
+function renderSettings(list) {
+  const box = $("settings");
+  if (box.dataset.touched === "1") return;      // не затирать то, что человек печатает
+  box.innerHTML = list.map(s => `<label>${esc(s.title)}
+    <input data-key="${esc(s.key)}" value="${esc(s.value)}"></label>`).join("");
+  box.oninput = () => { box.dataset.touched = "1"; };
+}
+
+async function saveSettings() {
+  const box = $("settings");
+  const settings = {};
+  box.querySelectorAll("input").forEach(i => settings[i.dataset.key] = i.value);
+  await post("/api/settings", {settings});
+  box.dataset.touched = "0";
+  toast("Настройки применены — они подхватятся при следующем запуске команды");
+  refresh();
+}
+
+async function refresh() {
+  let s;
+  try { s = await api("/api/state"); }
+  catch (e) { toast(e.message); return; }
+  if (s.error) { toast(s.error); return; }
+  MODE = s.mode;
+  $("m-cex").className = MODE === "cex" ? "on" : "";
+  $("m-dex").className = MODE === "dex" ? "on" : "";
+  $("dot").className = "dot" + (s.running ? " on" : "");
+  $("statusText").textContent = s.running ? "выполняется: " + s.command
+    : (s.paused ? "пауза: " + s.paused : "простой");
+  $("c-eq").textContent = fmt(s.equity) + " " + s.quote;
+  $("c-cash").textContent = fmt(s.cash);
+  const pnl = $("c-pnl");
+  pnl.textContent = (s.pnl_pct >= 0 ? "+" : "") + fmt(s.pnl_pct) + "%";
+  pnl.className = "v " + (s.pnl_pct >= 0 ? "up" : "down");
+  $("c-pos").textContent = s.positions.length;
+  $("c-str").textContent = s.strategies.filter(x => x.id).length + " / " + s.strategies.length;
+  $("cmdHint").textContent = (MODE === "dex" ? "dexbot.py" : "tradebot.py") +
+    " · " + s.timeframe + " · база " + s.db.split(/[\\/]/).pop();
+  renderButtons(s);
+  renderPositions(s.positions);
+  renderStrategies(s.strategies);
+  renderTrades(s.trades);
+  renderChart(s.curve);
+  renderSettings(s.settings);
+  if (firstLoad) { firstLoad = false; }
+}
+
+refresh();
+pollLog();
+setInterval(refresh, 3000);
+setInterval(pollLog, 900);
+</script>
+</body>
+</html>

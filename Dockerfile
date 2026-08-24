@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY memebot.py tradebot.py dexbot.py ./
+COPY memebot.py tradebot.py dexbot.py webui.py ./
 COPY citadel ./citadel
 
 VOLUME ["/app/data"]
