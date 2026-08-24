@@ -130,6 +130,16 @@ class Storage:
             (symbol, side, qty, price, cost, fee, pnl, reason, int(live), int(time.time()), order_id))
         self.db.commit()
 
+    def trades_after(self, symbol: str, last_id: int, limit: int = 50):
+        """Сделки, появившиеся после указанного id — панель дорисовывает их сразу."""
+        return self.db.execute(
+            "SELECT * FROM trades WHERE symbol=? AND id>? ORDER BY id LIMIT ?",
+            (symbol, int(last_id), limit)).fetchall()
+
+    def last_trade_id(self) -> int:
+        row = self.db.execute("SELECT COALESCE(MAX(id),0) m FROM trades").fetchone()
+        return int(row["m"] or 0)
+
     def recent_trades(self, limit: int = 20):
         return self.db.execute("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 

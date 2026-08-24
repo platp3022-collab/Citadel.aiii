@@ -16,6 +16,7 @@ from citadel.config import Config
 from citadel.genome import Genome
 from citadel.storage import Storage
 from citadel.web.feed import SECOND_TFS, Feed, tf_seconds
+from citadel.web.stream import BinanceStream, supports as stream_supports
 from citadel.web.server import COMMANDS, EDITABLE, Panel, Runner, serve
 
 
@@ -198,6 +199,70 @@ class TestLivePrices(unittest.TestCase):
         self.assertEqual(prices["base:P3"], 1.5)
         self.assertEqual(sorted(c[0] for c in calls), ["base", "solana"])   # по одному на сеть
         self.assertEqual(len(calls), 2)
+
+
+class TestTradeStream(unittest.TestCase):
+    """Поток сделок Binance: разбор сообщений и аккуратное поведение без aiohttp."""
+
+    def test_supported_only_for_exchange_mode(self):
+        self.assertTrue(stream_supports("binance", "cex"))
+        self.assertFalse(stream_supports("bybit", "cex"))
+        self.assertFalse(stream_supports("binance", "dex"))
+
+    def test_trade_message_becomes_tick(self):
+        feed = Feed()
+        st = BinanceStream(feed, ["BTC/USDT", "ETH/USDT"])
+        back = {"btcusdt": "BTC/USDT", "ethusdt": "ETH/USDT"}
+        st._handle('{"stream":"btcusdt@trade","data":{"s":"BTCUSDT","p":"64123.45"}}', back)
+        st._handle('{"stream":"ethusdt@trade","data":{"s":"ETHUSDT","p":"3210.5"}}', back)
+        self.assertAlmostEqual(feed.last("BTC/USDT")[1], 64123.45)
+        self.assertAlmostEqual(feed.last("ETH/USDT")[1], 3210.5)
+        self.assertEqual(st.messages, 2)
+
+    def test_garbage_is_ignored(self):
+        feed = Feed()
+        st = BinanceStream(feed, ["BTC/USDT"])
+        for bad in ("не json", "{}", '{"data":{}}', '{"stream":"x@trade","data":{"p":null}}'):
+            st._handle(bad, {"btcusdt": "BTC/USDT"})
+        self.assertEqual(st.messages, 0)
+        self.assertIsNone(feed.last("BTC/USDT"))
+
+    def test_thread_is_alive_check_works(self):
+        """Поле stop_event не должно перекрывать Thread._stop — иначе падает is_alive()."""
+        st = BinanceStream(Feed(), ["BTC/USDT"])
+        self.assertFalse(st.is_alive())
+        st.start()
+        st.join(timeout=5)
+        self.assertFalse(st.is_alive())          # без aiohttp поток корректно завершается
+
+    def test_alive_requires_recent_messages(self):
+        st = BinanceStream(Feed(), ["BTC/USDT"])
+        st.connected = True
+        st.last_msg = time.time()
+        self.assertTrue(st.alive())
+        st.last_msg = time.time() - 120
+        self.assertFalse(st.alive())             # тишина минуту — считаем мёртвым
+
+
+class TestPollTempo(unittest.TestCase):
+    """Темп опроса подстраивается под то, что смотрят."""
+
+    def setUp(self):
+        self.panel = Panel("cex")
+        self.panel.base_interval = 4.0
+
+    def test_default_and_seconds(self):
+        self.assertEqual(self.panel.poll_interval(), 4.0)
+        self.panel.focus_tf = "1s"
+        self.assertLessEqual(self.panel.poll_interval(), 1.5)
+
+    def test_live_stream_slows_polling_down(self):
+        st = BinanceStream(Feed(), ["BTC/USDT"])
+        st.connected = True
+        st.last_msg = time.time()
+        self.panel.stream = st
+        self.panel.focus_tf = "1s"
+        self.assertGreaterEqual(self.panel.poll_interval(), 10.0)
 
 
 class TestCandleFeed(unittest.TestCase):
@@ -404,6 +469,25 @@ class TestChartData(unittest.TestCase):
         self.assertEqual(d["source"], "кэш")                   # рынка в тестах нет
         self.assertEqual(d["timeframe"], "1h")
         self.assertGreater(len(d["candles"]), 100)
+
+    def test_fresh_trades_are_reported_for_instant_markers(self):
+        store = Storage(self.cfg.db_path)
+        before = store.last_trade_id()
+        store.log_trade("BTC/USDT", "buy", 1.0, 150.0, 150.0, 0.1, 0.0, "entry", False)
+        store.close()
+        upd = self.panel.ticks_update("BTC/USDT", 0, before)
+        self.assertEqual(len(upd["trades"]), 1)
+        self.assertEqual(upd["trades"][0]["side"], "buy")
+        self.assertGreater(upd["last_trade_id"], before)
+        self.assertIn("position", upd)
+        self.assertIn("stream", upd)
+
+    def test_no_new_trades_no_noise(self):
+        store = Storage(self.cfg.db_path)
+        last = store.last_trade_id()
+        store.close()
+        upd = self.panel.ticks_update("BTC/USDT", 0, last)
+        self.assertEqual(upd["trades"], [])
 
     def test_payload_lists_timeframes(self):
         d = self.panel.chart("BTC/USDT")

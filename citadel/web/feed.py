@@ -221,4 +221,10 @@ class PricePoller(threading.Thread):
                 self.error = str(e)[:200]
                 log.debug("опрос цен не удался: %s", e)
                 self.stop_event.wait(self.interval * 2)
-            self.stop_event.wait(self.interval)
+            step = self.interval
+            if hasattr(self.panel, "poll_interval"):     # темп зависит от того, что смотрят
+                try:
+                    step = max(0.5, float(self.panel.poll_interval()))
+                except Exception:                        # noqa: BLE001
+                    pass
+            self.stop_event.wait(step)

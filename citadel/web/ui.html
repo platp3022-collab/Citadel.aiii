@@ -140,7 +140,9 @@
   svg.live .lbl{font-size:10.5px;font-family:var(--mono)}
   .toast{position:fixed;right:18px;bottom:18px;background:var(--panel);color:var(--text);
     border:1px solid var(--line);border-left:3px solid var(--red);border-radius:8px;
-    padding:11px 14px;max-width:420px;display:none;z-index:9}
+    padding:11px 14px;max-width:420px;display:none;z-index:9;font-family:var(--mono);
+    font-size:13px}
+  .toast.trade{border-left-color:var(--green)}
 </style>
 <script src="/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -290,12 +292,13 @@ const fmtPrice = (v) => {
 };
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-function toast(msg) {
+function toast(msg, kind) {
   const t = $("toast");
   t.textContent = msg;
+  t.className = "toast" + (kind ? " " + kind : "");
   t.style.display = "block";
   clearTimeout(t._t);
-  t._t = setTimeout(() => t.style.display = "none", 6000);
+  t._t = setTimeout(() => t.style.display = "none", kind === "trade" ? 9000 : 6000);
 }
 
 async function api(path, opts) {
@@ -414,7 +417,9 @@ let chartStyle = "candles";
 let chartView = "bot";     // bot | tradingview | dexscreener | geckoterminal
 let chartData = null;
 let tickCursor = 0;
+let tradeCursor = 0;       // id последней известной сделки — новые дорисовываем сразу
 let embedUrl = "";
+let chartMarks = [];
 
 function fmtTime(ms, withSeconds) {
   const d = new Date(ms);
@@ -550,6 +555,7 @@ function renderLwc(d) {
     });
   }
   marks.sort((a, b) => a.time - b.time);
+  chartMarks = marks;
   chart.series.setMarkers(marks);
 
   for (const line of chart.lines) chart.series.removePriceLine(line);
@@ -691,6 +697,68 @@ function finishChart(d, pairs) {
     " · бот на " + d.bot_timeframe;
   const base = c.length ? c[c.length - 1][1] : 0;
   updatePrice(d.price, base ? (d.price / base - 1) * 100 : 0);
+  showSource(d);
+}
+
+function applyFreshTrades(d) {
+  // бот только что купил или продал — метку и уровни рисуем немедленно
+  tradeCursor = d.last_trade_id || tradeCursor;
+  chartData.trades = (chartData.trades || []).concat(d.trades);
+  chartData.last_trade_id = tradeCursor;
+  if (!lwc || chartStyle === "d3" || chartView !== "bot") { drawChart(chartData); return; }
+  const c = chartData.candles;
+  const step = chartData.tf_seconds ? chartData.tf_seconds * 1000
+             : (c.length > 1 ? c[1][0] - c[0][0] : 60000);
+  for (const t of d.trades) {
+    const bucket = Math.floor(t.ts / step) * step;
+    chartMarks.push({
+      time: candleTime(bucket),
+      position: t.side === "buy" ? "belowBar" : "aboveBar",
+      color: t.side === "buy" ? "#4ade80" : (t.pnl >= 0 ? "#3fd0c9" : "#f87171"),
+      shape: t.side === "buy" ? "arrowUp" : "arrowDown",
+      text: (t.side === "buy" ? "вход " : "выход ") + fmtPrice(t.price) +
+            (t.side === "sell" ? ` (${t.pnl >= 0 ? "+" : ""}${fmt(t.pnl)})` : ""),
+    });
+    toast((t.side === "buy" ? "🟢 Покупка " : "🔴 Продажа ") + (lwc.name || "") +
+          " по " + fmtPrice(t.price) +
+          (t.side === "sell" ? `  ${t.pnl >= 0 ? "+" : ""}${fmt(t.pnl)}` : ""), "trade");
+  }
+  chartMarks.sort((a, b) => a.time - b.time);
+  lwc.series.setMarkers(chartMarks);
+
+  for (const line of lwc.lines) lwc.series.removePriceLine(line);
+  lwc.lines = [];
+  if (chartData.position) {
+    const p = chartData.position;
+    const rows = [["вход", p.entry, "#d7e2ee"], ["стоп", p.stop, "#f87171"],
+                  ["тейк", p.take, "#3fd0c9"]];
+    if (p.trail > p.stop) rows.push(["трейлинг", p.trail, "#fbbf24"]);
+    for (const [title, price, color] of rows) {
+      if (!(price > 0)) continue;
+      lwc.lines.push(lwc.series.createPriceLine({
+        price, color, lineWidth: 1, lineStyle: LWC.LineStyle.Dashed,
+        axisLabelVisible: true, title}));
+    }
+  }
+}
+
+function showSource(d) {
+  const st = $("liveState");
+  const stream = d.stream || {};
+  if (stream.active) {
+    st.innerHTML = '<span class="live-dot"></span>' + esc(stream.source);
+    st.title = "Каждая сделка биржи приходит отдельным сообщением: " +
+               (stream.messages || 0) + " шт. за сеанс";
+  } else if (d.live_prices === false) {
+    st.innerHTML = '<span class="live-dot off"></span>цены от бота';
+    st.title = "Панель запущена с --no-live-prices";
+  } else if (d.poll_error) {
+    st.innerHTML = '<span class="live-dot off"></span>цены не приходят';
+    st.title = d.poll_error;
+  } else {
+    st.innerHTML = '<span class="live-dot"></span>опрос цен';
+    st.title = (stream.error || "Панель сама спрашивает цену у биржи/DexScreener");
+  }
 }
 
 function updatePrice(price, chg) {
@@ -791,6 +859,7 @@ async function pollChart() {
   chartTf = d.timeframe || "";
   chartData = d;
   tickCursor = (d.ticks && d.ticks.length) ? d.ticks[d.ticks.length - 1][0] : 0;
+  tradeCursor = d.last_trade_id || 0;
   renderTabs(d);
   renderViews(d);
   renderTfOptions(d);
@@ -801,9 +870,13 @@ async function pollTicks() {
   if (!chartData || !chartSymbol || chartView !== "bot") return;
   let d;
   try {
-    d = await api("/api/ticks?symbol=" + encodeURIComponent(chartSymbol) + "&since=" + tickCursor);
+    d = await api("/api/ticks?symbol=" + encodeURIComponent(chartSymbol) +
+                  "&since=" + tickCursor + "&trade_id=" + tradeCursor);
   } catch (e) { return; }
-  if (!d.ticks || !d.ticks.length) return;
+  if (d.stream) chartData.stream = d.stream;
+  if (d.position !== undefined) chartData.position = d.position;
+  if (d.trades && d.trades.length) applyFreshTrades(d);
+  if (!d.ticks || !d.ticks.length) { showSource(chartData); return; }
   chartData.ticks = (chartData.ticks || []).concat(d.ticks).slice(-3000);
   tickCursor = d.ticks[d.ticks.length - 1][0];
   chartData.price = d.ticks[d.ticks.length - 1][1];

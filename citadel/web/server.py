@@ -31,6 +31,7 @@ from ..config import Config
 from ..pine import tv_site_url, tv_widget_url
 from ..storage import Storage
 from .feed import MARKET_TFS, SECOND_TFS, Feed, PricePoller, tf_seconds
+from .stream import BinanceStream, supports as stream_supports
 
 log = logging.getLogger("citadel.web")
 
@@ -154,6 +155,9 @@ class Panel:
         self.overrides: dict[str, str] = {}
         self.feed = Feed()
         self.poller: PricePoller | None = None
+        self.stream: BinanceStream | None = None
+        self.base_interval = 4.0
+        self.focus_tf = ""                    # какой таймфрейм сейчас смотрят
 
     # ── живые цены (детали — в feed.py) ─────────────────────────────────────
     def push_ticks(self, prices: dict[str, float]) -> None:
@@ -164,6 +168,40 @@ class Panel:
 
     def last_tick(self, symbol: str) -> tuple[float, float] | None:
         return self.feed.last(symbol)
+
+    # ── поток сделок и темп опроса ──────────────────────────────────────────
+    def ensure_stream(self, cfg: Config | None = None) -> None:
+        """Поднимает поток сделок биржи, если он возможен и ещё не запущен."""
+        cfg = cfg or self.config()
+        symbols = list(cfg.symbols)
+        if not symbols or not stream_supports(getattr(cfg, "exchange", ""), self.mode):
+            self.stop_stream()
+            return
+        if self.stream and self.stream.symbols == symbols and self.stream.is_alive():
+            return
+        self.stop_stream()
+        self.stream = BinanceStream(self.feed, symbols)
+        self.stream.start()
+
+    def stop_stream(self) -> None:
+        if self.stream:
+            self.stream.stop()
+            self.stream = None
+
+    def stream_state(self) -> dict:
+        st = self.stream
+        if st is None:
+            return {"active": False, "source": "опрос цен"}
+        return {"active": st.alive(), "source": "поток сделок Binance" if st.alive()
+                else "опрос цен", "messages": st.messages, "error": st.error}
+
+    def poll_interval(self) -> float:
+        """Опрашиваем чаще, когда смотрят секундные свечи, и реже при живом потоке."""
+        if self.stream is not None and self.stream.alive():
+            return max(self.base_interval, 10.0)
+        if self.focus_tf in SECOND_TFS:
+            return min(self.base_interval, 1.5)
+        return self.base_interval
 
     def timeframes(self) -> list[dict]:
         """Что предложить в селекторе: секунды из тиков, остальное с рынка."""
@@ -286,6 +324,8 @@ class Panel:
 
             pairs = self._pairs(cfg)
             tf = tf or cfg.timeframe
+            self.focus_tf = tf                       # темп опроса подстраиваем под него
+            self.ensure_stream(cfg)
             if tf in SECOND_TFS:
                 rows = self.feed.tick_candles(symbol, SECOND_TFS[tf], bars)
                 source = "тики"
@@ -339,11 +379,48 @@ class Panel:
                 "strategy": strategy, "url": (pairs.get(symbol) or {}).get("url", ""),
                 "ticks": self.tick_tail(symbol, candles[-1][0] if candles else 0),
                 "embeds": self.embeds(symbol)["views"],
+                "last_trade_id": store.last_trade_id(),
+                "stream": self.stream_state(),
                 "live_prices": self.poller is not None and not self.poller.stop_event.is_set(),
                 "poll_error": self.poller.error if self.poller else "",
             }
         finally:
             store.close()
+
+    def ticks_update(self, symbol: str, since: float, last_trade_id: int) -> dict:
+        """Лёгкий ответ для секундного опроса: новые цены и новые сделки бота."""
+        poller = self.poller
+        out = {
+            "symbol": symbol, "ticks": self.tick_tail(symbol, since),
+            "live": poller is not None and not poller.stop_event.is_set(),
+            "error": poller.error if poller else "",
+            "stream": self.stream_state(),
+        }
+        if not symbol:
+            return out
+        cfg = self.config()
+        try:
+            store = Storage(cfg.db_path)
+        except Exception:                                # noqa: BLE001
+            return out
+        try:
+            fresh = store.trades_after(symbol, last_trade_id) if last_trade_id else []
+            out["trades"] = [{
+                "id": int(t["id"]), "ts": int(t["ts"]) * 1000, "side": t["side"],
+                "price": float(t["price"] or 0), "qty": float(t["qty"] or 0),
+                "pnl": float(t["pnl"] or 0), "reason": t["reason"] or "",
+            } for t in fresh]
+            out["last_trade_id"] = max([t["id"] for t in out["trades"]] + [last_trade_id])
+            row = store.get_position(symbol)
+            out["position"] = None if not row or row["qty"] <= 0 else {
+                "qty": float(row["qty"]), "entry": float(row["entry_price"]),
+                "stop": float(row["stop"] or 0), "take": float(row["take"] or 0),
+                "trail": float(row["trail"] or 0),
+                "opened_at": int(row["opened_at"] or 0) * 1000,
+                "bars": int(row["bars"] or 0)}
+        finally:
+            store.close()
+        return out
 
     def embeds(self, symbol: str = "") -> dict:
         """
@@ -476,11 +553,8 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/ticks":
             symbol = (query.get("symbol") or [""])[0]
             since = float((query.get("since") or ["0"])[0] or 0)
-            tail = self.panel.tick_tail(symbol, since)
-            poller = self.panel.poller
-            self._json({"symbol": symbol, "ticks": tail,
-                        "live": poller is not None and not poller.stop_event.is_set(),
-                        "error": poller.error if poller else ""})
+            last_trade = int((query.get("trade_id") or ["0"])[0] or 0)
+            self._json(self.panel.ticks_update(symbol, since, last_trade))
         elif url.path == "/api/log":
             since = int((query.get("since") or ["0"])[0] or 0)
             lines, counter = self.panel.runner.tail(since)
@@ -550,7 +624,9 @@ def serve(host: str = "127.0.0.1", port: int = 8765, mode: str = "cex",
     """Поднимает сервер и возвращает (сервер, адрес с токеном)."""
     token = secrets.token_urlsafe(16)
     panel = Panel(mode, allow_live)
+    panel.base_interval = poll_interval
     if live_prices:
+        panel.ensure_stream()
         panel.poller = PricePoller(panel, poll_interval)
         panel.poller.start()
     handler = type("BoundHandler", (Handler,), {"panel": panel, "token": token})
