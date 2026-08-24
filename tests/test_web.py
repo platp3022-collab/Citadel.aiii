@@ -199,6 +199,53 @@ class TestLivePrices(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
+class TestEmbeddedCharts(unittest.TestCase):
+    """Настоящие графики сайтов: TradingView для биржи, DexScreener/GeckoTerminal для пула."""
+
+    def test_exchange_gets_tradingview_with_right_ticker(self):
+        panel = Panel("cex")
+        panel.overrides = {"CITADEL_SYMBOLS": "BTC/USDT,ETH/USDT",
+                           "CITADEL_EXCHANGE": "bybit", "CITADEL_TIMEFRAME": "4h"}
+        views = panel.embeds()["views"]
+        self.assertEqual([v["id"] for v in views], ["tradingview"])
+        self.assertIn("BYBIT%3ABTCUSDT", views[0]["url"])
+        self.assertIn("interval=240", views[0]["url"])           # 4h
+        self.assertTrue(views[0]["site"].startswith("https://www.tradingview.com/chart/"))
+
+    def test_exchange_alias_is_translated(self):
+        panel = Panel("cex")
+        panel.overrides = {"CITADEL_SYMBOLS": "BTC/USDT", "CITADEL_EXCHANGE": "gate"}
+        self.assertIn("GATEIO%3ABTCUSDT", panel.embeds()["views"][0]["url"])
+
+    def test_dex_gets_pool_charts(self):
+        panel = Panel("dex")
+        panel.overrides = {"CITADEL_SYMBOLS": "solana:POOL1"}
+        ids = [v["id"] for v in panel.embeds()["views"]]
+        self.assertIn("dexscreener", ids)
+        self.assertIn("geckoterminal", ids)
+        urls = {v["id"]: v["url"] for v in panel.embeds()["views"]}
+        self.assertIn("dexscreener.com/solana/POOL1", urls["dexscreener"])
+        self.assertIn("embed=1", urls["dexscreener"])
+        self.assertIn("geckoterminal.com/solana/pools/POOL1", urls["geckoterminal"])
+
+    def test_unknown_chain_still_gives_dexscreener(self):
+        panel = Panel("dex")
+        panel.overrides = {"CITADEL_SYMBOLS": "какая-то-сеть:POOL9"}
+        ids = [v["id"] for v in panel.embeds()["views"]]
+        self.assertIn("dexscreener", ids)
+        self.assertNotIn("geckoterminal", ids)                   # сети нет в GeckoTerminal
+
+    def test_no_symbols_no_views(self):
+        panel = Panel("cex")
+        panel.overrides = {"CITADEL_SYMBOLS": " "}
+        self.assertEqual(Panel("cex").embeds("")["views"][0]["id"], "tradingview")
+
+    def test_chart_payload_carries_embeds(self):
+        panel = Panel("cex")
+        panel.overrides = {"CITADEL_SYMBOLS": "BTC/USDT"}
+        self.assertIn("embeds", panel.chart("BTC/USDT"))
+
+
 class TestChartData(unittest.TestCase):
     """Данные для живого графика входов и выходов."""
 

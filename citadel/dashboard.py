@@ -20,6 +20,7 @@ from pathlib import Path
 from . import candlecache
 from .config import Config
 from .genome import Genome
+from .pine import tv_site_url
 from .storage import Storage
 
 
@@ -232,11 +233,31 @@ def collect(cfg: Config, store: Storage, mode: str = "cex") -> dict:
     for symbol in symbols:
         row = store.active_strategy(symbol)
         held = next((p for p in positions if p["symbol"] == symbol), None)
+        links = []
+        if mode == "dex":
+            pair = pairs.get(symbol) or {}
+            if pair.get("url"):
+                links.append(("DexScreener", pair["url"]))
+            chain, _, pool = symbol.partition(":")
+            try:
+                from .dex.geckoterminal import network_of              # noqa: PLC0415
+
+                if pool:
+                    links.append(("GeckoTerminal",
+                                  f"https://www.geckoterminal.com/{network_of(chain)}/pools/{pool}"))
+            except Exception:                                          # noqa: BLE001
+                pass
+            base = (pair.get("base_symbol") or "").upper()
+            if base:
+                links.append(("TradingView", tv_site_url(f"{base}USD", "", cfg.timeframe)))
+        else:
+            links.append(("TradingView",
+                          tv_site_url(symbol, getattr(cfg, "exchange", ""), cfg.timeframe)))
         item = {"symbol": symbol, "label": label(symbol),
                 "url": (pairs.get(symbol) or {}).get("url", ""),
                 "candles": candles_of(symbol),
                 "trades": [t for t in trades if t["symbol"] == symbol],
-                "position": held}
+                "position": held, "links": links}
         if row:
             item.update({"id": row["id"], "score": float(row["score"] or 0),
                          "describe": Genome.from_json(row["genome"]).describe(),
@@ -303,6 +324,7 @@ tr:last-child td{border-bottom:0}
 .strat{padding:14px 16px;border-bottom:1px solid rgba(30,42,54,.5)}
 .strat:last-child{border-bottom:0}
 .strat .top{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.strat .top .sp{margin-left:auto;font-size:12px;color:var(--dim)}
 .strat .name{font-family:var(--mono);font-size:15px}
 .tag{display:inline-block;padding:2px 8px;border:1px solid var(--line);border-radius:999px;
  font-size:11px;color:var(--dim);font-family:var(--mono)}
@@ -358,6 +380,7 @@ def render(data: dict, refresh_seconds: int = 0) -> str:
     <span class="name">{link(s["label"], s["url"])}</span>
     <span class="tag">стратегия #{s["id"]} · скор {s["score"]:.2f}</span>
     {metrics_tag("обучение", t)}{metrics_tag("валидация", v)}
+    <span class="sp">{links_row(s.get("links"))}</span>
   </div>
   <pre>{esc(s["describe"])}</pre>
   {price_chart(s["candles"], s["trades"], position=s.get("position"))}
@@ -432,6 +455,13 @@ def render(data: dict, refresh_seconds: int = 0) -> str:
 
 def link(text: str, url: str = "") -> str:
     return f'<a href="{esc(url)}">{esc(text)}</a>' if url else esc(text)
+
+
+def links_row(links) -> str:
+    """Ссылки на настоящие графики этого инструмента."""
+    if not links:
+        return ""
+    return "график: " + " · ".join(f'<a href="{esc(url)}">{esc(name)}</a>' for name, url in links)
 
 
 def metrics_tag(title: str, m: dict) -> str:

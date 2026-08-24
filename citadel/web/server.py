@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ..candlecache import path_for, read as read_cache
 from ..config import Config
+from ..pine import TV_INTERVAL, tv_site_url, tv_widget_url
 from ..storage import Storage
 
 log = logging.getLogger("citadel.web")
@@ -414,11 +415,56 @@ class Panel:
                 "position": position, "price": price, "price_ts": price_ts,
                 "strategy": strategy, "url": (pairs.get(symbol) or {}).get("url", ""),
                 "ticks": self.tick_tail(symbol, candles[-1][0] if candles else 0),
+                "embeds": self.embeds(symbol)["views"],
                 "live_prices": self.poller is not None and not self.poller.stop_event.is_set(),
                 "poll_error": self.poller.error if self.poller else "",
             }
         finally:
             store.close()
+
+    def embeds(self, symbol: str = "") -> dict:
+        """
+        Адреса настоящих графиков для этого инструмента: TradingView для биржи,
+        DexScreener и GeckoTerminal для пула. Панель показывает их во фрейме —
+        это те же графики, что на сайтах, со всеми их инструментами.
+        """
+        cfg = self.config()
+        symbols = list(cfg.symbols)
+        if symbol not in symbols and symbols:
+            symbol = symbols[0]
+        if not symbol:
+            return {"symbol": "", "views": []}
+        views: list[dict] = []
+
+        if self.mode == "dex":
+            chain, _, pool = symbol.partition(":")
+            pair = self._pairs(cfg).get(symbol) or {}
+            site = pair.get("url") or (f"https://dexscreener.com/{chain}/{pool}" if pool else "")
+            if site:
+                views.append({"id": "dexscreener", "title": "DexScreener",
+                              "url": f"{site}?embed=1&theme=dark&info=0&trades=0",
+                              "site": site})
+            try:
+                from ..dex.geckoterminal import network_of              # noqa: PLC0415
+
+                network = network_of(chain)
+            except Exception:                                           # noqa: BLE001
+                network = ""
+            if network and pool:
+                site = f"https://www.geckoterminal.com/{network}/pools/{pool}"
+                views.append({"id": "geckoterminal", "title": "GeckoTerminal",
+                              "url": f"{site}?embed=1&info=0&swaps=0", "site": site})
+            base = (pair.get("base_symbol") or "").upper()
+            if base:                                     # у крупных монет график есть и в TV
+                views.append({"id": "tradingview", "title": "TradingView",
+                              "url": tv_widget_url(f"{base}USD", "", cfg.timeframe),
+                              "site": tv_site_url(f"{base}USD", "", cfg.timeframe)})
+        else:
+            exchange = str(getattr(cfg, "exchange", ""))
+            views.append({"id": "tradingview", "title": "TradingView",
+                          "url": tv_widget_url(symbol, exchange, cfg.timeframe),
+                          "site": tv_site_url(symbol, exchange, cfg.timeframe)})
+        return {"symbol": symbol, "views": views, "timeframe": cfg.timeframe}
 
     # ── вспомогательное ─────────────────────────────────────────────────────
     def _pairs(self, cfg: Config) -> dict:
@@ -492,6 +538,8 @@ class Handler(BaseHTTPRequestHandler):
             symbol = (query.get("symbol") or [""])[0]
             bars = int((query.get("bars") or ["220"])[0] or 220)
             self._json(self.panel.chart(symbol, bars))
+        elif url.path == "/api/embed":
+            self._json(self.panel.embeds((query.get("symbol") or [""])[0]))
         elif url.path == "/api/ticks":
             symbol = (query.get("symbol") or [""])[0]
             since = float((query.get("since") or ["0"])[0] or 0)

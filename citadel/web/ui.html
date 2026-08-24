@@ -98,6 +98,13 @@
     border-radius:7px;padding:5px 11px;font:inherit;font-size:12.5px;cursor:pointer;
     font-family:var(--mono)}
   .tabs button.on{border-color:var(--accent);color:var(--accent)}
+  .views{display:flex;gap:6px;flex-wrap:wrap;padding:8px 14px 0;align-items:center}
+  .views button{background:transparent;border:1px solid var(--line);color:var(--dim);
+    border-radius:999px;padding:4px 12px;font:inherit;font-size:12px;cursor:pointer}
+  .views button.on{border-color:var(--accent-2);color:var(--accent-2);background:#101a2b}
+  .views a{font-size:12px;margin-left:auto}
+  iframe.embed{width:100%;height:560px;border:0;border-radius:9px;background:#05080b;
+    display:block}
   .sel{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
     border-radius:7px;padding:4px 8px;font:inherit;font-size:12px}
   .legend{padding:0 14px 12px;color:var(--dim);font-size:12px;line-height:1.7}
@@ -171,6 +178,7 @@
       </span>
     </h2>
     <div class="tabs" id="chartTabs"></div>
+    <div class="views" id="chartViews"></div>
     <div class="body" id="chartBox">
       <div class="empty">данных пока нет — скачай историю и запусти торговлю</div>
     </div>
@@ -384,6 +392,8 @@ let chartBars = 220;
 let chartData = null;      // последний ответ /api/chart — чтобы перерисовывать по тикам
 let tickCursor = 0;
 let liveOnly = false;      // режим «только живая цена»: по оси времени одни тики
+let chartView = "bot";     // bot | tradingview | dexscreener | geckoterminal
+let embedUrl = "";         // чтобы не перезагружать фрейм на каждом опросе
 
 function fmtTime(ms) {
   const d = new Date(ms);
@@ -466,7 +476,58 @@ function drawLive(d) {
     `чтобы увидеть историю и все сделки.`;
 }
 
+function renderViews(d) {
+  const box = $("chartViews");
+  const views = [{id: "bot", title: "Сделки бота"}, ...(d.embeds || [])];
+  const want = views.map(v => v.id).join("|") + "@" + chartView + "@" + d.symbol;
+  if (box.dataset.want === want) return;
+  box.dataset.want = want;
+  box.innerHTML = "";
+  for (const v of views) {
+    const b = document.createElement("button");
+    b.textContent = v.title;
+    b.className = v.id === chartView ? "on" : "";
+    b.onclick = () => {
+      chartView = v.id;
+      embedUrl = "";
+      box.dataset.want = "";
+      drawChart(chartData);
+      renderViews(chartData);
+    };
+    box.appendChild(b);
+  }
+  const current = (d.embeds || []).find(v => v.id === chartView);
+  if (current && current.site) {
+    const a = document.createElement("a");
+    a.href = current.site;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "открыть на сайте ↗";
+    box.appendChild(a);
+  }
+}
+
+function drawEmbed(d) {
+  // настоящий график сайта во фрейме: TradingView, DexScreener, GeckoTerminal
+  const view = (d.embeds || []).find(v => v.id === chartView);
+  if (!view) { chartView = "bot"; drawChart(d); return; }
+  if (embedUrl !== view.url) {          // перерисовываем только при смене адреса
+    embedUrl = view.url;
+    $("chartBox").innerHTML =
+      `<iframe class="embed" src="${esc(view.url)}" loading="lazy"
+         referrerpolicy="no-referrer-when-downgrade" allowfullscreen
+         title="${esc(view.title)}"></iframe>`;
+  }
+  $("chartLegend").innerHTML =
+    `Это настоящий график ${esc(view.title)} — со всеми его инструментами. ` +
+    `Метки входов и выходов бота смотри на вкладке «Сделки бота». ` +
+    `Если фрейм пустой — сайт закрыт расширением браузера или нет интернета, ` +
+    `тогда жми «открыть на сайте».`;
+}
+
 function drawChart(d) {
+  if (!d) return;
+  if (chartView !== "bot") { drawEmbed(d); return; }
   if (liveOnly) { drawLive(d); return; }
   const box = $("chartBox");
   if (!d.candles || d.candles.length < 3) {
@@ -579,6 +640,7 @@ function drawChart(d) {
   g.push(`<text class="tick" x="${L}" y="${H - 8}">${fmtTime(x0)}</text>`);
   g.push(`<text class="tick" x="${W - R}" y="${H - 8}" text-anchor="end">${fmtTime(x1)}</text>`);
 
+  embedUrl = "";
   box.innerHTML = `<svg class="live" viewBox="0 0 ${W} ${H}" role="img"
       aria-label="цена, входы и выходы">${g.join("")}</svg>`;
 
@@ -640,7 +702,11 @@ function renderTabs(d) {
     b.textContent = (d.labels && d.labels[sym]) || sym;
     b.dataset.symbol = sym;
     b.className = sym === d.symbol ? "on" : "";
-    b.onclick = () => { chartSymbol = sym; chartData = null; tickCursor = 0; pollChart(); };
+    b.onclick = () => {
+      chartSymbol = sym; chartData = null; tickCursor = 0; embedUrl = "";
+      $("chartViews").dataset.want = "";
+      pollChart();
+    };
     box.appendChild(b);
   }
 }
@@ -655,12 +721,13 @@ async function pollChart() {
   chartData = d;
   tickCursor = (d.ticks && d.ticks.length) ? d.ticks[d.ticks.length - 1][0] : 0;
   renderTabs(d);
+  renderViews(d);
   drawChart(d);
 }
 
 async function pollTicks() {
   // лёгкий запрос раз в секунду: только новые цены, график перерисовываем локально
-  if (!chartData || !chartSymbol) return;
+  if (!chartData || !chartSymbol || chartView !== "bot") return;
   let d;
   try {
     d = await api("/api/ticks?symbol=" + encodeURIComponent(chartSymbol) + "&since=" + tickCursor);

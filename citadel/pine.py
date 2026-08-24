@@ -98,10 +98,41 @@ def _expr(names, joiner: str) -> tuple[str, list[str]]:
     return (joiner.join(parts) if parts else "false"), decls
 
 
+#: id биржи у нас → как она называется в TradingView
+TV_EXCHANGE = {
+    "binance": "BINANCE", "binanceus": "BINANCEUS", "bybit": "BYBIT", "okx": "OKX",
+    "kucoin": "KUCOIN", "gate": "GATEIO", "gateio": "GATEIO", "mexc": "MEXC",
+    "htx": "HTX", "huobi": "HTX", "kraken": "KRAKEN", "coinbase": "COINBASE",
+    "bitget": "BITGET", "bitfinex": "BITFINEX", "upbit": "UPBIT", "bingx": "BINGX",
+}
+
+#: таймфрейм бота → интервал графика TradingView
+TV_INTERVAL = {"1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "1h": "60",
+               "2h": "120", "4h": "240", "6h": "360", "12h": "720", "1d": "D", "1w": "W"}
+
+
 def tv_symbol(symbol: str, exchange: str = "") -> str:
     """BTC/USDT + binance → BINANCE:BTCUSDT (как пара называется в TradingView)."""
     pair = symbol.replace("/", "").replace(":", "").upper()
-    return f"{exchange.upper()}:{pair}" if exchange else pair
+    if not exchange:
+        return pair
+    return f"{TV_EXCHANGE.get(exchange.lower(), exchange.upper())}:{pair}"
+
+
+def tv_site_url(symbol: str, exchange: str = "", timeframe: str = "1h") -> str:
+    """Ссылка на график TradingView в браузере."""
+    ticker = tv_symbol(symbol, exchange).replace(":", "%3A")
+    return (f"https://www.tradingview.com/chart/?symbol={ticker}"
+            f"&interval={TV_INTERVAL.get(timeframe, '60')}")
+
+
+def tv_widget_url(symbol: str, exchange: str = "", timeframe: str = "1h") -> str:
+    """Адрес встраиваемого виджета TradingView — тот же график, но во фрейме."""
+    ticker = tv_symbol(symbol, exchange).replace(":", "%3A")
+    return (f"https://s.tradingview.com/widgetembed/?symbol={ticker}"
+            f"&interval={TV_INTERVAL.get(timeframe, '60')}&theme=dark&style=1&locale=ru"
+            f"&timezone=Etc%2FUTC&withdateranges=1&hide_side_toolbar=0"
+            f"&allow_symbol_change=1&save_image=0")
 
 
 def to_pine(g: Genome, symbol: str, timeframe: str, strategy_id: int | None = None,
