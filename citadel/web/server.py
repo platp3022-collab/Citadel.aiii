@@ -36,6 +36,7 @@ log = logging.getLogger("citadel.web")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 UI_FILE = Path(__file__).resolve().parent / "ui.html"
+VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 
 #: какие команды панель имеет право запускать
 COMMANDS = {
@@ -442,6 +443,15 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(url.query)
         if url.path == "/favicon.ico":               # без токена: иконка вкладки
             self._send(200, FAVICON, "image/svg+xml")
+            return
+        if url.path.startswith("/vendor/"):          # библиотека графиков, лежит локально
+            name = url.path.removeprefix("/vendor/")
+            target = (VENDOR_DIR / name).resolve()
+            if target.parent != VENDOR_DIR.resolve() or not target.is_file():
+                self._send(404, b"not found", "text/plain")
+                return
+            ctype = "application/javascript" if name.endswith(".js") else "text/plain"
+            self._send(200, target.read_bytes(), f"{ctype}; charset=utf-8")
             return
         if url.path in ("/", "/index.html"):
             if not self._authorized(query):

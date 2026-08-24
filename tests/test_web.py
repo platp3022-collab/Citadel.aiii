@@ -522,6 +522,27 @@ class TestHttpApi(unittest.TestCase):
         self.assertEqual(data["mode"], "dex")
         self.call("/api/mode", {"mode": "cex"})
 
+    def test_chart_library_is_served_locally(self):
+        with urllib.request.urlopen(
+                f"{self.base}/vendor/lightweight-charts.standalone.production.js", timeout=10) as r:
+            body = r.read()
+        self.assertEqual(r.status, 200)                     # без токена: это статика
+        self.assertIn("javascript", r.headers["Content-Type"])
+        self.assertGreater(len(body), 100_000)
+        self.assertIn(b"LightweightCharts", body)
+
+    def test_vendor_path_cannot_escape(self):
+        for bad in ("/vendor/../server.py", "/vendor/nope.js", "/vendor/"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(self.base + bad, timeout=10)
+            self.assertEqual(ctx.exception.code, 404, bad)
+
+    def test_page_loads_the_library(self):
+        with urllib.request.urlopen(f"{self.base}/?token={self.token}", timeout=10) as r:
+            html = r.read().decode()
+        self.assertIn("/vendor/lightweight-charts.standalone.production.js", html)
+        self.assertNotIn("https://unpkg.com", html)         # ничего из интернета
+
     def test_unknown_path(self):
         code, _ = self.call("/api/секрет")
         self.assertEqual(code, 404)

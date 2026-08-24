@@ -105,6 +105,11 @@
   .views a{font-size:12px;margin-left:auto}
   iframe.embed{width:100%;height:560px;border:0;border-radius:9px;background:#05080b;
     display:block}
+  .lwc-wrap{position:relative;border-radius:9px;overflow:hidden;background:#070b0f}
+  #lwc{width:100%;height:460px}
+  .ohlc{position:absolute;left:12px;top:10px;z-index:3;font-family:var(--mono);font-size:12px;
+    color:var(--dim);pointer-events:none;line-height:1.6;text-shadow:0 0 6px #070b0f}
+  .ohlc b{color:var(--text);font-weight:600}
   .sel{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
     border-radius:7px;padding:4px 8px;font:inherit;font-size:12px}
   .legend{padding:0 14px 12px;color:var(--dim);font-size:12px;line-height:1.7}
@@ -137,6 +142,7 @@
     border:1px solid var(--line);border-left:3px solid var(--red);border-radius:8px;
     padding:11px 14px;max-width:420px;display:none;z-index:9}
 </style>
+<script src="/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <header>
@@ -451,11 +457,138 @@ function tradeTip(t, withSeconds) {
          `цена ${fmtPrice(t.price)} · объём ${fmt(t.qty, 6)}\n${t.reason}${money}`;
 }
 
+const LWC = window.LightweightCharts;
+let lwc = null;            // {chart, series, volume, lines, kind, symbol, tf}
+
+function destroyLwc() {
+  if (lwc) { try { lwc.chart.remove(); } catch (e) {} lwc = null; }
+}
+
+function candleTime(ms) { return Math.floor(ms / 1000); }
+
+function ensureLwc(d) {
+  const kind = chartStyle;
+  const key = d.symbol + "|" + d.timeframe + "|" + kind;
+  if (lwc && lwc.key === key) return lwc;
+  destroyLwc();
+  $("chartBox").innerHTML = '<div class="lwc-wrap"><div id="lwc"></div>' +
+    '<div class="ohlc" id="ohlc"></div></div>';
+  const el = $("lwc");
+  const seconds = (d.tf_seconds || 60) < 60;
+  const chart = LWC.createChart(el, {
+    layout: {background: {color: "#070b0f"}, textColor: "#7d90a4", fontSize: 11,
+             fontFamily: "ui-monospace, Consolas, monospace"},
+    grid: {vertLines: {color: "#141d27"}, horzLines: {color: "#141d27"}},
+    rightPriceScale: {borderColor: "#1e2a36", scaleMargins: {top: 0.08, bottom: 0.22}},
+    timeScale: {borderColor: "#1e2a36", timeVisible: true, secondsVisible: seconds,
+                rightOffset: 4, barSpacing: 8},
+    crosshair: {mode: LWC.CrosshairMode.Normal,
+                vertLine: {color: "#3fd0c9", width: 1, style: 2, labelBackgroundColor: "#0f2b28"},
+                horzLine: {color: "#3fd0c9", width: 1, style: 2, labelBackgroundColor: "#0f2b28"}},
+    handleScale: {axisPressedMouseMove: true}, handleScroll: true,
+    localization: {locale: "ru-RU"},
+    autoSize: true,
+  });
+  const series = kind === "line"
+    ? chart.addAreaSeries({lineColor: "#3fd0c9", topColor: "rgba(63,208,201,.25)",
+                           bottomColor: "rgba(63,208,201,0)", lineWidth: 2})
+    : chart.addCandlestickSeries({upColor: "#4ade80", downColor: "#f87171",
+                                  borderUpColor: "#4ade80", borderDownColor: "#f87171",
+                                  wickUpColor: "#4ade80", wickDownColor: "#f87171"});
+  const volume = chart.addHistogramSeries({
+    priceFormat: {type: "volume"}, priceScaleId: "volume", color: "#7aa2f733"});
+  chart.priceScale("volume").applyOptions({scaleMargins: {top: 0.84, bottom: 0}});
+
+  chart.subscribeCrosshairMove(param => {
+    const box = $("ohlc");
+    if (!box) return;
+    const bar = param.seriesData && param.seriesData.get(series);
+    if (!bar) { box.innerHTML = lwc && lwc.title ? lwc.title : ""; return; }
+    if (bar.close !== undefined) {
+      const up = bar.close >= bar.open;
+      box.innerHTML = `<b>${lwc.name}</b> · ${d.timeframe} &nbsp; ` +
+        `O <b>${fmtPrice(bar.open)}</b> H <b>${fmtPrice(bar.high)}</b> ` +
+        `L <b>${fmtPrice(bar.low)}</b> C <b class="${up ? "up" : "down"}">` +
+        `${fmtPrice(bar.close)}</b>`;
+    } else {
+      box.innerHTML = `<b>${lwc.name}</b> · ${d.timeframe} &nbsp; <b>${fmtPrice(bar.value)}</b>`;
+    }
+  });
+
+  lwc = {chart, series, volume, lines: [], key, kind, fitted: false,
+         name: (d.labels && d.labels[d.symbol]) || d.symbol, title: ""};
+  return lwc;
+}
+
+function renderLwc(d) {
+  const c = d.candles;
+  const chart = ensureLwc(d);
+  const step = c.length > 1 ? c[1][0] - c[0][0] : (d.tf_seconds || 60) * 1000;
+
+  if (chart.kind === "line") {
+    chart.series.setData(c.map(k => ({time: candleTime(k[0]), value: k[4]})));
+  } else {
+    chart.series.setData(c.map(k => ({time: candleTime(k[0]), open: k[1], high: k[2],
+                                      low: k[3], close: k[4]})));
+  }
+  chart.volume.setData(c.map(k => ({time: candleTime(k[0]), value: k[5] || 0,
+                                    color: k[4] >= k[1] ? "#4ade8033" : "#f8717133"})));
+
+  // метки сделок: привязываем к свече, в которую они попали
+  const first = c[0][0], last = c[c.length - 1][0];
+  const marks = [];
+  for (const t of d.trades) {
+    if (t.ts < first || t.ts > last + step) continue;
+    const bucket = Math.floor((t.ts - first) / step) * step + first;
+    marks.push({
+      time: candleTime(Math.min(bucket, last)),
+      position: t.side === "buy" ? "belowBar" : "aboveBar",
+      color: t.side === "buy" ? "#4ade80" : (t.pnl >= 0 ? "#3fd0c9" : "#f87171"),
+      shape: t.side === "buy" ? "arrowUp" : "arrowDown",
+      text: (t.side === "buy" ? "вход " : "выход ") + fmtPrice(t.price) +
+            (t.side === "sell" ? ` (${t.pnl >= 0 ? "+" : ""}${fmt(t.pnl)})` : ""),
+    });
+  }
+  marks.sort((a, b) => a.time - b.time);
+  chart.series.setMarkers(marks);
+
+  for (const line of chart.lines) chart.series.removePriceLine(line);
+  chart.lines = [];
+  if (d.position) {
+    const rows = [["вход", d.position.entry, "#d7e2ee"], ["стоп", d.position.stop, "#f87171"],
+                  ["тейк", d.position.take, "#3fd0c9"]];
+    if (d.position.trail > d.position.stop) rows.push(["трейлинг", d.position.trail, "#fbbf24"]);
+    for (const [title, price, color] of rows) {
+      if (!(price > 0)) continue;
+      chart.lines.push(chart.series.createPriceLine({
+        price, color, lineWidth: 1, lineStyle: LWC.LineStyle.Dashed,
+        axisLabelVisible: true, title}));
+    }
+  }
+  if (!chart.fitted) { chart.chart.timeScale().fitContent(); chart.fitted = true; }
+  chart.title = `<b>${chart.name}</b> · ${d.timeframe} · ${d.source}`;
+  $("ohlc").innerHTML = chart.title;
+  finishChart(d, pairTrades(d.trades).pairs);
+}
+
+function updateLwcTick(d, ticks) {
+  if (!lwc || chartStyle === "d3" || chartView !== "bot") return;
+  const c = d.candles;
+  if (!c.length) return;
+  const last = c[c.length - 1];
+  const time = candleTime(last[0]);
+  lwc.series.update(lwc.kind === "line"
+    ? {time, value: last[4]}
+    : {time, open: last[1], high: last[2], low: last[3], close: last[4]});
+}
+
 function drawChart(d) {
   if (!d) return;
-  if (chartView !== "bot") { drawEmbed(d); return; }
+  if (chartView !== "bot") { destroyLwc(); drawEmbed(d); return; }
   const box = $("chartBox");
   const c = d.candles || [];
+  if (c.length >= 2 && chartStyle !== "d3") { renderLwc(d); return; }
+  destroyLwc();
   if (c.length < 2) {
     box.innerHTML = '<div class="empty">' + (String(d.timeframe).endsWith("s")
       ? "секундные свечи собираются из живых цен — подожди несколько секунд"
@@ -463,99 +596,7 @@ function drawChart(d) {
     $("chartLegend").innerHTML = "";
     return;
   }
-  if (chartStyle === "d3") { drawChart3D(d); return; }
-
-  const W = 1000, H = 400, L = 86, R = 132, T = 20, B = 34;
-  const {x0, x1, lo, hi, step} = chartBounds(d);
-  const spanX = (x1 - x0) || 1, spanY = (hi - lo) || 1;
-  const X = t => L + (t - x0) / spanX * (W - L - R);
-  const Y = v => T + (hi - v) / spanY * (H - T - B);
-  const seconds = (d.tf_seconds || 60) < 60;
-  const g = [];
-
-  for (let i = 1; i <= 4; i++) {
-    const v = lo + spanY * i / 5;
-    g.push(`<line class="grid" x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}"/>
-      <text class="tick" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtPrice(v)}</text>`);
-  }
-  if (d.position && d.position.opened_at) {
-    const xa = Math.max(L, X(d.position.opened_at));
-    g.push(`<rect class="hold" x="${xa.toFixed(1)}" y="${T}" width="${(W - R - xa).toFixed(1)}" height="${H - T - B}"/>`);
-  }
-
-  if (chartStyle === "line") {
-    g.push(`<path class="price" d="${c.map((k, i) =>
-      `${i ? "L" : "M"}${X(k[0]).toFixed(1)},${Y(k[4]).toFixed(1)}`).join("")}"/>`);
-  } else {
-    const bw = Math.max(1.6, Math.min(16, (W - L - R) / c.length * 0.68));
-    const maxVol = Math.max(...c.map(k => k[5] || 0));
-    for (const k of c) {
-      const x = X(k[0] + step / 2), up = k[4] >= k[1];
-      if (maxVol > 0 && k[5]) {                      // объём подложкой снизу
-        const vh = (k[5] / maxVol) * (H - T - B) * 0.18;
-        g.push(`<rect class="vol" x="${(x - bw / 2).toFixed(1)}" y="${(H - B - vh).toFixed(1)}"
-          width="${bw.toFixed(1)}" height="${vh.toFixed(1)}"/>`);
-      }
-      g.push(`<line class="wick-${up ? "up" : "dn"}" x1="${x.toFixed(1)}" y1="${Y(k[2]).toFixed(1)}"
-        x2="${x.toFixed(1)}" y2="${Y(k[3]).toFixed(1)}"/>`);
-      const top = Math.min(Y(k[1]), Y(k[4])), hgt = Math.max(1, Math.abs(Y(k[4]) - Y(k[1])));
-      g.push(`<rect class="body-${up ? "up" : "dn"}" x="${(x - bw / 2).toFixed(1)}"
-        y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${hgt.toFixed(1)}"><title>${
-        esc(fmtTime(k[0], seconds) + "\nO " + fmtPrice(k[1]) + "  H " + fmtPrice(k[2]) +
-            "\nL " + fmtPrice(k[3]) + "  C " + fmtPrice(k[4]))}</title></rect>`);
-    }
-  }
-
-  const tail = (d.ticks || []).filter(t => t[0] >= c[c.length - 1][0]);
-  if (tail.length > 1 && chartStyle === "line") {
-    g.push(`<path class="tail" d="${tail.map((t, i) =>
-      `${i ? "L" : "M"}${X(t[0]).toFixed(1)},${Y(t[1]).toFixed(1)}`).join("")}"/>`);
-  }
-
-  const {pairs} = pairTrades(d.trades);
-  for (const p of pairs) {
-    if (p.sell.ts < x0) continue;
-    g.push(`<line class="${p.sell.pnl >= 0 ? "conn-win" : "conn-loss"}"
-      x1="${X(p.buy.ts).toFixed(1)}" y1="${Y(p.buy.price).toFixed(1)}"
-      x2="${X(p.sell.ts).toFixed(1)}" y2="${Y(p.sell.price).toFixed(1)}"/>`);
-  }
-  for (const t of d.trades) {
-    if (t.ts < x0 || t.ts > x1) continue;
-    const x = X(t.ts), y = Y(t.price);
-    const cls = t.side === "buy" ? "buy" : (t.pnl >= 0 ? "win" : "loss");
-    const dy = t.side === "buy" ? 7 : -7, dir = t.side === "buy" ? 11 : -11;
-    g.push(`<g><title>${esc(tradeTip(t, seconds))}</title>
-      <path class="${cls}" d="M${x.toFixed(1)},${(y + dy).toFixed(1)} l-6,${dir} l12,0 Z"/>
-      <circle class="${cls}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2"/></g>`);
-  }
-
-  if (d.position) {
-    const used = d.price > 0 ? [Y(d.price) - 8] : [];
-    const rows = [["lvl-entry", d.position.entry, "вход"], ["lvl-stop", d.position.stop, "стоп"],
-                  ["lvl-take", d.position.take, "тейк"]];
-    if (d.position.trail > d.position.stop) rows.push(["lvl-stop", d.position.trail, "трейлинг"]);
-    for (const [cls, v, name] of rows) {
-      if (!(v > 0)) continue;
-      let ty = Y(v) + 4;
-      while (used.some(u => Math.abs(u - ty) < 13)) ty += 13;
-      used.push(ty);
-      g.push(`<line class="${cls}" x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}"/>
-        <text class="lbl tick" x="${W - R + 6}" y="${ty.toFixed(1)}">${name} ${fmtPrice(v)}</text>`);
-    }
-  }
-  if (d.price > 0) {
-    const y = Y(d.price), x = X(Math.min(x1, Math.max(x0, d.price_ts || x1)));
-    g.push(`<line class="now-line" x1="${L}" y1="${y.toFixed(1)}" x2="${(W - R).toFixed(1)}" y2="${y.toFixed(1)}"/>
-      <circle class="now" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4"/>
-      <text class="lbl now" x="${W - R + 6}" y="${(y - 8).toFixed(1)}">сейчас ${fmtPrice(d.price)}</text>`);
-  }
-  g.push(`<text class="tick" x="${L}" y="${H - 8}">${fmtTime(x0, seconds)}</text>
-    <text class="tick" x="${W - R}" y="${H - 8}" text-anchor="end">${fmtTime(x1, seconds)}</text>`);
-
-  embedUrl = "";
-  box.innerHTML = `<svg class="live" viewBox="0 0 ${W} ${H}" role="img"
-      aria-label="свечи, входы и выходы">${g.join("")}</svg>`;
-  finishChart(d, pairs);
+  drawChart3D(d);
 }
 
 function drawChart3D(d) {
@@ -632,10 +673,13 @@ function finishChart(d, pairs) {
   const src = d.source === "тики" ? "свечи собраны из живых цен панели"
             : d.source === "кэш" ? "свечи из кэша бота (рынок недоступен)"
             : "свечи прямо с рынка";
-  let note = `${d.timeframe} · ${src}. ▲ вход · ▼ выход (бирюзовый — в плюс, красный — ` +
-             `в минус) · пунктир — путь сделки. Закрытых сделок в окне: ${closed}` +
+  const marksNote = chartStyle === "d3"
+    ? "▲ вход · ▼ выход (бирюзовый — в плюс, красный — в минус). " +
+      "Глубина коробки — объём торгов за свечу."
+    : "Стрелки на графике — входы и выходы бота с ценой и результатом. " +
+      "Колесо — зум, перетаскивание — прокрутка, курсор показывает O/H/L/C.";
+  let note = `${d.timeframe} · ${src}. ${marksNote} Закрытых сделок в окне: ${closed}` +
              (closed ? `, из них в плюс ${wins}` : "") + ".";
-  if (chartStyle === "d3") note += " В 3D глубина коробки — объём торгов за свечу.";
   if (d.position) {
     const chg = (d.price / d.position.entry - 1) * 100;
     note = `<b class="${chg >= 0 ? "up" : "down"}">В позиции с ${fmtTime(d.position.opened_at)}: ` +
@@ -728,7 +772,7 @@ function renderTabs(d) {
     b.dataset.symbol = sym;
     b.className = sym === d.symbol ? "on" : "";
     b.onclick = () => {
-      chartSymbol = sym; chartData = null; tickCursor = 0; embedUrl = "";
+      chartSymbol = sym; chartData = null; tickCursor = 0; embedUrl = ""; destroyLwc();
       $("chartViews").dataset.want = "";
       pollChart();
     };
@@ -780,7 +824,13 @@ async function pollTicks() {
       }
     }
   }
-  drawChart(chartData);
+  if (lwc && chartStyle !== "d3" && chartView === "bot") {
+    updateLwcTick(chartData, d.ticks);
+    updatePrice(chartData.price, chartData.candles.length
+      ? (chartData.price / chartData.candles[chartData.candles.length - 1][1] - 1) * 100 : 0);
+  } else {
+    drawChart(chartData);
+  }
 }
 
 // ── состояние ──────────────────────────────────────────────────────────────
@@ -910,8 +960,10 @@ async function refresh() {
 }
 
 $("barsSel").onchange = (e) => { chartBars = Number(e.target.value); pollChart(); };
-$("tfSel").onchange = (e) => { chartTf = e.target.value; chartData = null; pollChart(); };
-$("styleSel").onchange = (e) => { chartStyle = e.target.value; drawChart(chartData); };
+$("tfSel").onchange = (e) => {
+  chartTf = e.target.value; chartData = null; destroyLwc(); pollChart();
+};
+$("styleSel").onchange = (e) => { chartStyle = e.target.value; destroyLwc(); drawChart(chartData); };
 
 refresh();
 pollLog();
