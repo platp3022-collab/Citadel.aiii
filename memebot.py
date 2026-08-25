@@ -52,6 +52,11 @@ try:
 except ImportError:
     feedparser = None
 
+try:
+    import axiom_scout                     # сканер свежих лончей (Axiom / FOMO)
+except ImportError:                        # модуль удалили — основной бот всё равно работает
+    axiom_scout = None                     # type: ignore[assignment]
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("memebot")
 
@@ -118,6 +123,12 @@ CONFIG: dict[str, Any] = {
         },
     },
     "llm": {"enabled": False, "model": "claude-sonnet-5"},
+    # Автопилот по свежим лончам Solana (Axiom / FOMO) — см. axiom_scout.py
+    "fresh": {
+        "enabled": True,
+        "preset": "axiom",                  # axiom | fomo | safe | degen
+        "overrides": {},                    # точечно переопределить любой ключ пресета
+    },
     "tracking": {"interval_minutes": 15, "window_hours": 48},
     "storage": {"path": "data/memebot.db", "keep_days": 7},
 }
@@ -1357,8 +1368,12 @@ def top_message(rows: list[dict], hours: float) -> str:
 
 
 HELP = (
-    "🤖 <b>Мем-коин сканер</b> (DexScreener + новости)\n\n"
+    "🤖 <b>Мем-коин сканер</b> (DexScreener + свежие лончи + новости)\n\n"
     "/scan — прогнать скан сейчас\n"
+    "/fresh [N] — свежие лончи Solana (Axiom/FOMO) прямо сейчас\n"
+    "/check &lt;mint&gt; — полный разбор монеты по адресу\n"
+    "/preset [axiom|fomo|safe|degen] — профиль автопилота\n"
+    "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
     "/top [часы] — лучшие сигналы\n"
     "/stats [часы] — как отработали алерты\n"
     "/status — состояние бота\n"
@@ -1384,6 +1399,13 @@ class Bot:
                            os.environ.get("TELEGRAM_CHANNEL_ID", ""),
                            os.environ.get("TELEGRAM_CHAT_ID", ""), dry=dry)
         self.threshold = num(cfg("alerts.min_score"), 65)
+        self.fresh = None
+        if axiom_scout is not None and cfg("fresh.enabled", True):
+            self.fresh = axiom_scout.FreshScanner(
+                session, storage=self.store, send=self.tg.broadcast,
+                conf={**(cfg("fresh.overrides") or {}),
+                      "storage_path": cfg("storage.path", "data/memebot.db")},
+                news=self.news, preset=str(cfg("fresh.preset", "axiom")))
         self.started = time.time()
         self.scans = 0
         self.alerts_sent = 0
@@ -1565,6 +1587,12 @@ class Bot:
             except Exception as e:  # noqa: BLE001
                 log.exception("Сбой трекера: %s", e)
 
+    async def fresh_loop(self) -> None:
+        """Автопилот по свежим лончам: сам ищет, сам смотрит новости, сам решает."""
+        if self.fresh is None:
+            return
+        await self.fresh.loop(self.stop_event)
+
     async def telegram_loop(self) -> None:
         if not self.tg.token or self.tg.dry:
             return
@@ -1602,7 +1630,8 @@ class Bot:
                 f"Порог: {self.threshold:.0f}\nПар в последнем скане: {self.last_seen}\n"
                 f"Новостей в кэше: {len(self.news.items)}\n"
                 f"Канал: {esc(self.tg.channel_id or 'не задан')}\n"
-                f"Тишина: {'да' if self.store.is_muted('global') else 'нет'}", chat_id)
+                f"Тишина: {'да' if self.store.is_muted('global') else 'нет'}\n"
+                + (self.fresh.status_line() if self.fresh else "Свежие лончи: выкл"), chat_id)
         elif cmd == "/scan":
             await self.tg.send("🔍 Запускаю скан...", chat_id)
             await self.scan_once(notify_empty=True)
@@ -1624,6 +1653,62 @@ class Bot:
         elif cmd == "/unmute":
             self.store.unmute("global")
             await self.tg.send("🔔 Алерты включены.", chat_id)
+        elif cmd in ("/fresh", "/new"):
+            if self.fresh is None:
+                await self.tg.send("Модуль свежих лончей не подключён.", chat_id)
+            else:
+                limit = int(num(arg, 5)) if arg else 5
+                await self.tg.send(f"🔍 Смотрю свежие лончи "
+                                   f"[{self.fresh.preset.upper()}]...", chat_id)
+                items = await self.fresh.analyze_all(limit=max(1, min(limit, 10)), llm=True)
+                await self.tg.send(
+                    axiom_scout.fresh_list_message(items, self.fresh.conf), chat_id)
+        elif cmd == "/check":
+            if self.fresh is None or not arg:
+                await self.tg.send("Пример: <code>/check &lt;адрес минта&gt;</code>", chat_id)
+            else:
+                await self.tg.send("🔬 Разбираю монету...", chat_id)
+                a = await self.fresh.inspect(arg)
+                await self.tg.send(
+                    axiom_scout.fresh_message(a, self.fresh.conf) if a
+                    else "Не нашёл такую монету (или адрес неверный).", chat_id)
+        elif cmd == "/preset":
+            if self.fresh is None:
+                await self.tg.send("Модуль свежих лончей не подключён.", chat_id)
+            elif not arg:
+                await self.tg.send(
+                    f"Текущий профиль: <b>{esc(self.fresh.preset.upper())}</b>\n"
+                    f"Доступны: {', '.join(axiom_scout.PRESETS)}\n"
+                    f"Пример: <code>/preset fomo</code>", chat_id)
+            elif self.fresh.apply_preset(arg):
+                CONFIG["fresh"]["preset"] = arg.lower()
+                await self.tg.send(f"✅ Профиль: <b>{esc(arg.upper())}</b>, "
+                                   f"порог {self.fresh.threshold:.0f}/100", chat_id)
+            else:
+                await self.tg.send(f"Не знаю такой профиль. Есть: "
+                                   f"{', '.join(axiom_scout.PRESETS)}", chat_id)
+        elif cmd == "/freshscore":
+            if self.fresh is None:
+                await self.tg.send("Модуль свежих лончей не подключён.", chat_id)
+            elif arg:
+                self.fresh.threshold = max(0.0, min(100.0, num(arg, self.fresh.threshold)))
+                await self.tg.send(f"Порог по свежим: {self.fresh.threshold:.0f}/100", chat_id)
+            else:
+                await self.tg.send(f"Порог по свежим: {self.fresh.threshold:.0f}. "
+                                   f"Пример: /freshscore 70", chat_id)
+        elif cmd == "/auto":
+            if self.fresh is None:
+                await self.tg.send("Модуль свежих лончей не подключён.", chat_id)
+            else:
+                auto = self.fresh.conf.setdefault("auto", {})
+                if arg and arg.lower() in ("on", "вкл", "1"):
+                    auto["only_enter"] = True
+                elif arg and arg.lower() in ("off", "выкл", "0"):
+                    auto["only_enter"] = False
+                await self.tg.send(
+                    "Режим автопилота: " + ("только вердикт «норм» 🟢"
+                                            if auto.get("only_enter", True)
+                                            else "«норм» + «наблюдать» 🟡"), chat_id)
         elif cmd == "/news":
             items = self.news.items[:8]
             if not items:
@@ -1646,10 +1731,13 @@ class Bot:
         await self.tg.send(
             f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
             f"Порог: {self.threshold:.0f}/100\n"
-            f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
+            + (f"Автопилот по свежим лончам: <b>{esc(self.fresh.preset.upper())}</b>, "
+               f"порог {self.fresh.threshold:.0f}\n" if self.fresh else "")
+            + f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
-                             self.tracker_loop(), self.telegram_loop())
+                             self.tracker_loop(), self.telegram_loop(),
+                             self.fresh_loop())
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1665,6 +1753,9 @@ async def amain(args: argparse.Namespace) -> None:
         CONFIG["alerts"]["min_score"] = args.threshold
     if args.chains:
         CONFIG["scan"]["chains"] = [c.strip().lower() for c in args.chains.split(",")]
+    preset = args.preset or os.environ.get("FRESH_PRESET", "")
+    if preset:
+        CONFIG["fresh"]["preset"] = preset.strip().lower()
 
     if not args.dry and not os.environ.get("TELEGRAM_BOT_TOKEN"):
         log.warning("TELEGRAM_BOT_TOKEN не задан — работаю в режиме вывода в консоль")
@@ -1685,7 +1776,11 @@ async def amain(args: argparse.Namespace) -> None:
         if args.once:
             await bot.news.refresh()
             found = await bot.scan_once(notify_empty=True)
-            log.info("Готово. Алертов: %d", len(found))
+            fresh_found = []
+            if bot.fresh is not None:
+                fresh_found = await bot.fresh.poll()
+            log.info("Готово. Алертов: %d (из них по свежим лончам: %d)",
+                     len(found) + len(fresh_found), len(fresh_found))
             return
         await bot.run()
 
@@ -1696,6 +1791,8 @@ def main() -> None:
     ap.add_argument("--dry", action="store_true", help="не слать в Telegram, печатать в консоль")
     ap.add_argument("--threshold", type=float, help="порог алерта 0-100")
     ap.add_argument("--chains", type=str, help="сети через запятую, напр. solana,base")
+    ap.add_argument("--preset", type=str,
+                    help="профиль автопилота по свежим: axiom|fomo|safe|degen")
     ap.add_argument("-v", "--verbose", action="store_true")
     try:
         asyncio.run(amain(ap.parse_args()))
