@@ -10,9 +10,30 @@
 
 Инструкции: **[TRADER.md](TRADER.md)** — биржевой бот, **[DEX.md](DEX.md)** — DEX-версия.
 
+## Запуск одной командой
+
+Ничего скачивать и распаковывать не надо — команда всё сделает сама:
+скачает проект в домашнюю папку, поставит зависимости и откроет панель.
+
+**Windows** — открой PowerShell (Win+X → «Терминал» или «PowerShell») и вставь:
+
+```powershell
+irm https://raw.githubusercontent.com/platp3022-collab/Citadel.aiii/claude/crypto-bot-auto-strategy-enawqd/install.ps1 | iex
+```
+
+**macOS / Linux** — в терминале:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/platp3022-collab/Citadel.aiii/claude/crypto-bot-auto-strategy-enawqd/install.sh | bash
+```
+
+Повторный запуск той же команды обновляет код и не трогает твои данные
+(`data/` и `.env`). Проект ложится в `~/Citadel` (на Windows —
+`%USERPROFILE%\Citadel`), дальше его можно запускать двойным кликом.
+
 ## Запуск в один клик
 
-Скачай проект и запусти:
+Если проект уже скачан:
 
 | Система | Что сделать |
 |---|---|
