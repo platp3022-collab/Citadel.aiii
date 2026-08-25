@@ -149,7 +149,8 @@ def cfg(path: str, default: Any = None) -> Any:
 def load_env(path: Path = ROOT / ".env") -> None:
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # utf-8-sig: .env, сохранённый блокнотом или PowerShell, приходит с BOM
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

@@ -4,6 +4,21 @@ Telegram-бот: автопилот по свежим лончам Solana (Axiom
 новостной анализ + алерты в канал/чат. Основной сканер — `memebot.py`,
 свежие лончи — `axiom_scout.py`.
 
+## Запуск из PowerShell (одна строка)
+
+```powershell
+iex (iwr -useb "https://raw.githubusercontent.com/platp3022-collab/Citadel.aiii/claude/meme-coin-analyzer-bot-3qqsiy/deploy/bootstrap.ps1").Content
+```
+
+Скачает код в `%USERPROFILE%\memebot`, поставит зависимости, спросит настройки один раз и запустит бота.
+Повторный запуск той же строки обновляет код: `.env`, база и окружение остаются на месте.
+
+Если код уже скачан — из папки с ботом:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
 ## Быстрый запуск (одна кнопка)
 
 1. Windows — дважды кликни `run.bat`. Mac/Linux — дважды кликни `run.sh`
