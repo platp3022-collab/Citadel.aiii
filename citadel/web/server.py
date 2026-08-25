@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import http.cookies
 import json
 import logging
 import os
@@ -52,6 +53,32 @@ COMMANDS = {
     },
 }
 ENTRYPOINT = {"cex": "tradebot.py", "dex": "dexbot.py"}
+
+LOCKED_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<title>Citadel — нужен адрес с ключом</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0f14;
+ color:#d7e2ee;font-family:system-ui,"Segoe UI",sans-serif;padding:24px}
+.card{max-width:36rem;border:1px solid #1e2a36;border-radius:12px;background:#111820;
+ padding:28px 30px;line-height:1.65}
+h1{margin:0 0 14px;font-size:1.3rem;color:#3fd0c9}
+ol{margin:14px 0 0;padding-left:20px}li{margin:8px 0}
+code{font-family:ui-monospace,Consolas,monospace;background:#0e141b;border:1px solid #1e2a36;
+ border-radius:5px;padding:2px 6px;font-size:.9em;word-break:break-all}
+p.dim{color:#7d90a4;font-size:.9rem;margin:16px 0 0}
+</style></head><body><div class="card">
+<h1>Адрес без ключа</h1>
+<p>Панель открывается по адресу с ключом — он печатается в том самом окне,
+где вы её запустили, строкой <code>адрес: http://127.0.0.1:8765/?token=…</code></p>
+<ol>
+<li>Вернитесь в чёрное окно, где запускали панель.</li>
+<li>Выделите весь адрес <b>целиком</b>, вместе с <code>?token=…</code>, и скопируйте
+（в этом окне копирование — правой кнопкой мыши).</li>
+<li>Вставьте его в адресную строку браузера.</li>
+</ol>
+<p class="dim">После этого браузер запомнит ключ, и панель будет открываться
+по короткому адресу — пока окно запуска не закрыто. Ключ нужен, чтобы к панели
+не подключилась ни одна другая программа на компьютере.</p>
+</div></body></html>"""
 
 FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
            '<rect width="32" height="32" rx="7" fill="#0b0f14"/>'
@@ -585,8 +612,10 @@ class Handler(BaseHTTPRequestHandler):
         log.debug(fmt, *args)
 
     # ── ответы ──────────────────────────────────────────────────────────────
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, set_token: bool = False) -> None:
         self.send_response(code)
+        if set_token:
+            self._remember_token()
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
@@ -599,11 +628,35 @@ class Handler(BaseHTTPRequestHandler):
                    "application/json; charset=utf-8")
 
     def _authorized(self, query: dict) -> bool:
-        given = (query.get("token") or [""])[0] or self.headers.get("X-Token", "")
+        given = ((query.get("token") or [""])[0]
+                 or self.headers.get("X-Token", "")
+                 or self._cookie_token())
         # сравниваем байтами: compare_digest не принимает строки с не-ASCII,
         # а в адресе может оказаться что угодно
         return secrets.compare_digest(given.encode("utf-8", "replace"),
                                       self.token.encode("utf-8"))
+
+    def _cookie_token(self) -> str:
+        """Токен, оставленный браузеру при первом открытии панели."""
+        raw = self.headers.get("Cookie")
+        if not raw:
+            return ""
+        try:
+            jar = http.cookies.SimpleCookie()
+            jar.load(raw)
+        except http.cookies.CookieError:
+            return ""
+        morsel = jar.get("citadel_token")
+        return morsel.value if morsel else ""
+
+    def _remember_token(self) -> None:
+        """
+        Кладём токен в cookie: дальше панель открывается по короткому адресу
+        и из истории браузера. SameSite=Strict — чужие сайты его не пришлют.
+        """
+        self.send_header("Set-Cookie",
+                         f"citadel_token={self.token}; Path=/; SameSite=Strict; "
+                         f"HttpOnly; Max-Age=604800")
 
     # ── маршруты ────────────────────────────────────────────────────────────
     def do_GET(self) -> None:                                # noqa: N802
@@ -623,11 +676,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path in ("/", "/index.html"):
             if not self._authorized(query):
-                self._send(403, "Нужен токен из адресной строки, который напечатал запуск."
-                                .encode(), "text/plain; charset=utf-8")
+                self._send(403, LOCKED_PAGE.encode(), "text/html; charset=utf-8")
                 return
             html = UI_FILE.read_text(encoding="utf-8").replace("__TOKEN__", self.token)
-            self._send(200, html.encode(), "text/html; charset=utf-8")
+            self._send(200, html.encode(), "text/html; charset=utf-8", set_token=True)
             return
         if not self._authorized(query):
             self._json({"error": "нет доступа"}, 403)

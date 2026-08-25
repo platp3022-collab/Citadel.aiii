@@ -493,8 +493,12 @@ def open_in_browser(path: Path) -> str:
     try:
         if system == "Windows":
             import os                                 # noqa: PLC0415
-            os.startfile(f"microsoft-edge:{url}")     # noqa: S606
-            return "Microsoft Edge"
+
+            try:
+                os.startfile(str(path))               # noqa: S606 — открывает чем принято
+                return "браузер по умолчанию"
+            except OSError:
+                pass
         if system == "Darwin":
             subprocess.run(["open", "-a", "Microsoft Edge", str(path)], check=True,
                            capture_output=True)

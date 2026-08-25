@@ -696,6 +696,47 @@ class TestHttpApi(unittest.TestCase):
         self.assertIn("/vendor/lightweight-charts.standalone.production.js", html)
         self.assertNotIn("https://unpkg.com", html)         # ничего из интернета
 
+    def test_browser_remembers_the_token_in_a_cookie(self):
+        """Открыл с ключом — дальше панель работает и по короткому адресу."""
+        import http.cookiejar
+
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        with opener.open(f"{self.base}/?token={self.token}", timeout=10) as r:
+            self.assertEqual(r.status, 200)
+        self.assertTrue(any(c.name == "citadel_token" for c in jar),
+                        "панель не оставила ключ браузеру")
+        with opener.open(f"{self.base}/", timeout=10) as r:      # уже без ?token=
+            self.assertEqual(r.status, 200)
+            self.assertIn("Citadel", r.read().decode())
+        with opener.open(f"{self.base}/api/state", timeout=10) as r:
+            self.assertEqual(r.status, 200)
+
+    def test_locked_page_explains_what_to_do(self):
+        try:
+            urllib.request.urlopen(f"{self.base}/", timeout=10)
+            self.fail("страница отдалась без ключа")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 403)
+            body = e.read().decode()
+        self.assertIn("token=", body)
+        self.assertIn("окно", body)
+        self.assertNotIn(self.token, body)            # сам ключ на странице не печатаем
+
+    def test_cookie_with_wrong_value_is_refused(self):
+        req = urllib.request.Request(f"{self.base}/api/state",
+                                     headers={"Cookie": "citadel_token=poddelka"})   # заголовки — только ascii
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=10)
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_broken_cookie_header_does_not_crash(self):
+        req = urllib.request.Request(f"{self.base}/api/state",
+                                     headers={"Cookie": "=;; broken=\\"}) 
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=10)
+        self.assertEqual(ctx.exception.code, 403)
+
     def test_unknown_path(self):
         code, _ = self.call("/api/секрет")
         self.assertEqual(code, 404)

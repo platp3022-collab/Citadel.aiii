@@ -17,20 +17,50 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import platform
 import subprocess
 import sys
 import webbrowser
 
 
+def _windows_browser(url: str) -> str:
+    """
+    На Windows сначала пробуем сам msedge.exe: протокол microsoft-edge: умеет
+    терять хвост адреса, а вместе с ним и ключ доступа к панели.
+    """
+    import os                                            # noqa: PLC0415
+    import subprocess                                    # noqa: PLC0415
+
+
+    candidates = [
+        os.path.join(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+                     "Microsoft", "Edge", "Application", "msedge.exe"),
+        os.path.join(os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+                     "Microsoft", "Edge", "Application", "msedge.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                     "Microsoft", "Edge", "Application", "msedge.exe"),
+    ]
+    for exe in candidates:
+        if exe and os.path.isfile(exe):
+            try:
+                subprocess.Popen([exe, url])
+                return "Microsoft Edge"
+            except OSError:
+                break
+    try:
+        os.startfile(url)                                # noqa: S606 — браузер по умолчанию
+        return "браузер по умолчанию"
+    except OSError:
+        return ""
+
 def open_in_edge(url: str) -> str:
     """Пытается открыть Microsoft Edge, иначе — браузер по умолчанию."""
     system = platform.system()
     try:
         if system == "Windows":
-            os.startfile(f"microsoft-edge:{url}")           # noqa: S606 — штатный способ
-            return "Microsoft Edge"
+            where = _windows_browser(url)
+            if where:
+                return where
         if system == "Darwin":
             subprocess.run(["open", "-a", "Microsoft Edge", url], check=True,
                            capture_output=True)
@@ -78,6 +108,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n  Citadel · панель управления")
     print(f"  адрес:  {url}")
+    print("  ↑ если браузер не открылся сам — скопируй эту строку ЦЕЛИКОМ,")
+    print("    вместе с ?token=…, и вставь в адресную строку браузера")
     print("  закрой это окно — панель остановится\n")
     if args.allow_live:
         print("  ⚠  реальная торговля из панели РАЗРЕШЕНА (--allow-live)\n")
