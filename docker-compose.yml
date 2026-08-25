@@ -1,0 +1,14 @@
+services:
+  memebot:
+    build: .
+    container_name: memebot
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    restart: always
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

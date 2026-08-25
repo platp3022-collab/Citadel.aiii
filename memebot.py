@@ -1209,6 +1209,19 @@ class Telegram:
             await asyncio.sleep(0.4)
         return ok
 
+    async def me(self) -> dict | None:
+        """Проверка токена: кто мы такие. None — токен битый или сети нет."""
+        if not self.token:
+            return None
+        try:
+            async with self.session.get(f"{self.api}/getMe",
+                                        timeout=aiohttp.ClientTimeout(total=20)) as r:
+                data = await r.json(content_type=None)
+                return data.get("result") if data.get("ok") else None
+        except Exception as e:  # noqa: BLE001
+            log.warning("getMe: %s", e)
+            return None
+
     async def get_updates(self, timeout: int = 25) -> list[dict]:
         if not self.token or self.dry:
             await asyncio.sleep(timeout)
@@ -1726,7 +1739,24 @@ class Bot:
         except asyncio.TimeoutError:
             pass
 
+    async def preflight(self) -> None:
+        """Самопроверка при старте: токен, адресаты, доступность данных."""
+        if not self.tg.dry:
+            info = await self.tg.me()
+            if info:
+                log.info("Telegram: подключён как @%s", info.get("username"))
+            else:
+                log.error("Telegram: токен не принят или нет сети. Проверь "
+                          "TELEGRAM_BOT_TOKEN в .env")
+        if not self.tg.alert_targets and not self.tg.dry:
+            log.error("Не задан ни TELEGRAM_CHAT_ID, ни TELEGRAM_CHANNEL_ID — "
+                      "алерты слать некуда. Напиши боту /id и впиши число в .env")
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            log.warning("ANTHROPIC_API_KEY не задан — вердикта нейросети не будет, "
+                        "работает только скоринг")
+
     async def run(self) -> None:
+        await self.preflight()
         await self.news.refresh()
         await self.tg.send(
             f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"

@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY memebot.py .
+COPY memebot.py axiom_scout.py ./
 
 VOLUME ["/app/data"]
 
