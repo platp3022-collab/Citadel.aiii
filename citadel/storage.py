@@ -136,6 +136,12 @@ class Storage:
             "SELECT * FROM trades WHERE symbol=? AND id>? ORDER BY id LIMIT ?",
             (symbol, int(last_id), limit)).fetchall()
 
+    def trade_counts(self) -> dict[str, int]:
+        """Сколько сделок по каждому инструменту — панель показывает это на вкладках."""
+        rows = self.db.execute(
+            "SELECT symbol, COUNT(*) n FROM trades GROUP BY symbol").fetchall()
+        return {r["symbol"]: int(r["n"]) for r in rows}
+
     def last_trade_id(self) -> int:
         row = self.db.execute("SELECT COALESCE(MAX(id),0) m FROM trades").fetchone()
         return int(row["m"] or 0)

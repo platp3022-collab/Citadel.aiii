@@ -558,6 +558,33 @@ class TestChartData(unittest.TestCase):
         upd = self.panel.ticks_update("BTC/USDT", 0, last)
         self.assertEqual(upd["trades"], [])
 
+    def test_chart_reports_why_the_bot_is_waiting(self):
+        """Панель должна показывать, какие условия входа выполнены прямо сейчас."""
+        d = self.panel.chart("BTC/USDT", tf="1h")
+        st = d["strategy"]
+        self.assertIsNotNone(st)
+        self.assertEqual([c["name"] for c in st["entry"]], ["rsi14_over_50"])
+        self.assertEqual(st["entry"][0]["title"], "RSI14 > 50")
+        self.assertIn(st["entry"][0]["ok"], (True, False))
+        self.assertIn("bot_running", d)
+
+    def test_chart_counts_trades_per_symbol(self):
+        d = self.panel.chart("BTC/USDT", tf="1h")
+        self.assertEqual(d["trades_total"].get("BTC/USDT"), 4)
+        self.assertEqual(d["trades_total"].get("ETH/USDT"), 1)
+
+    def test_backtest_returns_trades_of_the_active_strategy(self):
+        d = self.panel.backtest("BTC/USDT", "1h", 200)
+        self.assertNotIn("error", d)
+        self.assertIn("summary", d)
+        self.assertTrue(all(t["side"] in ("buy", "sell") for t in d["trades"]))
+        for t in d["trades"]:
+            self.assertGreater(t["ts"], 1_000_000_000_000)      # время в миллисекундах
+
+    def test_backtest_explains_when_it_cannot_run(self):
+        self.assertIn("error", self.panel.backtest("ETH/USDT", "1h", 200))   # нет стратегии
+        self.assertIn("минуты", self.panel.backtest("BTC/USDT", "1s", 200)["error"])
+
     def test_payload_lists_timeframes(self):
         d = self.panel.chart("BTC/USDT")
         tfs = [t["tf"] for t in d["timeframes"]]

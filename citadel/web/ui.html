@@ -113,6 +113,17 @@
   .sel{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
     border-radius:7px;padding:4px 8px;font:inherit;font-size:12px}
   .legend{padding:0 14px 12px;color:var(--dim);font-size:12px;line-height:1.7}
+  .waiting{margin:12px 14px 0;border:1px solid var(--line);border-left:2px solid var(--amber);
+    border-radius:8px;background:var(--panel-2);padding:13px 15px}
+  .waiting h4{margin:0 0 8px;font-size:14px;color:var(--amber);font-weight:600}
+  .waiting .cond{font-family:var(--mono);font-size:12.5px;line-height:1.9}
+  .waiting .yes{color:var(--green)}
+  .waiting .no{color:var(--dim)}
+  .waiting .hint{color:var(--dim);font-size:12.5px;margin-top:9px;line-height:1.6}
+  .waiting .btns{margin-top:11px}
+  .count{display:inline-block;margin-left:5px;padding:0 5px;border-radius:8px;
+    background:var(--line);color:var(--dim);font-size:10.5px;vertical-align:middle}
+  .count.has{background:#0f2b28;color:var(--accent)}
   .risk{color:var(--red)}
   .plus{color:var(--green)}
   .mini{padding:3px 8px;font-size:11.5px;border-radius:6px}
@@ -212,6 +223,7 @@
     <div class="body" id="chartBox">
       <div class="empty">данных пока нет — скачай историю и запусти торговлю</div>
     </div>
+    <div id="waiting"></div>
     <div class="legend" id="chartLegend"></div>
   </section>
 
@@ -446,6 +458,7 @@ let tradeCursor = 0;       // id последней известной сдел�
 let chartSeq = 0;          // номер запроса: ответ по старой паре не должен перетирать новый
 let embedUrl = "";
 let chartMarks = [];
+let backtestData = null;   // показанные сделки стратегии: держим, пока не сменят пару
 
 function fmtTime(ms, withSeconds) {
   const d = new Date(ms);
@@ -601,6 +614,8 @@ function renderLwc(d) {
   chart.title = `<b>${chart.name}</b> · ${d.timeframe} · ${d.source}`;
   $("ohlc").innerHTML = chart.title;
   finishChart(d, pairTrades(d.trades).pairs);
+  // показ сделок стратегии не должен пропадать сам через десять секунд
+  if (backtestData && !d.trades.length) applyBacktest();
 }
 
 function updateLwcTick(d, ticks) {
@@ -719,6 +734,7 @@ function finishChart(d, pairs) {
            `(${chg >= 0 ? "+" : ""}${fmt(chg)}%), ${d.position.bars} бар(ов) в рынке.</b><br>` + note;
   }
   $("chartLegend").innerHTML = note;
+  renderWaiting(d);
   $("chartInfo").textContent = (d.strategy ? `стратегия #${d.strategy.id}` : "стратегии нет") +
     " · бот на " + d.bot_timeframe;
   const base = c.length ? c[c.length - 1][1] : 0;
@@ -751,6 +767,8 @@ function applyFreshTrades(d) {
   }
   chartMarks.sort((a, b) => a.time - b.time);
   lwc.series.setMarkers(chartMarks);
+  backtestData = null;                      // живые сделки важнее показанного бэктеста
+  $("waiting").innerHTML = "";              // сделки пошли — подсказка больше не нужна
 
   for (const line of lwc.lines) lwc.series.removePriceLine(line);
   lwc.lines = [];
@@ -785,6 +803,104 @@ function showSource(d) {
     st.innerHTML = '<span class="live-dot"></span>опрос цен';
     st.title = (stream.error || "Панель сама спрашивает цену у биржи/DexScreener");
   }
+}
+
+function renderWaiting(d) {
+  const box = $("waiting");
+  if (!d || (d.trades && d.trades.length) || chartView !== "bot") { box.innerHTML = ""; return; }
+  const st = d.strategy;
+  if (!st) {
+    box.innerHTML = `<div class="waiting"><h4>По этой паре ещё нет стратегии</h4>
+      <div class="hint">Нажми «Найти стратегию» — бот переберёт условия и, если найдёт
+      устойчивое правило, начнёт по нему торговать. Если не найдёт, честно скажет об этом.</div>
+      </div>`;
+    return;
+  }
+  const conds = (st.entry || []).map(c =>
+    `<div class="${c.ok ? "yes" : "no"}">${c.ok ? "✓" : "○"} ${esc(c.title)}</div>`).join("");
+  const done = (st.entry || []).filter(c => c.ok).length;
+  const total = (st.entry || []).length;
+  const running = d.bot_running
+    ? `<span class="yes">торговый цикл работает</span>`
+    : `<span class="down">торговый цикл не запущен — нажми «▶ Торговать (бумага)»</span>`;
+  box.innerHTML = `<div class="waiting">
+    <h4>Сделок по этой паре ещё не было — бот ждёт сигнала</h4>
+    <div class="cond">Условия входа выполнены: ${done} из ${total}${conds ? "<br>" + conds : ""}</div>
+    <div class="hint">${running}. Пока все условия не совпадут одновременно, бот не покупает —
+      это и есть его работа. На часовом таймфрейме ждать можно часами.</div>
+    <div class="btns">
+      <button class="act mini go" id="btShow">Показать сделки стратегии на истории</button>
+    </div></div>`;
+  const btn = $("btShow");
+  if (btn) btn.onclick = () => loadBacktest(btn);
+}
+
+async function loadBacktest(btn, retried) {
+  const label = "Показать сделки стратегии на истории";
+  btn.disabled = true;
+  btn.textContent = "Считаю…";
+  let d;
+  try {
+    // считаем ровно по тем свечам, что на экране, иначе метки окажутся за кадром
+    d = await api("/api/backtest?symbol=" + encodeURIComponent(chartSymbol) +
+                  "&tf=" + encodeURIComponent(chartTf) + "&bars=" + chartBars);
+  } catch (e) { btn.disabled = false; btn.textContent = label; return; }
+
+  if (!d.error && (!d.trades || !d.trades.length) && !retried && chartBars < 400) {
+    // на коротком участке сделок может не быть — расширяем окно и пробуем ещё раз
+    btn.textContent = "Смотрю дальше…";
+    chartBars = 400;
+    $("barsSel").value = "400";
+    await pollChart();
+    return loadBacktest(btn, true);
+  }
+  btn.disabled = false;
+  btn.textContent = label;
+  if (d.error || !d.trades || !d.trades.length) {
+    toast(d.error || "На этом участке истории стратегия сделок не делала — " +
+                     "попробуй другой таймфрейм или пару");
+    return;
+  }
+  showBacktest(d);
+}
+
+function showBacktest(d) {
+  backtestData = d;
+  applyBacktest();
+}
+
+function applyBacktest() {
+  // сделки бэктеста рисуем отдельным цветом: это не живые сделки
+  const d = backtestData;
+  if (!d || !lwc || !chartData || !chartData.candles.length) return;
+  const c = chartData.candles;
+  const step = chartData.tf_seconds ? chartData.tf_seconds * 1000
+             : (c.length > 1 ? c[1][0] - c[0][0] : 60000);
+  const first = c[0][0], last = c[c.length - 1][0];
+  const marks = [];
+  for (const t of d.trades) {
+    if (t.ts < first || t.ts > last + step) continue;
+    const bucket = Math.min(Math.floor(t.ts / step) * step, last);
+    marks.push({
+      time: candleTime(bucket),
+      position: t.side === "buy" ? "belowBar" : "aboveBar",
+      color: t.side === "buy" ? "#7aa2f7" : (t.pnl >= 0 ? "#8b9fd8" : "#c98bb0"),
+      shape: t.side === "buy" ? "arrowUp" : "arrowDown",
+      text: (t.side === "buy" ? "тест: вход " : "тест: выход ") + fmtPrice(t.price),
+    });
+  }
+  marks.sort((a, b) => a.time - b.time);
+  chartMarks = marks;
+  lwc.series.setMarkers(marks);
+  lwc.chart.timeScale().fitContent();          // чтобы метки точно попали в кадр
+  if (!marks.length) {
+    toast("Сделки стратегии есть, но вне показанного участка — увеличь число свечей");
+    return;
+  }
+  $("chartLegend").innerHTML =
+    `<b>Показаны сделки стратегии на истории, а не живые.</b> ${esc(d.summary || "")}<br>` +
+    `Так эта стратегия отработала бы на текущем участке графика. Живые сделки появятся ` +
+    `здесь сами, как только бот их совершит — и будут зелёными и бирюзовыми.`;
 }
 
 function updatePrice(price, chg) {
@@ -852,7 +968,9 @@ function drawEmbed(d) {
 
 function renderTabs(d) {
   const box = $("chartTabs");
-  const want = (d.symbols || []).map(s => (d.labels && d.labels[s]) || s).join("|");
+  const counts = d.trades_total || {};
+  const want = (d.symbols || []).map(s => ((d.labels && d.labels[s]) || s) +
+    ":" + (counts[s] || 0)).join("|");
   if (box.dataset.want === want) {
     box.querySelectorAll("button").forEach(b =>
       b.className = b.dataset.symbol === d.symbol ? "on" : "");
@@ -862,11 +980,15 @@ function renderTabs(d) {
   box.innerHTML = "";
   for (const sym of d.symbols || []) {
     const b = document.createElement("button");
-    b.textContent = (d.labels && d.labels[sym]) || sym;
+    const n = counts[sym] || 0;
+    b.innerHTML = esc((d.labels && d.labels[sym]) || sym) +
+      `<span class="count${n ? " has" : ""}">${n}</span>`;
+    b.title = n ? `сделок по этой паре: ${n}` : "сделок по этой паре ещё не было";
     b.dataset.symbol = sym;
     b.className = sym === d.symbol ? "on" : "";
     b.onclick = () => {
-      chartSymbol = sym; chartData = null; tickCursor = 0; embedUrl = ""; destroyLwc();
+      chartSymbol = sym; chartData = null; backtestData = null;
+      tickCursor = 0; embedUrl = ""; destroyLwc();
       $("chartViews").dataset.want = "";
       pollChart();
     };
@@ -982,7 +1104,8 @@ function renderNew(d) {
     }).join("") + "</tbody></table>";
 
   box.querySelectorAll("button[data-watch]").forEach(b => b.onclick = () => {
-    chartSymbol = b.dataset.watch; chartData = null; tickCursor = 0; embedUrl = "";
+    chartSymbol = b.dataset.watch; chartData = null; backtestData = null;
+    tickCursor = 0; embedUrl = "";
     destroyLwc();
     $("chartViews").dataset.want = ""; $("chartTabs").dataset.want = "";
     pollChart();
@@ -1146,7 +1269,7 @@ async function refresh() {
 
 $("barsSel").onchange = (e) => { chartBars = Number(e.target.value); pollChart(); };
 $("tfSel").onchange = (e) => {
-  chartTf = e.target.value; chartData = null; destroyLwc(); pollChart();
+  chartTf = e.target.value; chartData = null; backtestData = null; destroyLwc(); pollChart();
 };
 $("styleSel").onchange = (e) => { chartStyle = e.target.value; destroyLwc(); drawChart(chartData); };
 $("newKind").onchange = () => pollNew(true);

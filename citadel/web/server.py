@@ -483,8 +483,12 @@ class Panel:
             srow = store.active_strategy(symbol)
             if srow:
                 from ..genome import Genome                     # noqa: PLC0415
+
+                genome = Genome.from_json(srow["genome"])
                 strategy = {"id": srow["id"], "score": float(srow["score"] or 0.0),
-                            "describe": Genome.from_json(srow["genome"]).describe()}
+                            "describe": genome.describe(),
+                            "entry": self._signal_state(candles, genome.entry),
+                            "exit": self._signal_state(candles, genome.exit)}
             labels = {key: f"{p.get('base_symbol', '?')}/{p.get('quote_symbol', '?')}"
                       for key, p in pairs.items()}
             return {
@@ -498,6 +502,8 @@ class Panel:
                 "ticks": self.tick_tail(symbol, candles[-1][0] if candles else 0),
                 "embeds": self.embeds(symbol)["views"],
                 "last_trade_id": store.last_trade_id(),
+                "trades_total": {s: n for s, n in store.trade_counts().items()},
+                "bot_running": self.runner.running and "trade" in self.runner.command,
                 "stream": self.stream_state(),
                 "watch_only": viewing_extra,
                 "live_prices": self.poller is not None and not self.poller.stop_event.is_set(),
@@ -505,6 +511,73 @@ class Panel:
             }
         finally:
             store.close()
+
+    def _signal_state(self, candles: list, names) -> list[dict]:
+        """
+        Какие условия стратегии выполняются прямо сейчас. Это и есть ответ на
+        вопрос «почему бот ещё не купил».
+        """
+        names = list(names or ())
+        if not names:
+            return []
+        from ..features import Candles, build_features           # noqa: PLC0415
+        from ..genome import describe_signal                     # noqa: PLC0415
+
+        state = []
+        try:
+            if len(candles) >= 60:
+                feats = build_features(Candles.from_ohlcv(
+                    [[c[0], c[1], c[2], c[3], c[4], c[5] if len(c) > 5 else 0.0]
+                     for c in candles]))
+                for name in names:
+                    series = feats.signals.get(name)
+                    state.append({"name": name, "title": describe_signal(name),
+                                  "ok": bool(series[-1]) if series else None})
+                return state
+        except Exception as e:                                   # noqa: BLE001 — не важнее графика
+            log.debug("состояние условий посчитать не вышло: %s", e)
+        return [{"name": n, "title": describe_signal(n), "ok": None} for n in names]
+
+    def backtest(self, symbol: str = "", tf: str = "", bars: int = 400) -> dict:
+        """
+        Прогоняет активную стратегию по показанным свечам и отдаёт её сделки —
+        чтобы было видно, что она вообще делает, пока живых сделок ещё нет.
+        """
+        cfg = self.config()
+        symbols = list(cfg.symbols)
+        if symbol not in symbols and not (self.mode == "dex" and ":" in symbol):
+            symbol = symbols[0] if symbols else ""
+        if not symbol:
+            return {"trades": [], "error": "нет инструмента"}
+        store = Storage(cfg.db_path)
+        try:
+            row = store.active_strategy(symbol)
+        finally:
+            store.close()
+        if not row:
+            return {"trades": [], "error": "по этой паре стратегии ещё нет"}
+
+        tf = tf or cfg.timeframe
+        if tf in SECOND_TFS:
+            return {"trades": [], "error": "бэктест считается по свечам от минуты и выше"}
+        rows, _ = self.feed.market_candles(cfg, self.mode, symbol, tf, bars)
+        if len(rows) < 120:
+            return {"trades": [], "error": "мало свечей для прогона"}
+
+        from ..backtest import run_backtest                       # noqa: PLC0415
+        from ..features import Candles, build_features            # noqa: PLC0415
+        from ..genome import Genome                               # noqa: PLC0415
+
+        feats = build_features(Candles.from_ohlcv(rows))
+        result = run_backtest(feats, Genome.from_json(row["genome"]), cfg)
+        trades = []
+        for t in result.trades:
+            trades.append({"ts": int(t.entry_ts), "side": "buy", "price": t.entry_price,
+                           "qty": t.qty, "pnl": 0.0, "reason": "вход"})
+            trades.append({"ts": int(t.exit_ts), "side": "sell", "price": t.exit_price,
+                           "qty": t.qty, "pnl": t.pnl, "reason": t.reason})
+        return {"symbol": symbol, "timeframe": tf, "trades": trades,
+                "summary": result.summary(), "strategy_id": row["id"]}
 
     def ticks_update(self, symbol: str, since: float, last_trade_id: int) -> dict:
         """Лёгкий ответ для секундного опроса: новые цены и новые сделки бота."""
@@ -691,6 +764,10 @@ class Handler(BaseHTTPRequestHandler):
             bars = max(10, min(1000, int((query.get("bars") or ["220"])[0] or 220)))
             tf = (query.get("tf") or [""])[0]
             self._json(self.panel.chart(symbol, bars, tf))
+        elif url.path == "/api/backtest":
+            self._json(self.panel.backtest(
+                (query.get("symbol") or [""])[0], (query.get("tf") or [""])[0],
+                max(120, min(1000, int((query.get("bars") or ["400"])[0] or 400)))))
         elif url.path == "/api/new":
             self._json(self.panel.new_coins(
                 trending=(query.get("trending") or ["0"])[0] in ("1", "true"),

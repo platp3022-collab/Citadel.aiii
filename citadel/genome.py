@@ -88,6 +88,11 @@ RISK_GRID = (0.5, 0.75, 1.0, 1.5, 2.0)
 COOLDOWN_GRID = (0, 1, 2, 4, 8)
 
 
+def describe_signal(name: str) -> str:
+    """Человеческое имя условия: «rsi14_over_50» → «RSI14 > 50»."""
+    return _RU.get(name, name)
+
+
 def random_genome(rnd: random.Random) -> Genome:
     n_entry = rnd.choice((1, 2, 2, 3, 3))
     n_exit = rnd.choice((0, 0, 1, 1, 2))
