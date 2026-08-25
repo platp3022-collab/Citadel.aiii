@@ -8,6 +8,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import console
+
 log = logging.getLogger("citadel.notify")
 
 
@@ -20,7 +22,7 @@ class Notifier:
 
     def send(self, text: str) -> bool:
         if self.echo:
-            print(text, flush=True)
+            console.write(text)      # без html-тегов и без падения на эмодзи
         if not self.enabled:
             return False
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"

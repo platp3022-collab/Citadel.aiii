@@ -62,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="как часто панель спрашивает цену, секунд (по умолчанию 4)")
     args = p.parse_args(argv)
 
+    from citadel import console
+
+    console.setup()              # windows-консоль иначе падает на эмодзи
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     from citadel.web.server import serve
 

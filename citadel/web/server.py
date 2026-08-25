@@ -115,7 +115,8 @@ class Runner:
         self.emit(f"$ python {self.command}")
         try:
             self.proc = subprocess.Popen(
-                argv, cwd=str(ROOT), env={**os.environ, **env}, stdout=subprocess.PIPE,
+                argv, cwd=str(ROOT), stdout=subprocess.PIPE,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", **env},
                 stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                 bufsize=1)
         except OSError as e:

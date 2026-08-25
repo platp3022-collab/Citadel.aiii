@@ -12,6 +12,7 @@ from ..backtest import run_backtest
 from ..features import build_features
 from ..genome import Genome
 from ..notify import Notifier
+from .. import console
 from ..storage import Storage
 from .bot import DexTrader
 from .broker import DexPaperBroker, make_dex_broker
@@ -121,6 +122,7 @@ def apply_overrides(cfg: DexConfig, a: argparse.Namespace) -> DexConfig:
 
 
 def main(argv: list[str] | None = None) -> int:
+    console.setup()          # windows-консоль иначе падает на эмодзи
     args = build_parser().parse_args(argv)
     cfg = apply_overrides(DexConfig.from_env(), args)
     logging.basicConfig(

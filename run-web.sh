@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Запуск панели управления в один клик. Mac/Linux.
 cd "$(dirname "$0")" || exit 1
+export PYTHONIOENCODING=utf-8
 
 echo
 echo "  CITADEL — панель управления"

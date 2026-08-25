@@ -16,6 +16,7 @@ from .features import build_features
 from .genome import Genome
 from .market import Market
 from .notify import Notifier
+from . import console
 from .storage import Storage
 
 log = logging.getLogger("citadel")
@@ -112,6 +113,7 @@ def apply_overrides(cfg: Config, a: argparse.Namespace) -> Config:
 
 
 def main(argv: list[str] | None = None) -> int:
+    console.setup()          # windows-консоль иначе падает на эмодзи
     args = build_parser().parse_args(argv)
     cfg = apply_overrides(Config.from_env(), args)
     logging.basicConfig(

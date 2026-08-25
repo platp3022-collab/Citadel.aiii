@@ -7,6 +7,8 @@
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$env:PYTHONIOENCODING = "utf-8"     # иначе вывод бота через конвейер PowerShell рвётся на эмодзи
+$env:PYTHONUTF8 = "1"
 
 $Branch = "claude/crypto-bot-auto-strategy-enawqd"
 $Zip    = "https://github.com/platp3022-collab/Citadel.aiii/archive/refs/heads/$Branch.zip"
