@@ -151,7 +151,7 @@ def to_pine(g: Genome, symbol: str, timeframe: str, strategy_id: int | None = No
     head = [
         "//@version=6",
         f"// {title}" + (f" · скор на валидации {score:.2f}" if score is not None else ""),
-        f"// Стратегию вывел бот Citadel Trader (python tradebot.py pine).",
+        "// Стратегию вывел бот Citadel Trader (python tradebot.py pine).",
         f"// Инструмент: {tv_symbol(symbol, exchange)}, таймфрейм: {timeframe} "
         f"— ставь на график именно с таким ТФ.",
         "//",

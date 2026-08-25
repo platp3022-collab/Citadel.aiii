@@ -202,7 +202,7 @@ def cmd_backtest(cfg: Config, store: Storage, market: Market, args) -> int:
 def cmd_pine(cfg: Config, store: Storage, args) -> int:
     from pathlib import Path
 
-    from .pine import to_pine, trades_overlay, tv_symbol
+    from .pine import UnsupportedSignal, to_pine, trades_overlay, tv_symbol
 
     out_dir = Path(args.out) if args.out else Path(cfg.db_path).parent / "pine"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -217,10 +217,16 @@ def cmd_pine(cfg: Config, store: Storage, args) -> int:
             rc = 1
             continue
         g = Genome.from_json(row["genome"])
-        src = to_pine(g, symbol, row["timeframe"], strategy_id=row["id"],
-                      score=row["score"], capital=cfg.start_balance,
-                      commission_pct=cfg.taker_fee * 100, max_position_frac=cfg.max_position_frac,
-                      exchange=cfg.exchange)
+        try:
+            src = to_pine(g, symbol, row["timeframe"], strategy_id=row["id"],
+                          score=row["score"], capital=cfg.start_balance,
+                          commission_pct=cfg.taker_fee * 100,
+                          max_position_frac=cfg.max_position_frac, exchange=cfg.exchange)
+        except UnsupportedSignal as e:
+            print(f"{symbol}: стратегия #{row['id']} использует условие {e}, которого нет в "
+                  f"переводе на Pine — перезапусти `evolve`, чтобы получить свежую стратегию")
+            rc = 1
+            continue
         safe = symbol.replace("/", "-")
         path = out_dir / f"citadel_{safe}_{row['timeframe']}_strategy{row['id']}.pine"
         path.write_text(src, encoding="utf-8")

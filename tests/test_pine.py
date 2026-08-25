@@ -2,6 +2,7 @@
 """Тесты экспорта стратегии в Pine Script."""
 from __future__ import annotations
 
+import os
 import random
 import re
 import unittest
@@ -53,6 +54,27 @@ class TestSignalCoverage(unittest.TestCase):
     def test_unknown_signal_raises(self):
         with self.assertRaises(UnsupportedSignal):
             to_pine(Genome(entry=("никакого_такого_сигнала",)), "BTC/USDT", "1h")
+
+    def test_cli_explains_unknown_signal_instead_of_crashing(self):
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path as _Path
+
+        from citadel.storage import Storage
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = Storage(str(_Path(tmp.name) / "t.db"))
+        sid = store.save_strategy("BTC/USDT", "1h", Genome(entry=("выдуманный_сигнал",)), 1.0, {})
+        store.activate(sid, "BTC/USDT")
+        store.close()
+        env = {**os.environ, "CITADEL_DB_PATH": str(_Path(tmp.name) / "t.db"),
+               "CITADEL_SYMBOLS": "BTC/USDT", "CITADEL_CACHE_DIR": tmp.name}
+        res = subprocess.run([sys.executable, "tradebot.py", "--offline", "--dry", "pine",
+                              "--out", tmp.name], capture_output=True, text=True, env=env)
+        self.assertNotIn("Traceback", res.stdout + res.stderr)
+        self.assertIn("перезапусти", res.stdout)
 
     def test_signal_deps_exist_in_decls(self):
         for name, (_, needs) in SIGNALS.items():

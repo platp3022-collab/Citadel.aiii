@@ -15,7 +15,7 @@ from pathlib import Path
 from citadel.config import Config
 from citadel.genome import Genome
 from citadel.storage import Storage
-from citadel.web.feed import SECOND_TFS, Feed, tf_seconds
+from citadel.web.feed import Feed, tf_seconds
 from citadel.web.stream import BinanceStream, supports as stream_supports
 from citadel.web.server import COMMANDS, EDITABLE, Panel, Runner, serve
 

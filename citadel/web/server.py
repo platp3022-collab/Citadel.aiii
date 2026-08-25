@@ -161,6 +161,7 @@ class Panel:
         self.focus_symbol = ""                # его же цену опрашиваем, даже если он не в работе
         self.extra_pairs: dict[str, dict] = {}   # просмотренные пулы, ещё не взятые в работу
         self._new_cache: tuple[float, str, list] = (0.0, "", [])
+        self._env_lock = threading.Lock()     # config() правит os.environ — только по одному
 
     # ── живые цены (детали — в feed.py) ─────────────────────────────────────
     def push_ticks(self, prices: dict[str, float]) -> None:
@@ -246,6 +247,8 @@ class Panel:
 
     def add_to_universe(self, symbol: str) -> dict:
         """Берём монету в работу: она попадает в список бота и в его метаданные."""
+        if self.mode != "dex":
+            return {"error": "брать монеты в работу можно только в режиме DEX"}
         cfg = self.config()
         chain, _, pool = symbol.partition(":")
         if not pool:
@@ -295,16 +298,17 @@ class Panel:
 
     # ── конфиг ──────────────────────────────────────────────────────────────
     def config(self) -> Config:
-        env_backup = dict(os.environ)
-        os.environ.update(self.overrides)
-        try:
-            if self.mode == "dex":
-                from ..dex.config import DexConfig                    # noqa: PLC0415
-                return DexConfig.from_env()
-            return Config.from_env()
-        finally:
-            os.environ.clear()
-            os.environ.update(env_backup)
+        with self._env_lock:                  # иначе потоки перетирают окружение друг друга
+            env_backup = dict(os.environ)
+            os.environ.update(self.overrides)
+            try:
+                if self.mode == "dex":
+                    from ..dex.config import DexConfig                # noqa: PLC0415
+                    return DexConfig.from_env()
+                return Config.from_env()
+            finally:
+                os.environ.clear()
+                os.environ.update(env_backup)
 
     def settings(self) -> list[dict]:
         cfg = self.config()

@@ -99,7 +99,13 @@ def apply_overrides(cfg: DexConfig, a: argparse.Namespace) -> DexConfig:
     if a.chain:
         cfg.chain = a.chain.lower()
     if a.symbols:
-        cfg.symbols = tuple(s.strip() for s in a.symbols.split(",") if s.strip())
+        symbols = tuple(s.strip() for s in a.symbols.split(",") if s.strip())
+        bad = [s for s in symbols if ":" not in s]
+        if bad:
+            raise SystemExit(f"на DEX инструмент задаётся как chain:адрес_пула, "
+                             f"а получено: {', '.join(bad)}\n"
+                             f"например: solana:8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj")
+        cfg.symbols = symbols
     if a.timeframe:
         cfg.timeframe = a.timeframe
     if a.history:
@@ -303,7 +309,7 @@ def cmd_backtest(trader: DexTrader, args) -> int:
 
 
 def cmd_pine(trader: DexTrader, args) -> int:
-    from ..pine import to_pine
+    from ..pine import UnsupportedSignal, to_pine
 
     out_dir = Path(args.out) if args.out else Path(trader.cfg.db_path).parent / "pine"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -315,10 +321,15 @@ def cmd_pine(trader: DexTrader, args) -> int:
         pair = trader.market.pair(key)
         name = pair.name if pair else key
         cfg = trader.pair_config(key)
-        src = to_pine(Genome.from_json(row["genome"]), name, row["timeframe"],
-                      strategy_id=row["id"], score=row["score"],
-                      capital=cfg.start_balance, commission_pct=cfg.taker_fee * 100,
-                      max_position_frac=cfg.max_position_frac)
+        try:
+            src = to_pine(Genome.from_json(row["genome"]), name, row["timeframe"],
+                          strategy_id=row["id"], score=row["score"],
+                          capital=cfg.start_balance, commission_pct=cfg.taker_fee * 100,
+                          max_position_frac=cfg.max_position_frac)
+        except UnsupportedSignal as e:
+            print(f"{name}: стратегия #{row['id']} использует условие {e}, которого нет в "
+                  f"переводе на Pine — перезапусти `evolve`")
+            continue
         src = src.replace("// Инструмент:",
                           "// DEX-пул: " + key + "\n// В TradingView этого пула может не быть — "
                           "смотри логику на любом графике той же монеты.\n// Инструмент:")

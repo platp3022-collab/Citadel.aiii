@@ -7,7 +7,7 @@ import unittest
 
 from citadel.backtest import run_backtest
 from citadel.config import Config
-from citadel.features import Candles, build_features, ema, rsi, sma
+from citadel.features import build_features, ema, rsi, sma
 from citadel.genome import Genome, crossover, mutate, random_genome
 
 from .synth import make_candles

@@ -85,11 +85,20 @@ def main(argv: list[str] | None = None) -> int:
         where = open_in_edge(url)
         print(f"  открываю: {where}\n" if where
               else "  браузер не открылся — скопируй адрес выше вручную\n")
+    panel = getattr(httpd.RequestHandlerClass, "panel", None)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nостановлено")
     finally:
+        if panel is not None:
+            # иначе запущенный из панели бот остался бы торговать без присмотра
+            if panel.runner.running:
+                print(f"останавливаю запущенное: {panel.runner.command}")
+                panel.runner.stop()
+            panel.stop_stream()
+            if panel.poller:
+                panel.poller.stop()
         httpd.server_close()
     return 0
 

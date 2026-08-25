@@ -103,8 +103,15 @@ class DexTrader(Trader):
         if self.offline:
             log.info("офлайн — оставляю сохранённый список пар")
             return list(self.cfg.symbols)
+        previous = list(self.cfg.symbols)
         raw = self.candidates()
         log.info("кандидатов от DexScreener: %d", len(raw))
+        if not raw and previous:
+            # сеть молчит — это не повод терять рабочий список
+            log.warning("лента пуста, оставляю прежние %d пар", len(previous))
+            self.notifier.send("⚠️ Список пар обновить не удалось — источник не ответил. "
+                               f"Работаю со старым списком ({len(previous)} пар).")
+            return previous
         limits = self.cfg.safety()
         checked = screen(raw, limits, self.rugcheck, verbose=verbose)
         passed = sorted((p for p, bad in checked if not bad), key=self.rank, reverse=True)
@@ -129,6 +136,10 @@ class DexTrader(Trader):
 
         held = [row["symbol"] for row in self.store.all_positions()]
         universe = list(dict.fromkeys(chosen + held))     # пары с позициями не бросаем
+        if not universe and previous:
+            log.warning("ни одна пара не прошла отбор, оставляю прежние %d", len(previous))
+            self.notifier.send("🔎 Ни одна пара не прошла фильтры — остаюсь на прежнем списке")
+            return previous
         self.set_universe(universe)
         self.discovered_at = time.time()
         self.store.set("discovered_at", self.discovered_at)

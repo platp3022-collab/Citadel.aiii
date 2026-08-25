@@ -208,6 +208,20 @@ class TestDexMarketCache(unittest.TestCase):
         with self.assertRaises(ValueError):
             split_key("BTCUSDT")
 
+    def test_bad_symbol_is_refused_early(self):
+        market = DexMarket(self.cfg, offline=True)
+        with self.assertRaises(ValueError) as ctx:
+            market.fetch_ohlcv("BTCUSDT", "15m", 100)
+        self.assertIn("chain:адрес_пула", str(ctx.exception))
+
+    def test_cli_rejects_symbols_without_pool_address(self):
+        from citadel.dex.cli import apply_overrides, build_parser
+
+        args = build_parser().parse_args(["--symbols", "BTC/USDT", "backtest"])
+        with self.assertRaises(SystemExit) as ctx:
+            apply_overrides(DexConfig(), args)
+        self.assertIn("chain:адрес_пула", str(ctx.exception))
+
     def test_offline_without_cache_explains_itself(self):
         market = DexMarket(self.cfg, offline=True)
         with self.assertRaises(SystemExit) as ctx:
@@ -381,6 +395,36 @@ class TestDiscovery(unittest.TestCase):
         self.assertNotIn("solana:P4", universe)               # скам отсеян
         self.assertEqual(universe[0], "solana:P1")            # самый крупный первым
         self.assertEqual(self.store.get("universe"), universe)
+
+    def test_failed_feed_keeps_previous_universe(self):
+        """Сеть молчит — это не повод терять рабочий список пар."""
+        class Dead:
+            def get_json(self, url, params=None):
+                raise ApiError("сеть недоступна")
+
+        self.cfg.symbols = ("solana:OLD1", "solana:OLD2")
+        self.store.set("universe", ["solana:OLD1", "solana:OLD2"])
+        market = DexMarket(self.cfg, screener=DexScreener(Dead()), gecko=GeckoTerminal(Dead()))
+        trader = DexTrader(self.cfg, self.store, market,
+                           DexPaperBroker(self.cfg, self.store, market),
+                           Notifier(enabled=False, echo=False))
+        universe = trader.discover()
+        self.assertEqual(universe, ["solana:OLD1", "solana:OLD2"])
+        self.assertEqual(self.store.get("universe"), ["solana:OLD1", "solana:OLD2"])
+
+    def test_nothing_passes_filters_keeps_previous_universe(self):
+        scam = raw_pair("SCAM", "P9", liq=1_000, vol=10, buys=5, sells=0, age_days=0.01)
+        http = FakeHttp({"latest/dex/search": {"pairs": [scam]}, "token-boosts": [],
+                         "tokens/v1": []})
+        self.cfg.symbols = ("solana:OLD1",)
+        self.store.set("universe", ["solana:OLD1"])
+        market = DexMarket(self.cfg, screener=DexScreener(http), gecko=GeckoTerminal(FakeHttp({})))
+        trader = DexTrader(self.cfg, self.store, market,
+                           DexPaperBroker(self.cfg, self.store, market),
+                           Notifier(enabled=False, echo=False))
+        trader.rugcheck.check = lambda mint, limits: []
+        self.assertEqual(trader.discover(), ["solana:OLD1"])
+        self.assertEqual(self.store.get("universe"), ["solana:OLD1"])
 
     def test_discover_skips_pairs_without_history(self):
         http = FakeHttp({"latest/dex/search": {"pairs": [raw_pair("AAA", "P1")]},

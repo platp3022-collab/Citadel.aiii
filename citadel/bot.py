@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import dashboard
-from .backtest import Result
 from .broker import Fill
 from .config import TIMEFRAME_SECONDS, Config
 from .evolve import evolve

@@ -34,7 +34,8 @@ def split_key(symbol: str) -> tuple[str, str]:
     """`solana:POOL` → ('solana', 'POOL')."""
     chain, _, pool = symbol.partition(":")
     if not pool:
-        raise ValueError(f"ожидался ключ вида 'chain:адрес_пула', получено '{symbol}'")
+        raise ValueError(f"ожидался ключ вида 'chain:адрес_пула', получено '{symbol}'. "
+                         f"Адрес пула — то, что в ссылке DexScreener после сети")
     return chain.lower(), pool
 
 
@@ -102,6 +103,7 @@ class DexMarket:
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int,
                     offline: bool = False, use_cache: bool = True) -> Candles:
         offline = offline or self.offline
+        split_key(symbol)                      # ключ проверяем сразу, а не в недрах запроса
         path = self.cache_path(symbol, timeframe)
         cached = candlecache.read(path) if use_cache else []
         if offline:
