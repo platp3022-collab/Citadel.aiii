@@ -63,6 +63,10 @@ DEFAULTS: dict[str, Any] = {
     "min_holders": 50,
     "min_buys_5m": 20,
     "min_volume_5m_usd": 4000,
+    "min_volume_usd": 0,             # общий объём с запуска (колонка Volume в Axiom)
+    "min_fees_sol": 0.0,             # Global Fees Paid — оценка по объёму, см. fee_rate
+    "fee_rate": 0.01,                # 1% комиссии протокола+создателя (pump/bonk)
+    "quote_tokens": [],              # [] = любые; напр. ["SOL", "USD1"]
     "max_dev_pct": 6.0,              # сколько supply держит создатель
     "max_top10_pct": 30.0,
     "max_dev_migrations": 8,         # сколько монет дев уже успел выпустить
@@ -119,11 +123,31 @@ DEFAULTS: dict[str, Any] = {
 # ════════════════════════════════════════════════════════════════════════════
 
 PRESETS: dict[str, dict[str, Any]] = {
-    # Как смотрят в Axiom: свежак после миграции, живой стакан, чистый контракт.
+    # Ровно те фильтры, что стоят в терминале Axiom (вкладки Protocols + Metrics):
+    # Volume от $50, Market Cap от $7K, Global Fees от 0.3 SOL, протоколы Pump и Bonk,
+    # квота SOL / USD1, ликвидность и B.curve не ограничены, вкладка Audit пустая.
+    # Отсев мусора здесь делает не фильтр, а скоринг и вердикт нейросети.
     "axiom": {
+        "min_age_minutes": 1, "max_age_minutes": 240,
+        "min_liquidity_usd": 0, "min_mcap_usd": 7000, "max_mcap_usd": 0,
+        "min_volume_usd": 50, "min_fees_sol": 0.3, "fee_rate": 0.01,
+        "min_holders": 0, "min_buys_5m": 0, "min_volume_5m_usd": 0,
+        "launchpads": ["pump", "bonk"], "quote_tokens": ["SOL", "USD1"],
+        "max_dev_pct": 100.0, "max_top10_pct": 100.0, "max_dev_migrations": 9999,
+        "require_mint_revoked": False, "require_freeze_revoked": False,
+        "min_score": 62, "interval_seconds": 40, "max_per_scan": 4,
+        "shortlist_limit": 15,
+        "terminals_shown": ["Axiom", "FOMO", "GMGN", "Photon"],
+        "auto": {"enabled": True, "only_enter": True, "enter_score": 68,
+                 "watch_score": 52, "block_on_red": True},
+    },
+    # То же самое, но с жёстким предотсевом по ончейну — меньше шума, меньше находок.
+    "axiom_strict": {
         "min_age_minutes": 3, "max_age_minutes": 180,
         "min_liquidity_usd": 12000, "min_mcap_usd": 25000, "max_mcap_usd": 3000000,
+        "min_volume_usd": 50, "min_fees_sol": 0.3,
         "min_holders": 80, "min_buys_5m": 30, "min_volume_5m_usd": 8000,
+        "launchpads": ["pump", "bonk"], "quote_tokens": ["SOL", "USD1"],
         "max_dev_pct": 4.0, "max_top10_pct": 25.0, "max_dev_migrations": 6,
         "require_mint_revoked": True, "require_freeze_revoked": True,
         "min_score": 68, "interval_seconds": 45, "max_per_scan": 4,
@@ -188,7 +212,48 @@ JUP_LITE = "https://lite-api.jup.ag"
 JUP_PRO = "https://api.jup.ag"
 PUMP_API = "https://frontend-api-v3.pump.fun"
 DEX_API = "https://api.dexscreener.com"
+SOL_MINT = "So11111111111111111111111111111111111111112"
 UA = {"User-Agent": "axiom-scout/1.0 (+research bot)", "Accept": "application/json"}
+
+# Названия протоколов в Axiom → как они приходят в API
+LAUNCHPAD_ALIASES: dict[str, list[str]] = {
+    "pump": ["pump.fun", "pumpfun", "pump", "pumpswap", "pump amm", "pump swap"],
+    "bonk": ["bonk.fun", "letsbonk.fun", "letsbonk", "bonk", "raydium launchlab", "launchlab"],
+    "bags": ["bags", "bags.fm"],
+    "believe": ["believe", "launchacoin"],
+    "moonshot": ["moonshot", "moonit"],
+    "boop": ["boop", "boop.fun"],
+    "heaven": ["heaven", "heaven.xyz"],
+    "meteora": ["meteora", "met dbc", "dbc"],
+    "raydium": ["raydium", "raydium amm", "raydium cpmm"],
+    "jupiter": ["jup studio", "jupiter studio", "jupiter"],
+    "moonit": ["moonit"],
+    "printr": ["printr"],
+    "mayhem": ["mayhem"],
+    "bonkers": ["bonkers"],
+    "stonkfun": ["stonkfun", "stonk.fun"],
+    "surge": ["surge"],
+    "soar": ["soar"],
+    "liquid": ["liquid"],
+    "riserich": ["rise rich", "riserich"],
+}
+
+
+def launchpad_matches(launchpad: str, allowed: list[str]) -> bool:
+    """Совпадает ли лончпад монеты с выбранными в настройках протоколами."""
+    if not allowed:
+        return True
+    pad = str(launchpad or "").strip().lower()
+    if not pad:
+        return True                   # источник не сказал лончпад — не выбрасываем
+    for item in allowed:
+        key = str(item).strip().lower()
+        names = LAUNCHPAD_ALIASES.get(key, [key])
+        for name in names:
+            if name == pad or name in pad or pad in name:
+                return True
+    return False
+
 
 KNOWN_LAUNCHPADS = {
     "pump.fun": "💊", "pumpfun": "💊", "bonk.fun": "🐕", "letsbonk.fun": "🐕",
@@ -324,6 +389,9 @@ class Launch:
     buys_1h: int = 0
     sells_1h: int = 0
     vol_1h: float = 0.0
+    vol_24h: float = 0.0              # объём с запуска (для свежака ≈ весь оборот)
+    quote_symbol: str = ""            # за что торгуется: SOL / USDC / USD1 ...
+    fees_sol: float = 0.0             # Global Fees Paid — оценка из объёма
 
     price_change_5m: float = 0.0
     price_change_1h: float = 0.0
@@ -367,6 +435,22 @@ class Launch:
         return self.buy_vol_5m + self.sell_vol_5m
 
     @property
+    def vol_total(self) -> float:
+        """Оборот монеты: берём самое большое известное окно."""
+        return max(self.vol_24h, self.vol_1h, self.vol_5m)
+
+    def estimate_fees_sol(self, fee_rate: float, sol_price: float) -> float:
+        """Оценка Global Fees Paid: оборот × комиссия ÷ цена SOL.
+
+        Точного числа в открытых API нет, Axiom считает его по своим данным,
+        поэтому это приближение — для отсева совсем мёртвых монет его хватает.
+        """
+        if sol_price <= 0:
+            return 0.0
+        self.fees_sol = self.vol_total * max(fee_rate, 0.0) / sol_price
+        return self.fees_sol
+
+    @property
     def buy_ratio_5m(self) -> float:
         total = self.buys_5m + self.sells_5m
         return self.buys_5m / total if total else 0.0
@@ -398,6 +482,7 @@ def parse_jupiter(item: dict) -> Launch | None:
 
     s5 = item.get("stats5m") or {}
     s1h = item.get("stats1h") or {}
+    s24 = item.get("stats24h") or item.get("stats6h") or {}
     audit = item.get("audit") or {}
     first_pool = item.get("firstPool") or {}
 
@@ -443,6 +528,8 @@ def parse_jupiter(item: dict) -> Launch | None:
         buys_1h=int(num(s1h.get("numBuys"))),
         sells_1h=int(num(s1h.get("numSells"))),
         vol_1h=num(s1h.get("buyVolume")) + num(s1h.get("sellVolume")),
+        vol_24h=num(s24.get("buyVolume")) + num(s24.get("sellVolume")),
+        quote_symbol=str(first_pool.get("quoteAsset") or item.get("quoteSymbol") or ""),
         price_change_5m=num(s5.get("priceChange")),
         price_change_1h=num(s1h.get("priceChange")),
         dev_pct=num(audit.get("devBalancePercentage")),
@@ -556,6 +643,8 @@ def parse_dexscreener_pair(pair: dict) -> Launch | None:
         buys_1h=int(num(txns1h.get("buys"))),
         sells_1h=int(num(txns1h.get("sells"))),
         vol_1h=num(dig(pair, "volume", "h1")),
+        vol_24h=num(dig(pair, "volume", "h24")),
+        quote_symbol=str(dig(pair, "quoteToken", "symbol", default="") or ""),
         price_change_5m=num(dig(pair, "priceChange", "m5")),
         price_change_1h=num(dig(pair, "priceChange", "h1")),
         pool=str(pair.get("pairAddress") or ""),
@@ -580,6 +669,8 @@ class LaunchFeed:
         self.timeout = aiohttp.ClientTimeout(total=20)
         self.api_key = os.environ.get("JUPITER_API_KEY", "").strip()
         self.jup_base = JUP_PRO if self.api_key else JUP_LITE
+        self._sol_price = 0.0
+        self._sol_price_ts = 0.0
 
     async def _get(self, url: str, params: dict | None = None,
                    headers: dict | None = None, retries: int = 2) -> Any:
@@ -630,6 +721,23 @@ class LaunchFeed:
             if isinstance(it, dict) and str(it.get("id") or "") == mint:
                 return parse_jupiter(it)
         return parse_jupiter(items[0]) if items and isinstance(items[0], dict) else None
+
+    async def sol_price(self) -> float:
+        """Цена SOL в долларах (кэш 5 минут) — нужна для оценки комиссий в SOL."""
+        if self._sol_price and time.time() - self._sol_price_ts < 300:
+            return self._sol_price
+        data = await self._get(f"{self.jup_base}/price/v3",
+                               params={"ids": SOL_MINT}, headers=self._jup_headers())
+        price = num(dig(data, SOL_MINT, "usdPrice")) or num(dig(data, "data", SOL_MINT, "price"))
+        if not price:
+            pairs = await self._get(f"{DEX_API}/latest/dex/tokens/{SOL_MINT}")
+            for pair in (dig(pairs, "pairs", default=[]) or [])[:5]:
+                price = num(dig(pair, "priceUsd"))
+                if price:
+                    break
+        if price:
+            self._sol_price, self._sol_price_ts = price, time.time()
+        return self._sol_price
 
     # ---------- pump.fun ----------
 
@@ -778,6 +886,12 @@ def fresh_passes(l: Launch, conf: dict[str, Any]) -> tuple[bool, str]:
         return False, "мало покупок за 5м"
     if l.vol_5m and l.vol_5m < num(conf.get("min_volume_5m_usd"), 4000):
         return False, "мало объёма за 5м"
+    min_vol = num(conf.get("min_volume_usd"))
+    if min_vol and l.vol_total and l.vol_total < min_vol:
+        return False, "мало общего объёма"
+    min_fees = num(conf.get("min_fees_sol"))
+    if min_fees and l.fees_sol and l.fees_sol < min_fees:
+        return False, f"комиссий всего ~{l.fees_sol:.2f} SOL"
 
     if l.dev_pct > num(conf.get("max_dev_pct"), 6):
         return False, f"дев держит {l.dev_pct:.1f}%"
@@ -793,9 +907,12 @@ def fresh_passes(l: Launch, conf: dict[str, Any]) -> tuple[bool, str]:
     if l.honeypot or l.rugpull_flag:
         return False, "помечен как honeypot/rugpull"
 
-    pads = [str(p).lower() for p in (conf.get("launchpads") or [])]
-    if pads and l.launchpad and l.launchpad.lower() not in pads:
-        return False, f"лончпад {l.launchpad} не в списке"
+    if not launchpad_matches(l.launchpad, conf.get("launchpads") or []):
+        return False, f"протокол {l.launchpad} не выбран"
+
+    quotes = [str(q).upper() for q in (conf.get("quote_tokens") or [])]
+    if quotes and l.quote_symbol and l.quote_symbol.upper() not in quotes:
+        return False, f"квота {l.quote_symbol} не выбрана"
 
     text = f"{l.symbol} {l.name}".lower()
     for word in (conf.get("blacklist_words") or []):
@@ -1265,6 +1382,9 @@ def fresh_message(a: FreshAnalysis, conf: dict[str, Any], full: bool = True) -> 
                                       if l.holders_change_5m else ""),
         f"🔄 5м: {l.buys_5m} покупок / {l.sells_5m} продаж · "
         f"{l.buy_ratio_5m*100:.0f}% buy · объём {fmt_usd(l.vol_5m)}",
+        f"💸 Оборот {fmt_usd(l.vol_total)}"
+        + (f" · комиссий ~{l.fees_sol:.2f} SOL" if l.fees_sol else "")
+        + (f" · пара к {esc(l.quote_symbol)}" if l.quote_symbol else ""),
         f"🧪 Дев {l.dev_pct:.1f}% · Топ-10 {l.top10_pct:.0f}%"
         + (f" · монет у дева: {l.dev_migrations}" if l.dev_migrations else ""),
         _safety_line(l),
@@ -1466,6 +1586,13 @@ class FreshScanner:
         """Собрать ленту, отфильтровать и посчитать скор. Без рассылки."""
         launches = await self.feed.collect()
         self.last_seen = len(launches)
+
+        # оценка Global Fees Paid в SOL — нужна цена SOL
+        if num(self.conf.get("min_fees_sol")) or launches:
+            fee_rate = num(self.conf.get("fee_rate"), 0.01)
+            sol = await self.feed.sol_price()
+            for l in launches:
+                l.estimate_fees_sol(fee_rate, sol)
 
         candidates: list[Launch] = []
         for l in launches:
