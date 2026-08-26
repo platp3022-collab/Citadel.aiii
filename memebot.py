@@ -1197,13 +1197,15 @@ class Telegram:
         return list(dict.fromkeys(targets))
 
     async def send(self, text: str, chat_id: str | None = None,
-                   preview: bool = False) -> bool:
+                   preview: bool = False, markup: dict | None = None) -> bool:
         target = chat_id or self.channel_id or self.admin_chat_id
         if self.dry or not self.token or not target:
             print(f"\n--- [TG → {target or 'нет адресата'}] ---\n{text}\n")
             return True
         payload = {"chat_id": target, "text": text[:4090], "parse_mode": "HTML",
                    "disable_web_page_preview": not preview}
+        if markup:
+            payload["reply_markup"] = markup
         for attempt in range(3):
             try:
                 async with self.session.post(f"{self.api}/sendMessage", json=payload,
@@ -1268,6 +1270,24 @@ class Telegram:
                 return True
         except Exception as e:  # noqa: BLE001
             log.warning("Отправка файла: %s", e)
+            return False
+
+    async def set_menu_button(self, url: str, text: str = "Статистика") -> bool:
+        """Постоянная кнопка мини-аппа слева от поля ввода в чате с ботом."""
+        if self.dry or not self.token or not self.admin_chat_id:
+            return False
+        payload = {"chat_id": self.admin_chat_id,
+                   "menu_button": {"type": "web_app", "text": text,
+                                   "web_app": {"url": url}}}
+        try:
+            async with self.session.post(f"{self.api}/setChatMenuButton", json=payload,
+                                         timeout=aiohttp.ClientTimeout(total=20)) as r:
+                if r.status != 200:
+                    log.warning("setChatMenuButton: %s", (await r.text())[:200])
+                    return False
+                return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("setChatMenuButton: %s", e)
             return False
 
     async def me(self) -> dict | None:
@@ -1824,10 +1844,17 @@ class Bot:
         elif cmd in ("/app", "/dash"):
             if self.dash is None:
                 await self.tg.send("Мини-апп выключен в настройках.", chat_id)
+            elif self.dash.public_url:
+                # кнопка открывает страницу прямо внутри Telegram
+                await self.tg.send(
+                    "📊 <b>Статистика бота</b>", chat_id,
+                    markup={"inline_keyboard": [[{
+                        "text": "Открыть", "web_app": {"url": self.dash.link()}}]]})
             else:
                 await self.tg.send(
-                    f"📊 <b>Мини-апп со статистикой</b>\n{esc(self.dash.url)}\n\n"
-                    f"<i>Открывается только на том компьютере, где запущен бот.</i>",
+                    f"📊 <b>Статистика</b>\n{esc(self.dash.url)}\n\n"
+                    f"<i>Пока открывается только на компьютере с ботом. Чтобы смотреть "
+                    f"из Telegram, нужен cloudflared — см. README, раздел «Мини-апп».</i>",
                     chat_id)
         elif cmd == "/details":
             if self.fresh is None:
@@ -2021,6 +2048,9 @@ class Bot:
         await self.preflight()
         if self.dash is not None:
             await self.dash.start()
+            # публичный адрес нужен, чтобы страница открывалась внутри Telegram
+            if await self.dash.start_tunnel():
+                await self.tg.set_menu_button(self.dash.link())
         await self.news.refresh()
         await self.tg.send(
             f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
@@ -2033,7 +2063,9 @@ class Bot:
                 + f"{num(self.trader.conf.get('size_sol')):.3f} SOL на сделку, "
                   f"лимит {num(self.trader.conf.get('daily_limit_sol')):.2f} SOL в сутки\n")
                if self.trader else "")
-            + (f"📊 Статистика: {esc(self.dash.url)}\n" if self.dash else "")
+            + (("📊 Статистика: кнопка «Статистика» в меню чата\n"
+                if self.dash.public_url else f"📊 Статистика: {esc(self.dash.url)}\n")
+               if self.dash else "")
             + f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),

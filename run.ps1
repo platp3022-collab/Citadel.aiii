@@ -90,6 +90,24 @@ if (-not (Test-Path ".env")) {
     Write-Host ""
 }
 
+# ---- cloudflared: без него статистику не открыть внутри Telegram ----
+if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
+    Write-Host "Ставлю cloudflared — через него статистика открывается в Telegram..." -ForegroundColor Cyan
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install --id Cloudflare.cloudflared --silent --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+        # winget не обновляет PATH в текущем окне — подхватываем вручную
+        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                    [Environment]::GetEnvironmentVariable("Path", "User")
+    }
+    if (Get-Command cloudflared -ErrorAction SilentlyContinue) {
+        Write-Host "cloudflared готов." -ForegroundColor Green
+    } else {
+        Write-Host "Не поставился — статистика будет только на этом компьютере." -ForegroundColor Yellow
+        Write-Host "Поставить вручную: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+    }
+    Write-Host ""
+}
+
 # ---- запуск с автоперезапуском ----
 Write-Host "Бот запущен. Не закрывай это окно — пока оно открыто, он сканирует рынок." -ForegroundColor Green
 Write-Host "Упадёт из-за сети — подниму сам через 10 секунд. Остановить: Ctrl+C."

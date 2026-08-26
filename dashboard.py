@@ -19,6 +19,8 @@ import json
 import logging
 import os
 import re
+import secrets
+import shutil
 import sqlite3
 import time
 from pathlib import Path
@@ -34,6 +36,11 @@ DEFAULTS: dict[str, Any] = {
     "host": "127.0.0.1",        # только этот компьютер; 0.0.0.0 откроет в локальную сеть
     "port": 8420,
     "storage_path": "data/memebot.db",
+
+    # Открыть страницу внутри Telegram. Мини-апп работает только по публичному
+    # HTTPS-адресу, localhost туда не пускают, поэтому нужен туннель наружу.
+    "tunnel": True,             # поднять cloudflared и получить https-адрес
+    "public_url": "",           # или впиши свой адрес, если он уже есть
 }
 
 
@@ -150,6 +157,39 @@ class Dashboard:
         self.data = DashboardData(self.conf.get("storage_path", "data/memebot.db"))
         self.page = ROOT / "dashboard.html"
         self.runner: web.AppRunner | None = None
+        self.tunnel_proc: asyncio.subprocess.Process | None = None
+        self.public_url = (os.environ.get("DASHBOARD_PUBLIC_URL", "").strip()
+                           or str(self.conf.get("public_url", "")).strip())
+        self.token = self._load_token()
+
+    def _load_token(self) -> str:
+        """Секрет для публичного адреса: без него страницу увидит любой,
+        кто узнает ссылку туннеля. Берём из .env или заводим свой и храним."""
+        token = os.environ.get("DASHBOARD_TOKEN", "").strip()
+        if token:
+            return token
+        path = Path(self.conf.get("storage_path", "data/memebot.db"))
+        if not path.is_absolute():
+            path = ROOT / path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        keyfile = path.parent / "dashboard.key"
+        if keyfile.exists():
+            return keyfile.read_text(encoding="utf-8").strip()
+        token = secrets.token_urlsafe(18)
+        keyfile.write_text(token, encoding="utf-8")
+        return token
+
+    def _allowed(self, request: web.Request) -> bool:
+        """Локальную страницу открываем свободно, публичную — только с токеном."""
+        if request.query.get("k") == self.token:
+            return True
+        peer = request.transport.get_extra_info("peername") if request.transport else None
+        host = peer[0] if peer else ""
+        return host in ("127.0.0.1", "::1", "localhost")
+
+    def link(self, base: str = "") -> str:
+        base = base or self.public_url
+        return f"{base}?k={self.token}" if base else self.url
 
     @property
     def host(self) -> str:
@@ -164,6 +204,8 @@ class Dashboard:
         return f"http://{shown}:{int(num(self.conf.get('port'), 8420))}"
 
     async def _index(self, request: web.Request) -> web.Response:
+        if not self._allowed(request):
+            raise web.HTTPForbidden(text="нужен ключ доступа")
         if not self.page.exists():
             return web.Response(text="dashboard.html рядом не найден", status=500)
         return web.Response(text=self.page.read_text(encoding="utf-8"),
@@ -182,8 +224,56 @@ class Dashboard:
                             headers={"Cache-Control": "public, max-age=604800"})
 
     async def _state(self, request: web.Request) -> web.Response:
+        if not self._allowed(request):
+            raise web.HTTPForbidden(text="нужен ключ доступа")
         return web.json_response(self.data.state(),
                                  dumps=lambda d: json.dumps(d, ensure_ascii=False))
+
+    async def start_tunnel(self) -> str:
+        """Публичный https-адрес через cloudflared — без него Telegram
+        мини-апп не откроет. Аккаунт и домен не нужны."""
+        if self.public_url or not self.conf.get("tunnel", True):
+            return self.public_url
+        exe = shutil.which("cloudflared")
+        if not exe:
+            log.warning("cloudflared не найден — мини-апп в Telegram не поднять. "
+                        "Установка: winget install Cloudflare.cloudflared "
+                        "(или brew install cloudflared)")
+            return ""
+        try:
+            self.tunnel_proc = await asyncio.create_subprocess_exec(
+                exe, "tunnel", "--url", f"http://127.0.0.1:{int(num(self.conf.get('port'), 8420))}",
+                "--no-autoupdate",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        except Exception as e:  # noqa: BLE001
+            log.warning("не смог запустить cloudflared: %s", e)
+            return ""
+
+        # адрес печатается в вывод в первые секунды
+        pattern = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+        try:
+            for _ in range(60):
+                line = await asyncio.wait_for(self.tunnel_proc.stdout.readline(), timeout=30)
+                if not line:
+                    break
+                found = pattern.search(line.decode("utf-8", "ignore"))
+                if found:
+                    self.public_url = found.group(0)
+                    log.info("Туннель поднят: %s", self.public_url)
+                    asyncio.create_task(self._drain_tunnel())
+                    return self.public_url
+        except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
+            log.warning("туннель не поднялся: %s", e)
+        return ""
+
+    async def _drain_tunnel(self) -> None:
+        """Читаем вывод дальше, иначе буфер переполнится и cloudflared встанет."""
+        try:
+            while self.tunnel_proc and self.tunnel_proc.stdout:
+                if not await self.tunnel_proc.stdout.readline():
+                    break
+        except Exception:  # noqa: BLE001
+            pass
 
     async def start(self) -> None:
         if not self.conf.get("enabled", True):
@@ -205,6 +295,9 @@ class Dashboard:
             self.runner = None
 
     async def stop(self) -> None:
+        if self.tunnel_proc and self.tunnel_proc.returncode is None:
+            self.tunnel_proc.terminate()
+            self.tunnel_proc = None
         if self.runner:
             await self.runner.cleanup()
             self.runner = None

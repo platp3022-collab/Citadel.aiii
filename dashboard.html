@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Citadel · терминал</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   /* Шрифт как в Phantom — Inter. Лежит рядом в assets/fonts, поэтому страница
      ничего не тянет из интернета. Переменный: один файл на все начертания,
@@ -572,9 +573,12 @@ function paint(s) {
 
 /* ── опрос ────────────────────────────────────────────────── */
 let failures = 0;
+const KEY = new URLSearchParams(location.search).get("k");
+const API = "/api/state" + (KEY ? "?k=" + encodeURIComponent(KEY) : "");
+
 async function tick() {
   try {
-    const res = await fetch("/api/state", { cache: "no-store" });
+    const res = await fetch(API, { cache: "no-store" });
     if (!res.ok) throw new Error(res.status);
     paint(await res.json());
     failures = 0;
@@ -585,6 +589,18 @@ async function tick() {
     $("dot").classList.add("stale");
     $("foot").textContent = failures > 2 ? "бот не отвечает — он запущен?" : "переподключаюсь...";
   }
+}
+
+/* если открыли внутри Telegram — разворачиваем и красим шапку под страницу */
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  try {
+    tg.ready();
+    tg.expand();
+    tg.setHeaderColor?.("#04050a");
+    tg.setBackgroundColor?.("#04050a");
+    document.body.style.paddingTop = "env(safe-area-inset-top)";
+  } catch (e) { /* старая версия клиента — просто откроется как обычная страница */ }
 }
 
 setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("ru-RU"); }, 1000);
