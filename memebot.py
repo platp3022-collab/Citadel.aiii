@@ -1232,6 +1232,34 @@ class Telegram:
             await asyncio.sleep(0.4)
         return ok
 
+    async def send_document(self, path: Path | str, caption: str = "",
+                            chat_id: str | None = None) -> bool:
+        """Отправить файл (например, выгрузку сделок) в чат."""
+        target = chat_id or self.admin_chat_id or self.channel_id
+        path = Path(path)
+        if not path.exists():
+            return False
+        if self.dry or not self.token or not target:
+            print(f"\n--- [TG файл → {target or 'нет адресата'}] {path} ---\n{caption}\n")
+            return True
+        try:
+            data = aiohttp.FormData()
+            data.add_field("chat_id", str(target))
+            if caption:
+                data.add_field("caption", caption[:1000])
+                data.add_field("parse_mode", "HTML")
+            data.add_field("document", path.read_bytes(), filename=path.name,
+                           content_type="text/csv")
+            async with self.session.post(f"{self.api}/sendDocument", data=data,
+                                         timeout=aiohttp.ClientTimeout(total=60)) as r:
+                if r.status != 200:
+                    log.warning("sendDocument %s: %s", r.status, (await r.text())[:200])
+                    return False
+                return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("Отправка файла: %s", e)
+            return False
+
     async def me(self) -> dict | None:
         """Проверка токена: кто мы такие. None — токен битый или сети нет."""
         if not self.token:
@@ -1413,7 +1441,8 @@ HELP = (
     "\n<b>Торговля</b> (сейчас бумажная — реальных сделок нет):\n"
     "/positions — открытые позиции\n"
     "/pnl [часы] — итог: сколько заработал или потерял\n"
-    "/history [N] — история сделок\n"
+    "/history [N] — последние сделки · /history all — все\n"
+    "/export — все сделки таблицей (Excel)\n"
     "/trade [on|off] — включить или остановить входы\n"
     "/close &lt;mint&gt; — закрыть позицию вручную\n"
     "/size [SOL] — размер одной сделки\n\n"
@@ -1734,9 +1763,31 @@ class Bot:
         elif cmd in ("/history", "/trades"):
             if self.trader is None:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)
+            elif arg and arg.lower() in ("all", "все", "всё", "0"):
+                pages = self.trader.history_all()
+                for i, page in enumerate(pages):
+                    await self.tg.send(page, chat_id)
+                    if i < len(pages) - 1:
+                        await asyncio.sleep(0.6)
+                if len(pages) > 1:
+                    await self.tg.send("Таблицей в Excel: /export", chat_id)
             else:
                 await self.tg.send(self.trader.history(int(num(arg, 10)) if arg else 10),
                                    chat_id)
+        elif cmd in ("/export", "/csv"):
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                path = self.trader.export_csv()
+                if not path:
+                    await self.tg.send("Сделок пока нет — выгружать нечего.", chat_id)
+                else:
+                    ok = await self.tg.send_document(
+                        path, "📊 Все сделки: вход, выход, причина, итог. "
+                              "Открывается в Excel.", chat_id)
+                    if not ok:
+                        await self.tg.send(f"Не смог отправить файл. Он лежит здесь:\n"
+                                           f"<code>{esc(path)}</code>", chat_id)
         elif cmd == "/trade":
             if self.trader is None:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)

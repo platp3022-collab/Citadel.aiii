@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import logging
 import sqlite3
 import threading
@@ -65,6 +66,9 @@ DEFAULTS: dict[str, Any] = {
 SOL_MINT = "So11111111111111111111111111111111111111112"
 JUP_LITE = "https://lite-api.jup.ag"
 DEX_API = "https://api.dexscreener.com"
+
+EXIT_PLAIN = {"take_profit": "тейк", "stop_loss": "стоп", "trailing": "трейлинг",
+              "timeout": "таймаут", "manual": "вручную"}
 
 EXIT_LABELS = {
     "take_profit": "🎯 тейк-профит",
@@ -228,6 +232,13 @@ class TradeStore:
             rows = self.conn.execute(
                 "SELECT * FROM trades WHERE status='closed'"
                 " ORDER BY exit_ts DESC LIMIT ?", (int(limit),)).fetchall()
+        return [dict(r) for r in rows]
+
+    def all_closed(self) -> list[dict]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM trades WHERE status='closed' ORDER BY exit_ts DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def totals(self) -> dict:
@@ -439,6 +450,37 @@ def _ago(ts: float) -> str:
     if minutes < 1440:
         return f"{minutes/60:.0f} ч назад"
     return f"{minutes/1440:.0f} дн назад"
+
+
+def history_line(r: dict) -> str:
+    """Одна сделка одной строкой — чтобы в сообщение влезало много."""
+    pnl = num(r.get("pnl_sol"))
+    emoji = "🟢" if pnl > 0 else "🔴"
+    held = (num(r.get("exit_ts")) - num(r.get("opened_ts"))) / 60.0
+    when = time.strftime("%d.%m %H:%M", time.localtime(num(r.get("exit_ts"))))
+    reason = EXIT_PLAIN.get(r.get("exit_reason"), "—")
+    return (f"{emoji} <b>${esc(r.get('symbol') or '—')}</b> "
+            f"{num(r.get('pnl_pct')):+.0f}% · {pnl:+.4f} SOL · {reason} · "
+            f"{held:.0f} мин · скор {num(r.get('score')):.0f} · {when}")
+
+
+def history_pages(rows: list[dict], header: str = "", chars: int = 3500) -> list[str]:
+    """Разбивает историю на сообщения, влезающие в лимит Telegram."""
+    if not rows:
+        return ["Сделок пока не было."]
+    pages: list[str] = []
+    buf: list[str] = [header] if header else []
+    size = len(header)
+    for r in rows:
+        line = history_line(r)
+        if size + len(line) + 1 > chars and buf:
+            pages.append("\n".join(buf))
+            buf, size = [], 0
+        buf.append(line)
+        size += len(line) + 1
+    if buf:
+        pages.append("\n".join(buf))
+    return pages
 
 
 def history_message(rows: list[dict], limit: int) -> str:
@@ -675,6 +717,70 @@ class Trader:
     def history(self, limit: int = 10) -> str:
         return history_message(self.store.recent_closed(max(1, min(limit, 30))), limit)
 
+    def history_all(self) -> list[str]:
+        """Вся история: закрытые сделки плюс то, что держим прямо сейчас."""
+        rows = self.store.all_closed()
+        if not rows and not self.positions:
+            return ["Сделок пока не было."]
+        wins = len([r for r in rows if num(r.get("pnl_sol")) > 0])
+        total = sum(num(r.get("pnl_sol")) for r in rows)
+        header = (f"📜 <b>Все сделки: {len(rows)}</b>"
+                  + (f" · в плюс {wins} ({wins/len(rows)*100:.0f}%)" if rows else "")
+                  + f" · итог <b>{fmt_sol(total)}</b>\n")
+        pages = []
+        if self.positions:
+            open_lines = ["<b>Сейчас в позиции:</b>"]
+            open_lines += [
+                f"⏳ <b>${esc(p.symbol or p.mint[:6])}</b> {p.change_pct():+.0f}% · "
+                f"{p.size_sol:.3f} SOL · {p.age_minutes:.0f} мин · скор {p.score:.0f}"
+                for p in self.positions]
+            pages.append(header + "\n".join(open_lines))
+            header = ""
+        return pages + history_pages(rows, header) if rows else pages
+
+    def export_csv(self, path: str | Path | None = None) -> Path | None:
+        """Выгрузка всех сделок таблицей — открывается в Excel."""
+        rows = self.store.all_closed() + [
+            {**p.__dict__, "status": "open"} for p in self.positions]
+        if not rows:
+            return None
+        out = Path(path) if path else Path(
+            self.conf.get("storage_path", "data/memebot.db"))
+        if not path:
+            if not out.is_absolute():
+                out = ROOT / out
+            out = out.parent / "trades.csv"
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+        def when(ts: Any) -> str:
+            ts = num(ts)
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else ""
+
+        with open(out, "w", encoding="utf-8-sig", newline="") as fh:
+            w = csv.writer(fh, delimiter=";")
+            w.writerow(["Вход", "Выход", "Тикер", "Лончпад", "Режим", "Скор",
+                        "Размер SOL", "Цена входа", "Цена выхода", "Причина выхода",
+                        "Минут в позиции", "Итог SOL", "Итог %", "Статус", "Минт"])
+            for r in rows:
+                held = ((num(r.get("exit_ts")) - num(r.get("opened_ts"))) / 60.0
+                        if num(r.get("exit_ts")) else
+                        (time.time() - num(r.get("opened_ts"))) / 60.0)
+                w.writerow([
+                    when(r.get("opened_ts")), when(r.get("exit_ts")),
+                    r.get("symbol") or "", r.get("launchpad") or "",
+                    r.get("mode") or "", f"{num(r.get('score')):.0f}",
+                    f"{num(r.get('size_sol')):.4f}".replace(".", ","),
+                    f"{num(r.get('entry_price')):.12f}".replace(".", ","),
+                    f"{num(r.get('exit_price')):.12f}".replace(".", ","),
+                    EXIT_PLAIN.get(r.get("exit_reason"), r.get("exit_reason") or ""),
+                    f"{held:.0f}",
+                    f"{num(r.get('pnl_sol')):.4f}".replace(".", ","),
+                    f"{num(r.get('pnl_pct')):.1f}".replace(".", ","),
+                    "закрыта" if r.get("status") == "closed" else "открыта",
+                    r.get("mint") or "",
+                ])
+        return out
+
     def status_line(self) -> str:
         spent = self.store.spent_since(time.time() - 86400)
         limit = num(self.conf.get("daily_limit_sol"), 1.0)
@@ -689,7 +795,8 @@ class Trader:
 TRADE_HELP = (
     "/positions — открытые позиции\n"
     "/pnl [часы] — результат торговли\n"
-    "/history [N] — список последних сделок\n"
+    "/history [N] — последние сделки · /history all — вообще все\n"
+    "/export — все сделки таблицей в файл\n"
     "/trade [on|off] — включить или остановить входы\n"
     "/close &lt;mint&gt; — закрыть позицию вручную\n"
     "/size [SOL] — размер одной сделки"
