@@ -71,6 +71,9 @@ log = logging.getLogger("memebot")
 
 CONFIG: dict[str, Any] = {
     "scan": {
+        # Старый сканер по DexScreener с подробным разбором монеты в чат.
+        # Выключен: в Telegram нужны только сделки. Разово — командой /scan.
+        "enabled": False,
         "interval_seconds": 60,
         "chains": ["solana", "base", "bsc", "ethereum"],
         "max_tokens_per_scan": 120,
@@ -1438,6 +1441,7 @@ HELP = (
     "/check &lt;mint&gt; — полный разбор монеты по адресу\n"
     "/preset [axiom|fomo|safe|degen] — профиль автопилота\n"
     "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
+    "/details [on|off] — показывать разбор монет в чате\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
     "/mode — бумага или реальные деньги\n"
@@ -1625,6 +1629,9 @@ class Bot:
     # ---------- циклы ----------
 
     async def scanner_loop(self) -> None:
+        if not cfg("scan.enabled", True):
+            log.info("Подробный сканер DexScreener выключен — в чат идут только сделки")
+            return
         interval = num(cfg("scan.interval_seconds"), 60)
         while not self.stop_event.is_set():
             try:
@@ -1800,6 +1807,19 @@ class Bot:
                 elif arg and arg.lower() in ("off", "выкл", "0"):
                     self.trader.conf["enabled"] = False
                 await self.tg.send(self.trader.status_line(), chat_id)
+        elif cmd == "/details":
+            if self.fresh is None:
+                await self.tg.send("Модуль свежих лончей не подключён.", chat_id)
+            else:
+                if arg and arg.lower() in ("on", "вкл", "1"):
+                    self.fresh.conf["notify"] = True
+                elif arg and arg.lower() in ("off", "выкл", "0"):
+                    self.fresh.conf["notify"] = False
+                await self.tg.send(
+                    "Разбор каждой монеты в чат: "
+                    + ("<b>включён</b> — будут длинные сообщения с сигналами"
+                       if self.fresh.conf.get("notify") else
+                       "<b>выключен</b> — приходят только сделки"), chat_id)
         elif cmd == "/wallet":
             if self.trader is None:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)

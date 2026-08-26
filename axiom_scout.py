@@ -77,9 +77,10 @@ DEFAULTS: dict[str, Any] = {
 
     # ---- алерты ----
     "min_score": 62,
-    "cooldown_minutes": 90,          # не слать одну монету чаще, чем раз в N минут
+    "cooldown_minutes": 90,          # не брать одну монету чаще, чем раз в N минут
     "rescore_delta": 8,              # повтор только если скор вырос на N
     "max_per_scan": 4,
+    "notify": False,                 # разбор монеты в чат. False = только сделки
 
     # ---- источники и обогащение ----
     "sources": {"jupiter": True, "pumpfun": False, "dexscreener": True},
@@ -1639,14 +1640,17 @@ class FreshScanner:
             if len(sent) >= max_per_scan:
                 break
             ok = True
-            if self.send:
-                try:
-                    ok = bool(await self.send(fresh_message(a, self.conf)))
-                except Exception as e:  # noqa: BLE001
-                    log.exception("отправка алерта: %s", e)
-                    ok = False
-            else:
-                print(fresh_message(a, self.conf))
+            # notify=False: монета всё равно уходит в работу (в трейдер),
+            # просто её разбор не сыплется в чат — там только сделки
+            if self.conf.get("notify", False):
+                if self.send:
+                    try:
+                        ok = bool(await self.send(fresh_message(a, self.conf)))
+                    except Exception as e:  # noqa: BLE001
+                        log.exception("отправка алерта: %s", e)
+                        ok = False
+                else:
+                    print(fresh_message(a, self.conf))
             if ok:
                 self.store.record(a)
                 self.alerts += 1

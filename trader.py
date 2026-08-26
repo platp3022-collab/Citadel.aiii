@@ -602,28 +602,30 @@ class LiveExecutor(PaperExecutor):
 #  СООБЩЕНИЯ
 # ════════════════════════════════════════════════════════════════════════════
 
+def price_str(v: float) -> str:
+    v = num(v)
+    if v <= 0:
+        return "—"
+    if v >= 1:
+        return f"${v:,.4f}".rstrip("0").rstrip(".")
+    return ("$" + f"{v:.12f}".rstrip("0")) if v < 0.0001 else f"${v:.8f}".rstrip("0")
+
+
 def open_message(p: Position, conf: dict[str, Any]) -> str:
-    tag = "📄 БУМАЖНАЯ СДЕЛКА" if p.mode == "paper" else "💰 СДЕЛКА"
-    return "\n".join([
-        f"{tag} · вход <b>${esc(p.symbol)}</b>",
-        f"Скор монеты: {p.score:.0f}/100 · {esc(p.launchpad or 'solana')}",
-        f"Вход по {p.entry_price:.10f}".rstrip("0") + f" · размер {p.size_sol:.3f} SOL",
-        f"Тейк {num(conf.get('take_profit_pct')):+.0f}% · "
-        f"стоп {num(conf.get('stop_loss_pct')):+.0f}% · "
-        f"таймаут {num(conf.get('timeout_minutes')):.0f} мин",
-        f"<code>{esc(p.mint)}</code>",
-    ])
+    """Коротко: зашёл в такую-то монету, столько-то, по такой цене."""
+    tag = "📄" if p.mode == "paper" else "💰"
+    return (f"{tag} 🟢 <b>зашёл ${esc(p.symbol)}</b>\n"
+            f"{p.size_sol:.3f} SOL по {price_str(p.entry_price)}")
 
 
 def close_message(p: Position) -> str:
+    """Коротко: вышел, столько плюс или минус, за сколько времени."""
     tag = "📄" if p.mode == "paper" else "💰"
     emoji = "🟢" if p.pnl_sol > 0 else "🔴"
-    return "\n".join([
-        f"{tag} {emoji} выход <b>${esc(p.symbol)}</b> — {EXIT_LABELS.get(p.exit_reason, p.exit_reason)}",
-        f"Итог: <b>{fmt_sol(p.pnl_sol)}</b> ({p.pnl_pct:+.1f}%) за {p.age_minutes:.0f} мин",
-        f"Вход {p.entry_price:.10f}".rstrip("0") + f" → выход {p.exit_price:.10f}".rstrip("0"),
-        f"<code>{esc(p.mint)}</code>",
-    ])
+    return (f"{tag} {emoji} <b>вышел ${esc(p.symbol)}</b>\n"
+            f"<b>{fmt_sol(p.pnl_sol)}</b> ({p.pnl_pct:+.0f}%) · {p.age_minutes:.0f} мин · "
+            f"{EXIT_PLAIN.get(p.exit_reason, p.exit_reason)}\n"
+            f"{price_str(p.entry_price)} → {price_str(p.exit_price)}")
 
 
 def positions_message(positions: list[Position], conf: dict[str, Any]) -> str:
