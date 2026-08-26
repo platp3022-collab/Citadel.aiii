@@ -5,27 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Citadel · терминал</title>
 <style>
-  /* Шрифты лежат рядом в assets/fonts — страница не зависит от интернета,
-     а Manrope и JetBrains Mono оба с кириллицей, поэтому русский текст
-     не сваливается на системный шрифт. Оба переменные: один файл на все веса. */
+  /* Шрифт как в Phantom — Inter. Лежит рядом в assets/fonts, поэтому страница
+     ничего не тянет из интернета. Переменный: один файл на все начертания,
+     кириллица отдельным подмножеством. */
   @font-face {
-    font-family: "Manrope"; font-style: normal; font-weight: 300 800; font-display: swap;
-    src: url("/assets/fonts/manrope-cyrillic-wght-normal.woff2") format("woff2-variations");
+    font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap;
+    src: url("/assets/fonts/inter-cyrillic-wght-normal.woff2") format("woff2-variations");
     unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
   }
   @font-face {
-    font-family: "Manrope"; font-style: normal; font-weight: 300 800; font-display: swap;
-    src: url("/assets/fonts/manrope-latin-wght-normal.woff2") format("woff2-variations");
-    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2192, U+2212, U+2215;
-  }
-  @font-face {
-    font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap;
-    src: url("/assets/fonts/jetbrains-mono-cyrillic-wght-normal.woff2") format("woff2-variations");
-    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-  }
-  @font-face {
-    font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap;
-    src: url("/assets/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations");
+    font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap;
+    src: url("/assets/fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
     unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2192, U+2212, U+2215;
   }
 
@@ -45,8 +35,8 @@
     --up: #22e6a1;
     --down: #ff4d6d;
 
-    --display: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --display: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
 
   html, body { height: 100%; }
@@ -55,7 +45,7 @@
     background: var(--bg);
     color: var(--ink);
     font: 400 15px/1.5 var(--display);
-    font-feature-settings: "ss01", "ss02";
+    font-feature-settings: "cv05", "cv08", "tnum";   /* как в Phantom: прямая a, табличные цифры */
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
   }
@@ -315,6 +305,41 @@ function animateNumber(el, to, render) {
   requestAnimationFrame(step);
 }
 
+/* Сглаживание монотонным сплайном (Фрич — Карлсон): линия идёт плавно,
+   но не выгибается за пределы реальных значений — иначе кривая рисовала бы
+   просадки и пики, которых в сделках не было. */
+function tangents(pts) {
+  const n = pts.length, d = [], m = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[i + 1].x - pts[i].x;
+    d.push(dx === 0 ? 0 : (pts[i + 1].y - pts[i].y) / dx);
+  }
+  m.push(d[0] ?? 0);
+  for (let i = 1; i < n - 1; i++) {
+    if (d[i - 1] * d[i] <= 0) { m.push(0); continue; }        // локальный экстремум — полка
+    m.push((d[i - 1] + d[i]) / 2);
+  }
+  m.push(d[n - 2] ?? 0);
+  for (let i = 0; i < n - 1; i++) {                            // не даём вылезти за данные
+    if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], h = Math.hypot(a, b);
+    if (h > 3) { m[i] = (3 / h) * a * d[i]; m[i + 1] = (3 / h) * b * d[i]; }
+  }
+  return m;
+}
+
+function smoothPath(ctx, pts) {
+  ctx.moveTo(pts[0].x, pts[0].y);
+  if (pts.length === 2) { ctx.lineTo(pts[1].x, pts[1].y); return; }
+  const m = tangents(pts);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const dx = (pts[i + 1].x - pts[i].x) / 3;
+    ctx.bezierCurveTo(pts[i].x + dx, pts[i].y + m[i] * dx,
+                      pts[i + 1].x - dx, pts[i + 1].y - m[i + 1] * dx,
+                      pts[i + 1].x, pts[i + 1].y);
+  }
+}
+
 /* ── график: плоская область с линией и наведением ────────── */
 const canvas = $("chart");
 const ctx = canvas.getContext("2d");
@@ -350,7 +375,7 @@ function render() {
   const rgb = positive ? "34,230,161" : "255,77,109";
 
   /* сетка — приглушённая, не спорит с данными */
-  ctx.font = "400 11px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.font = "500 11px Inter, ui-sans-serif, system-ui, sans-serif";
   ctx.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const v = lo + (hi - lo) * (i / 4), y = Y(v);
@@ -373,14 +398,17 @@ function render() {
   const shown = Math.max(2, Math.ceil(equity.length * progress));
   const pts = equity.slice(0, shown).map((p, i) => ({ x: X(i), y: Y(p.cum) }));
 
-  /* заливка под линией */
-  const g = ctx.createLinearGradient(0, box.t, 0, box.b);
-  g.addColorStop(0, `rgba(${rgb},.28)`);
-  g.addColorStop(1, `rgba(${rgb},0)`);
+  /* заливка под линией: градиент считаем от самой верхней точки кривой,
+     иначе на пологом участке слева заливка почти растворяется */
+  const topY = Math.min(...pts.map(p => p.y));
+  const g = ctx.createLinearGradient(0, topY, 0, box.b);
+  g.addColorStop(0, `rgba(${rgb},.32)`);
+  g.addColorStop(1, `rgba(${rgb},.02)`);
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.moveTo(pts[0].x, box.b);
-  pts.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(pts[0].x, pts[0].y);
+  smoothPath(ctx, pts);
   ctx.lineTo(pts[pts.length - 1].x, box.b);
   ctx.closePath(); ctx.fill();
 
@@ -392,7 +420,7 @@ function render() {
   ctx.lineWidth = 2;
   ctx.lineJoin = "round"; ctx.lineCap = "round";
   ctx.beginPath();
-  pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  smoothPath(ctx, pts);
   ctx.stroke();
   ctx.restore();
 
