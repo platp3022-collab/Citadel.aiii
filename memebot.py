@@ -1770,7 +1770,8 @@ class Bot:
                 f"Канал: {esc(self.tg.channel_id or 'не задан')}\n"
                 f"Тишина: {'да' if self.store.is_muted('global') else 'нет'}\n"
                 + (self.fresh.status_line() if self.fresh else "Свежие лончи: выкл")
-                + ("\n" + self.trader.status_line() if self.trader else ""), chat_id)
+                + ("\n" + self.trader.status_line() if self.trader else "")
+                + ("\n" + self.dash.status_line() if self.dash else ""), chat_id)
         elif cmd == "/scan":
             await self.tg.send("🔍 Запускаю скан...", chat_id)
             await self.scan_once(notify_empty=True)
@@ -1845,16 +1846,25 @@ class Bot:
             if self.dash is None:
                 await self.tg.send("Мини-апп выключен в настройках.", chat_id)
             elif self.dash.public_url:
-                # кнопка открывает страницу прямо внутри Telegram
+                # кнопка открывает страницу внутри Telegram, ссылка — в браузере,
+                # если клиент почему-то не тянет мини-апп
+                link = self.dash.link()
                 await self.tg.send(
-                    "📊 <b>Статистика бота</b>", chat_id,
+                    f"📊 <b>Статистика бота</b>\n\n"
+                    f"Не открывается кнопкой — вот прямая ссылка:\n{esc(link)}",
+                    chat_id,
                     markup={"inline_keyboard": [[{
-                        "text": "Открыть", "web_app": {"url": self.dash.link()}}]]})
+                        "text": "📊 Открыть", "web_app": {"url": link}}]]})
             else:
                 await self.tg.send(
-                    f"📊 <b>Статистика</b>\n{esc(self.dash.url)}\n\n"
-                    f"<i>Пока открывается только на компьютере с ботом. Чтобы смотреть "
-                    f"из Telegram, нужен cloudflared — см. README, раздел «Мини-апп».</i>",
+                    "📊 <b>Статистика</b>\n"
+                    f"{esc(self.dash.status_line())}\n\n"
+                    + ("Поставь cloudflared и перезапусти бота:\n"
+                       "<code>winget install --id Cloudflare.cloudflared</code>"
+                       if "cloudflared" in self.dash.reason else
+                       "Закрой лишние окна бота и перезапусти — порт занят."
+                       if "порт" in self.dash.reason else
+                       "Подробности в логе бота."),
                     chat_id)
         elif cmd == "/details":
             if self.fresh is None:
@@ -2051,6 +2061,9 @@ class Bot:
             # публичный адрес нужен, чтобы страница открывалась внутри Telegram
             if await self.dash.start_tunnel():
                 await self.tg.set_menu_button(self.dash.link())
+            else:
+                log.warning("Мини-апп в Telegram недоступен: %s",
+                            self.dash.reason or "причина неизвестна")
         await self.news.refresh()
         await self.tg.send(
             f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
@@ -2063,9 +2076,7 @@ class Bot:
                 + f"{num(self.trader.conf.get('size_sol')):.3f} SOL на сделку, "
                   f"лимит {num(self.trader.conf.get('daily_limit_sol')):.2f} SOL в сутки\n")
                if self.trader else "")
-            + (("📊 Статистика: кнопка «Статистика» в меню чата\n"
-                if self.dash.public_url else f"📊 Статистика: {esc(self.dash.url)}\n")
-               if self.dash else "")
+            + (f"📊 {esc(self.dash.status_line())}\n" if self.dash else "")
             + f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),

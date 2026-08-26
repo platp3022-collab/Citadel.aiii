@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 from aiohttp import web
 
 ROOT = Path(__file__).resolve().parent
@@ -161,6 +162,7 @@ class Dashboard:
         self.public_url = (os.environ.get("DASHBOARD_PUBLIC_URL", "").strip()
                            or str(self.conf.get("public_url", "")).strip())
         self.token = self._load_token()
+        self.reason = ""          # почему мини-апп недоступен снаружи
 
     def _load_token(self) -> str:
         """Секрет для публичного адреса: без него страницу увидит любой,
@@ -232,10 +234,20 @@ class Dashboard:
     async def start_tunnel(self) -> str:
         """Публичный https-адрес через cloudflared — без него Telegram
         мини-апп не откроет. Аккаунт и домен не нужны."""
-        if self.public_url or not self.conf.get("tunnel", True):
+        if self.public_url:
             return self.public_url
+        if not self.conf.get("tunnel", True):
+            self.reason = "туннель выключен в настройках"
+            return ""
+        if not self.runner:
+            # без этого туннель уводил бы на мёртвый порт, и мини-апп
+            # открывался бы в пустоту
+            self.reason = "локальный сервер не поднялся — порт занят другим окном бота?"
+            log.warning("Туннель не запускаю: %s", self.reason)
+            return ""
         exe = shutil.which("cloudflared")
         if not exe:
+            self.reason = "cloudflared не установлен"
             log.warning("cloudflared не найден — мини-апп в Telegram не поднять. "
                         "Установка: winget install Cloudflare.cloudflared "
                         "(или brew install cloudflared)")
@@ -259,12 +271,45 @@ class Dashboard:
                 found = pattern.search(line.decode("utf-8", "ignore"))
                 if found:
                     self.public_url = found.group(0)
-                    log.info("Туннель поднят: %s", self.public_url)
                     asyncio.create_task(self._drain_tunnel())
-                    return self.public_url
-        except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
-            log.warning("туннель не поднялся: %s", e)
+                    if await self.selfcheck():
+                        log.info("Туннель поднят и отвечает: %s", self.public_url)
+                        return self.public_url
+                    log.warning("Туннель поднялся, но страница через него не открылась: %s",
+                                self.reason)
+                    return ""
+        except asyncio.TimeoutError:
+            self.reason = "cloudflared не отдал адрес за отведённое время"
+            log.warning("Туннель не поднялся: %s", self.reason)
+        except Exception as e:  # noqa: BLE001
+            self.reason = f"ошибка туннеля: {e}"
+            log.warning("Туннель не поднялся: %s", e)
         return ""
+
+    async def selfcheck(self) -> bool:
+        """Проверяем публичный адрес снаружи: открывается ли страница на самом деле.
+        Иначе кнопка в Telegram ведёт в никуда, а понять это можно только по факту."""
+        url = self.link()
+        for attempt in range(6):
+            await asyncio.sleep(2)
+            try:
+                async with aiohttp.ClientSession() as s:
+                    async with s.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
+                        if r.status == 200:
+                            self.reason = ""
+                            return True
+                        self.reason = f"адрес отвечает {r.status}"
+            except Exception as e:  # noqa: BLE001
+                self.reason = f"адрес не отвечает ({type(e).__name__})"
+        return False
+
+    def status_line(self) -> str:
+        if self.public_url:
+            return f"Мини-апп: {self.public_url} (открывается в Telegram)"
+        if not self.runner:
+            return "Мини-апп не работает: " + (self.reason or "сервер не поднялся")
+        return (f"Мини-апп: {self.url} — только на этом компьютере"
+                + (f" ({self.reason})" if self.reason else ""))
 
     async def _drain_tunnel(self) -> None:
         """Читаем вывод дальше, иначе буфер переполнится и cloudflared встанет."""
