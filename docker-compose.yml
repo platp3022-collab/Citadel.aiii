@@ -3,6 +3,10 @@ services:
     build: .
     container_name: memebot
     env_file: .env
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:8420:8420"   # мини-апп со статистикой
     volumes:
       - ./data:/app/data
     restart: always

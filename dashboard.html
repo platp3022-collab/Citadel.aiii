@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Citadel · терминал</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #04050a;
+    --panel: rgba(255,255,255,.028);
+    --line: rgba(255,255,255,.07);
+    --text: #eef1f8;
+    --muted: #7b8497;
+    --up: #22e6a1;
+    --down: #ff4d6d;
+    --accent: #7c5cff;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 400 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    min-height: 100%;
+  }
+
+  /* мягкое свечение на фоне, чтобы чёрный не был плоским */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -30%;
+    background:
+      radial-gradient(38% 30% at 22% 12%, rgba(124,92,255,.20), transparent 70%),
+      radial-gradient(34% 28% at 82% 8%, rgba(34,230,161,.14), transparent 70%),
+      radial-gradient(40% 34% at 60% 96%, rgba(255,77,109,.10), transparent 72%);
+    filter: blur(30px);
+    animation: drift 26s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 0;
+  }
+  @keyframes drift {
+    from { transform: translate3d(-2%, -1%, 0) scale(1); }
+    to   { transform: translate3d(3%, 2%, 0) scale(1.08); }
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 1680px;
+    margin: 0 auto;
+    padding: clamp(18px, 3vw, 44px);
+    display: flex;
+    flex-direction: column;
+    gap: clamp(16px, 2vw, 28px);
+  }
+
+  /* ── шапка ─────────────────────────────────────────────── */
+  header { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between; }
+
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--up); box-shadow: 0 0 14px var(--up);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .dot.stale { background: var(--down); box-shadow: 0 0 14px var(--down); animation: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .brand h1 { font-size: 15px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
+  .brand span { color: var(--muted); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+
+  .badge {
+    font: 600 11px/1 var(--mono);
+    letter-spacing: .14em;
+    padding: 7px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .badge.live { color: var(--down); border-color: rgba(255,77,109,.4); box-shadow: 0 0 22px rgba(255,77,109,.16) inset; }
+
+  /* ── главная цифра ─────────────────────────────────────── */
+  .hero { display: flex; flex-wrap: wrap; align-items: flex-end; gap: clamp(20px, 4vw, 64px); }
+
+  .hero-label { color: var(--muted); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; margin-bottom: 6px; }
+
+  .hero-value {
+    font: 700 clamp(52px, 9vw, 116px)/1 var(--mono);
+    letter-spacing: -.03em;
+    background: linear-gradient(180deg, #fff 12%, var(--up) 130%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 42px rgba(34,230,161,.22));
+    transition: filter .4s ease;
+  }
+  .hero-value.neg {
+    background: linear-gradient(180deg, #fff 12%, var(--down) 130%);
+    -webkit-background-clip: text; background-clip: text;
+    filter: drop-shadow(0 0 42px rgba(255,77,109,.22));
+  }
+  .hero-value sup { font-size: .34em; vertical-align: super; letter-spacing: 0; }
+
+  .hero-sub { display: flex; gap: 22px; flex-wrap: wrap; padding-bottom: 10px; }
+  .hero-sub div { font-size: 13px; color: var(--muted); }
+  .hero-sub b { display: block; font: 600 20px/1.3 var(--mono); color: var(--text); }
+
+  /* ── плитки ────────────────────────────────────────────── */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; }
+
+  .kpi {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+  }
+  .kpi::after {
+    content: "";
+    position: absolute; inset: 0 0 auto 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+  }
+  .kpi .k { color: var(--muted); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+  .kpi .v { font: 600 26px/1.25 var(--mono); margin-top: 8px; letter-spacing: -.02em; }
+  .kpi .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+
+  /* ── график ────────────────────────────────────────────── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: clamp(16px, 2vw, 24px);
+    backdrop-filter: blur(8px);
+  }
+
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+  .card-head h2 { font-size: 13px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+  .card-head .note { font: 500 12px/1 var(--mono); color: var(--muted); }
+
+  .chart-shell { position: relative; width: 100%; aspect-ratio: 16 / 7; min-height: 260px; }
+  canvas { width: 100%; height: 100%; display: block; }
+
+  .empty {
+    position: absolute; inset: 0;
+    display: grid; place-content: center; gap: 8px; text-align: center;
+    color: var(--muted); font-size: 14px;
+  }
+  /* без этого display:grid перебивает атрибут hidden и заглушка
+     остаётся висеть поверх готового графика */
+  .empty[hidden] { display: none; }
+  .empty b { color: var(--text); font-size: 16px; }
+
+  /* ── мои монеты: строки как в кошельке ─────────────────── */
+  .holdings { display: flex; flex-direction: column; gap: 2px; }
+
+  .coin {
+    display: grid;
+    grid-template-columns: 46px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 13px 12px;
+    border-radius: 14px;
+    transition: background .2s ease, transform .2s ease;
+    animation: rise .5s cubic-bezier(.2,.7,.3,1) backwards;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  .coin:hover { background: rgba(255,255,255,.04); transform: translateX(2px); }
+
+  .ava {
+    width: 46px; height: 46px; border-radius: 50%;
+    display: grid; place-content: center;
+    font: 700 17px/1 var(--mono); letter-spacing: -.02em;
+    color: #05060a;
+    position: relative;
+  }
+  .ava::after {
+    content: ""; position: absolute; inset: -3px; border-radius: 50%;
+    border: 1px solid currentColor; opacity: .22;
+  }
+
+  .coin-name { font: 600 16px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  .coin-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .coin-sub b { color: rgba(255,255,255,.7); font-family: var(--mono); font-weight: 600; }
+
+  .coin-right { text-align: right; }
+  .coin-val { font: 600 17px/1.2 var(--mono); letter-spacing: -.01em; }
+  .coin-chg { font: 600 13.5px/1.4 var(--mono); }
+
+  .spark { display: block; margin-top: 5px; opacity: .85; }
+
+  .coin-empty {
+    padding: 30px 12px; text-align: center; color: var(--muted);
+    display: grid; gap: 6px;
+  }
+  .coin-empty b { color: var(--text); font-size: 16px; }
+
+  footer { color: var(--muted); font-size: 12px; text-align: center; padding: 8px 0 24px; }
+
+  @media (max-width: 640px) {
+    .hero-value { filter: none; }
+    .row { grid-template-columns: 1fr auto auto; }
+    .row .tag, .row .time { display: none; }
+    .chart-shell { aspect-ratio: 4 / 3; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="dot" id="dot"></span>
+      <div>
+        <h1>Citadel</h1>
+        <span id="clock">—</span>
+      </div>
+    </div>
+    <div class="badge" id="mode">—</div>
+  </header>
+
+  <section class="hero">
+    <div>
+      <div class="hero-label">Итог за всё время</div>
+      <div class="hero-value" id="total">0.0000<sup>SOL</sup></div>
+    </div>
+    <div class="hero-sub">
+      <div>За 24 часа<b id="today">0.0000</b></div>
+      <div>В открытых<b id="floating">0.0000</b></div>
+      <div>Сделок<b id="trades">0</b></div>
+    </div>
+  </section>
+
+  <section class="kpis">
+    <div class="kpi"><div class="k">Винрейт</div><div class="v" id="winrate">0%</div><div class="s" id="winrateSub">—</div></div>
+    <div class="kpi"><div class="k">Держим сейчас</div><div class="v" id="openCount">0</div><div class="s" id="openSub">—</div></div>
+    <div class="kpi"><div class="k">Лучшая сделка</div><div class="v up" id="best">0%</div><div class="s">максимум по одной монете</div></div>
+    <div class="kpi"><div class="k">Худшая сделка</div><div class="v down" id="worst">0%</div><div class="s">минимум по одной монете</div></div>
+    <div class="kpi"><div class="k">Среднее время</div><div class="v" id="avgTime">0м</div><div class="s">в позиции</div></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Кривая доходности</h2>
+      <span class="note" id="chartNote">—</span>
+    </div>
+    <div class="chart-shell">
+      <canvas id="chart"></canvas>
+      <div class="empty" id="chartEmpty" hidden>
+        <b>Сделок ещё не было</b>
+        <span>Как только бот войдёт и выйдет — здесь появится кривая</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Мои монеты</h2>
+      <span class="note" id="posNote">—</span>
+    </div>
+    <div class="holdings" id="positions"></div>
+  </section>
+
+  <footer id="foot">обновляется каждые 5 секунд</footer>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const fmtSol = (v, digits = 4) => (v >= 0 ? "+" : "") + v.toFixed(digits);
+const fmtPct = (v) => (v >= 0 ? "+" : "") + v.toFixed(0) + "%";
+const fmtMin = (m) => m >= 1440 ? (m / 1440).toFixed(1) + "д"
+                    : m >= 60 ? (m / 60).toFixed(1) + "ч"
+                    : Math.round(m) + "м";
+
+/* ── плавная перекатка чисел ──────────────────────────────── */
+const tweens = new Map();
+function animateNumber(el, to, render) {
+  const from = tweens.get(el) ?? to;
+  tweens.set(el, to);
+  if (from === to) { el.innerHTML = render(to); return; }
+  const t0 = performance.now(), dur = 650;
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / dur);
+    const eased = 1 - Math.pow(1 - k, 3);
+    el.innerHTML = render(from + (to - from) * eased);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/* ── 3D-график: перспективная лента доходности ────────────── */
+const canvas = $("chart");
+const ctx = canvas.getContext("2d");
+let equity = [], drawProgress = 0, animStart = 0;
+
+function resize() {
+  const r = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);   // до 3x — чётко на 4K
+  canvas.width = Math.round(r.width * dpr);
+  canvas.height = Math.round(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  render();
+}
+window.addEventListener("resize", resize);
+
+function project(x, y, z, box) {
+  // x,y,z в диапазоне 0..1 → экранные координаты с перспективным сдвигом
+  const dx = box.depth * z, dy = box.depthY * z;
+  return { x: box.left + x * box.w + dx, y: box.bottom - y * box.h - dy };
+}
+
+function render() {
+  const r = canvas.getBoundingClientRect();
+  const W = r.width, H = r.height;
+  ctx.clearRect(0, 0, W, H);
+  if (!equity.length) return;
+
+  const depth = Math.min(74, W * 0.07);
+  const box = {
+    left: 18, w: W - depth - 36,
+    bottom: H - 26, h: H - depth * 0.55 - 52,
+    depth, depthY: depth * 0.46,
+  };
+
+  const vals = equity.map(p => p.cum);
+  let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  if (hi - lo < 1e-9) { hi = lo + 1; }
+  const pad = (hi - lo) * 0.16;
+  lo -= pad; hi += pad;
+  const norm = (v) => (v - lo) / (hi - lo);
+  const zeroY = norm(0);
+
+  /* пол-сетка, уходящая в глубину */
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = i / 4;
+    const a = project(0, y, 1, box), b = project(1, y, 1, box);
+    const c = project(0, y, 0, box), d = project(1, y, 0, box);
+    ctx.strokeStyle = "rgba(255,255,255,.05)";
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,.035)";
+    ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(a.x, a.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+
+  /* линия нуля — по ней видно, где выход в плюс */
+  const z0 = project(0, zeroY, 0, box), z1 = project(1, zeroY, 0, box);
+  ctx.strokeStyle = "rgba(255,255,255,.22)";
+  ctx.setLineDash([4, 5]);
+  ctx.beginPath(); ctx.moveTo(z0.x, z0.y); ctx.lineTo(z1.x, z1.y); ctx.stroke();
+  ctx.setLineDash([]);
+
+  const n = equity.length;
+  const shown = Math.max(2, Math.ceil(n * drawProgress));
+  const pts = [];
+  for (let i = 0; i < shown; i++) {
+    const x = n === 1 ? 1 : i / (n - 1);
+    pts.push({
+      front: project(x, norm(equity[i].cum), 0, box),
+      back: project(x, norm(equity[i].cum), 1, box),
+      baseFront: project(x, zeroY, 0, box),
+      baseBack: project(x, zeroY, 1, box),
+      value: equity[i].cum,
+    });
+  }
+  if (pts.length < 2) return;
+
+  const positive = pts[pts.length - 1].value >= 0;
+  const rgb = positive ? "34,230,161" : "255,77,109";
+
+  /* верхняя грань ленты — то, что даёт объём */
+  const top = ctx.createLinearGradient(0, box.bottom - box.h, 0, box.bottom);
+  top.addColorStop(0, `rgba(${rgb},.55)`);
+  top.addColorStop(1, `rgba(${rgb},.14)`);
+  ctx.fillStyle = top;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].front.x, pts[0].front.y);
+  pts.forEach(p => ctx.lineTo(p.front.x, p.front.y));
+  for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i].back.x, pts[i].back.y);
+  ctx.closePath(); ctx.fill();
+
+  /* передняя стенка — заливка вниз до нуля */
+  const wall = ctx.createLinearGradient(0, box.bottom - box.h, 0, box.bottom);
+  wall.addColorStop(0, `rgba(${rgb},.30)`);
+  wall.addColorStop(1, `rgba(${rgb},.02)`);
+  ctx.fillStyle = wall;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].baseFront.x, pts[0].baseFront.y);
+  pts.forEach(p => ctx.lineTo(p.front.x, p.front.y));
+  ctx.lineTo(pts[pts.length - 1].baseFront.x, pts[pts.length - 1].baseFront.y);
+  ctx.closePath(); ctx.fill();
+
+  /* дальняя кромка — приглушённая */
+  ctx.strokeStyle = `rgba(${rgb},.35)`;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(p.back.x, p.back.y) : ctx.moveTo(p.back.x, p.back.y));
+  ctx.stroke();
+
+  /* ближняя кромка со свечением */
+  ctx.save();
+  ctx.shadowColor = `rgba(${rgb},.85)`;
+  ctx.shadowBlur = 22;
+  ctx.strokeStyle = `rgb(${rgb})`;
+  ctx.lineWidth = 2.4;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(p.front.x, p.front.y) : ctx.moveTo(p.front.x, p.front.y));
+  ctx.stroke();
+  ctx.restore();
+
+  /* точка «сейчас» */
+  const last = pts[pts.length - 1].front;
+  ctx.save();
+  ctx.shadowColor = `rgb(${rgb})`; ctx.shadowBlur = 20;
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(last.x, last.y, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  /* подписи по краям */
+  ctx.fillStyle = "rgba(255,255,255,.42)";
+  ctx.font = "500 11px ui-monospace, Menlo, Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(fmtSol(hi - pad, 3), 18, box.bottom - box.h - 8);
+  ctx.fillText(fmtSol(lo + pad, 3), 18, box.bottom + 16);
+}
+
+function animateChart() {
+  drawProgress = 0;
+  animStart = performance.now();
+  const step = (t) => {
+    const k = Math.min(1, (t - animStart) / 900);
+    drawProgress = 1 - Math.pow(1 - k, 3);
+    render();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/* ── отрисовка состояния ──────────────────────────────────── */
+function paint(s) {
+  const t = s.totals;
+
+  const total = $("total");
+  total.classList.toggle("neg", t.pnl_sol < 0);
+  animateNumber(total, t.pnl_sol, v => `${fmtSol(v)}<sup>SOL</sup>`);
+
+  const today = $("today");
+  today.className = s.today.pnl_sol >= 0 ? "up" : "down";
+  animateNumber(today, s.today.pnl_sol, v => fmtSol(v));
+
+  const floating = $("floating");
+  floating.className = s.floating_sol >= 0 ? "up" : "down";
+  animateNumber(floating, s.floating_sol, v => fmtSol(v));
+
+  animateNumber($("trades"), t.trades, v => Math.round(v).toString());
+  animateNumber($("winrate"), t.winrate, v => v.toFixed(0) + "%");
+  $("winrateSub").textContent = `${t.wins} из ${t.trades} в плюс`;
+
+  animateNumber($("openCount"), s.open.length, v => Math.round(v).toString());
+  const held = s.open.reduce((a, p) => a + p.size_sol, 0);
+  $("openSub").textContent = s.open.length ? `${held.toFixed(2)} SOL в рынке` : "всё в кэше";
+
+  animateNumber($("best"), t.best, v => fmtPct(v));
+  animateNumber($("worst"), t.worst, v => fmtPct(v));
+  $("avgTime").textContent = fmtMin(t.avg_minutes);
+
+  $("mode").textContent = s.mode === "live" ? "реальные деньги" : "бумага";
+  $("mode").classList.toggle("live", s.mode === "live");
+
+  /* график */
+  const changed = equity.length !== s.equity.length;
+  equity = s.equity;
+  $("chartEmpty").hidden = equity.length > 0;
+  $("chartNote").textContent = equity.length
+    ? `${equity.length} закрытых сделок · вложено ${t.invested.toFixed(2)} SOL`
+    : "ждём первую сделку";
+  if (changed) animateChart(); else render();
+
+  /* мои монеты — список как в кошельке */
+  const box = $("positions");
+  const heldSol = s.open.reduce((a, p) => a + p.size_sol * (1 + p.change_pct / 100), 0);
+  $("posNote").textContent = s.open.length
+    ? `${s.open.length} · ${heldSol.toFixed(3)} SOL` : "пусто";
+  box.innerHTML = s.open.length ? "" : `<div class="coin-empty">
+      <b>Сейчас ничего не держим</b>
+      <span>Бот войдёт сам, как только найдёт подходящую монету</span></div>`;
+
+  s.open.forEach((p, i) => {
+    const neg = p.change_pct < 0;
+    const color = neg ? "#ff4d6d" : "#22e6a1";
+    const now = p.size_sol * (1 + p.change_pct / 100);
+    const el = document.createElement("div");
+    el.className = "coin";
+    el.style.animationDelay = (i * 55) + "ms";
+    el.innerHTML = `
+      <div class="ava" style="background:linear-gradient(150deg, ${color}, ${neg ? "#7c2b46" : "#0f7f5c"});color:${color}">
+        <span style="color:#05060a">${(p.symbol || "?").slice(0, 2).toUpperCase()}</span>
+      </div>
+      <div>
+        <div class="coin-name">${p.symbol}</div>
+        <div class="coin-sub">
+          <span><b>${p.size_sol.toFixed(3)}</b> SOL вложено</span>
+          <span>держим <b>${fmtMin(p.minutes)}</b></span>
+          <span>макс <b>${fmtPct(p.high_pct)}</b></span>
+        </div>
+      </div>
+      <div class="coin-right">
+        <div class="coin-val">${now.toFixed(4)}</div>
+        <div class="coin-chg ${neg ? "down" : "up"}">${fmtPct(p.change_pct)}</div>
+        ${sparkline(p.change_pct, p.high_pct, color)}
+      </div>`;
+    box.appendChild(el);
+  });
+}
+
+/* маленький график хода позиции: вход → максимум → сейчас */
+function sparkline(change, high, color) {
+  const w = 76, h = 22;
+  const vals = [0, high * 0.55, high, change];
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = (hi - lo) || 1;
+  const pts = vals.map((v, i) =>
+    `${(i / (vals.length - 1) * (w - 2) + 1).toFixed(1)},${(h - 2 - (v - lo) / span * (h - 4)).toFixed(1)}`
+  ).join(" ");
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6"
+      stroke-linejoin="round" stroke-linecap="round" opacity=".9"/>
+  </svg>`;
+}
+
+/* ── опрос состояния ──────────────────────────────────────── */
+let failures = 0;
+
+async function tick() {
+  try {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    paint(await res.json());
+    failures = 0;
+    $("dot").classList.remove("stale");
+    $("foot").textContent = "обновлено " + new Date().toLocaleTimeString("ru-RU");
+  } catch (e) {
+    failures++;
+    $("dot").classList.add("stale");
+    $("foot").textContent = failures > 2 ? "бот не отвечает — он запущен?" : "переподключаюсь...";
+  }
+}
+
+setInterval(() => {
+  $("clock").textContent = new Date().toLocaleTimeString("ru-RU");
+}, 1000);
+
+resize();
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>

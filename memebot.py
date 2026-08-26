@@ -62,6 +62,11 @@ try:
 except ImportError:
     trader = None                          # type: ignore[assignment]
 
+try:
+    import dashboard                       # мини-апп со статистикой в браузере
+except ImportError:
+    dashboard = None                       # type: ignore[assignment]
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("memebot")
 
@@ -149,6 +154,8 @@ CONFIG: dict[str, Any] = {
         "stop_loss_pct": -35.0,
         "timeout_minutes": 30.0,
     },
+    # Мини-апп со статистикой: http://localhost:8420 (см. dashboard.py)
+    "dashboard": {"enabled": True, "host": "127.0.0.1", "port": 8420},
     "tracking": {"interval_minutes": 15, "window_hours": 48},
     "storage": {"path": "data/memebot.db", "keep_days": 7},
 }
@@ -1442,6 +1449,7 @@ HELP = (
     "/preset [axiom|fomo|safe|degen] — профиль автопилота\n"
     "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
     "/details [on|off] — показывать разбор монет в чате\n"
+    "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
     "/mode — бумага или реальные деньги\n"
@@ -1484,6 +1492,12 @@ class Bot:
                 session, storage=self.store, send=self.tg.broadcast,
                 conf={**(cfg("trade") or {}),
                       "storage_path": cfg("storage.path", "data/memebot.db")})
+
+        self.dash = None
+        if dashboard is not None and cfg("dashboard.enabled", True):
+            self.dash = dashboard.Dashboard(
+                {**(cfg("dashboard") or {}),
+                 "storage_path": cfg("storage.path", "data/memebot.db")})
 
         self.fresh = None
         if axiom_scout is not None and cfg("fresh.enabled", True):
@@ -1807,6 +1821,14 @@ class Bot:
                 elif arg and arg.lower() in ("off", "выкл", "0"):
                     self.trader.conf["enabled"] = False
                 await self.tg.send(self.trader.status_line(), chat_id)
+        elif cmd in ("/app", "/dash"):
+            if self.dash is None:
+                await self.tg.send("Мини-апп выключен в настройках.", chat_id)
+            else:
+                await self.tg.send(
+                    f"📊 <b>Мини-апп со статистикой</b>\n{esc(self.dash.url)}\n\n"
+                    f"<i>Открывается только на том компьютере, где запущен бот.</i>",
+                    chat_id)
         elif cmd == "/details":
             if self.fresh is None:
                 await self.tg.send("Модуль свежих лончей не подключён.", chat_id)
@@ -1997,6 +2019,8 @@ class Bot:
 
     async def run(self) -> None:
         await self.preflight()
+        if self.dash is not None:
+            await self.dash.start()
         await self.news.refresh()
         await self.tg.send(
             f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
@@ -2009,6 +2033,7 @@ class Bot:
                 + f"{num(self.trader.conf.get('size_sol')):.3f} SOL на сделку, "
                   f"лимит {num(self.trader.conf.get('daily_limit_sol')):.2f} SOL в сутки\n")
                if self.trader else "")
+            + (f"📊 Статистика: {esc(self.dash.url)}\n" if self.dash else "")
             + f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
