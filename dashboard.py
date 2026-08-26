@@ -265,8 +265,11 @@ class Dashboard:
             log.warning("не смог запустить cloudflared: %s", e)
             return ""
 
-        # адрес печатается в вывод в первые секунды
-        pattern = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+        # Адрес печатается в вывод в первые секунды. Служебный api.trycloudflare.com
+        # мелькает там раньше настоящего — его надо пропустить, иначе кнопка
+        # уводит на API Cloudflare, который отвечает "Method Not Allowed".
+        # Адрес туннеля всегда из нескольких слов через дефис.
+        pattern = re.compile(r"https://(?!api\.)[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com")
         try:
             for _ in range(60):
                 line = await asyncio.wait_for(self.tunnel_proc.stdout.readline(), timeout=30)
@@ -299,10 +302,19 @@ class Dashboard:
             try:
                 async with aiohttp.ClientSession() as s:
                     async with s.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
-                        if r.status == 200:
-                            self.reason = ""
-                            return True
-                        self.reason = f"адрес отвечает {r.status}"
+                        body = (await r.text())[:4000]
+                        if r.status != 200:
+                            self.reason = f"адрес отвечает {r.status}"
+                            continue
+                        # статус 200 сам по себе ничего не значит: по ошибке можно
+                        # попасть на чужой сервис, который бодро отвечает своим JSON
+                        if "Citadel" not in body:
+                            self.reason = "по адресу отвечает не наша страница"
+                            log.warning("Самопроверка: %s вернул чужой ответ: %s",
+                                        url, body[:120])
+                            return False
+                        self.reason = ""
+                        return True
             except Exception as e:  # noqa: BLE001
                 self.reason = f"адрес не отвечает ({type(e).__name__})"
         return False
