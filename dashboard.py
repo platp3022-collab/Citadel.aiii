@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -168,6 +169,18 @@ class Dashboard:
         return web.Response(text=self.page.read_text(encoding="utf-8"),
                             content_type="text/html", charset="utf-8")
 
+    async def _asset(self, request: web.Request) -> web.Response:
+        """Шрифты лежат рядом — страница не зависит от интернета и CDN."""
+        name = request.match_info.get("name", "")
+        # только простые имена: никаких путей наружу
+        if not re.fullmatch(r"[A-Za-z0-9._-]+\.woff2", name):
+            raise web.HTTPNotFound()
+        path = ROOT / "assets" / "fonts" / name
+        if not path.exists():
+            raise web.HTTPNotFound()
+        return web.Response(body=path.read_bytes(), content_type="font/woff2",
+                            headers={"Cache-Control": "public, max-age=604800"})
+
     async def _state(self, request: web.Request) -> web.Response:
         return web.json_response(self.data.state(),
                                  dumps=lambda d: json.dumps(d, ensure_ascii=False))
@@ -178,6 +191,7 @@ class Dashboard:
         app = web.Application()
         app.router.add_get("/", self._index)
         app.router.add_get("/api/state", self._state)
+        app.router.add_get("/assets/fonts/{name}", self._asset)
 
         self.runner = web.AppRunner(app, access_log=None)
         await self.runner.setup()
