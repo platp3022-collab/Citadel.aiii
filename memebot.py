@@ -1217,6 +1217,8 @@ class Telegram:
                     if r.status != 200:
                         body = (await r.text())[:250]
                         log.warning("Telegram %s (%s): %s", r.status, target, body)
+                        if markup and "BUTTON" in body.upper():
+                            log.error("Telegram не принял кнопку мини-аппа: %s", body)
                         if "chat not found" in body or "bot is not a member" in body:
                             log.error("Добавь бота в канал %s и сделай администратором "
                                       "с правом публикации.", target)
@@ -1748,7 +1750,11 @@ class Bot:
                 try:
                     await self.handle_command(text, chat_id)
                 except Exception as e:  # noqa: BLE001
+                    # молчание в ответ на команду — худший вариант: человек
+                    # не понимает, дошло ли вообще
                     log.exception("Команда %s: %s", text, e)
+                    await self.tg.send(f"Команда {esc(text.split()[0])} сломалась: "
+                                       f"{esc(str(e)[:200])}", chat_id)
 
     async def handle_command(self, text: str, chat_id: str) -> None:
         parts = text.split()
@@ -1846,15 +1852,19 @@ class Bot:
             if self.dash is None:
                 await self.tg.send("Мини-апп выключен в настройках.", chat_id)
             elif self.dash.public_url:
-                # кнопка открывает страницу внутри Telegram, ссылка — в браузере,
-                # если клиент почему-то не тянет мини-апп
+                # ссылку шлём отдельным сообщением и первой: если Telegram
+                # отобьёт кнопку мини-аппа, ответ всё равно придёт
                 link = self.dash.link()
-                await self.tg.send(
-                    f"📊 <b>Статистика бота</b>\n\n"
-                    f"Не открывается кнопкой — вот прямая ссылка:\n{esc(link)}",
-                    chat_id,
+                await self.tg.send(f"📊 <b>Статистика бота</b>\n{esc(link)}",
+                                   chat_id, preview=False)
+                ok = await self.tg.send(
+                    "Открыть прямо здесь:", chat_id,
                     markup={"inline_keyboard": [[{
                         "text": "📊 Открыть", "web_app": {"url": link}}]]})
+                if not ok:
+                    await self.tg.send(
+                        "Кнопку мини-аппа Telegram не принял — открой ссылку выше "
+                        "в браузере. Причина в логе бота.", chat_id)
             else:
                 await self.tg.send(
                     "📊 <b>Статистика</b>\n"

@@ -190,8 +190,12 @@ class Dashboard:
         return host in ("127.0.0.1", "::1", "localhost")
 
     def link(self, base: str = "") -> str:
-        base = base or self.public_url
-        return f"{base}?k={self.token}" if base else self.url
+        base = (base or self.public_url).rstrip("/")
+        if not base:
+            return self.url
+        # путь обязателен: адрес вида "https://host?k=..." Telegram считает
+        # некорректным для кнопки мини-аппа и отбивает всё сообщение
+        return f"{base}/?k={self.token}"
 
     @property
     def host(self) -> str:
