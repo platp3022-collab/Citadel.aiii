@@ -1438,7 +1438,10 @@ HELP = (
     "/check &lt;mint&gt; — полный разбор монеты по адресу\n"
     "/preset [axiom|fomo|safe|degen] — профиль автопилота\n"
     "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
-    "\n<b>Торговля</b> (сейчас бумажная — реальных сделок нет):\n"
+    "\n<b>Торговля</b>:\n"
+    "/wallet — кошелёк бота и баланс\n"
+    "/mode — бумага или реальные деньги\n"
+    "/buy &lt;минт&gt; [SOL] — купить вручную · /sell &lt;минт&gt; — продать\n"
     "/positions — открытые позиции\n"
     "/pnl [часы] — итог: сколько заработал или потерял\n"
     "/history [N] — последние сделки · /history all — все\n"
@@ -1797,6 +1800,68 @@ class Bot:
                 elif arg and arg.lower() in ("off", "выкл", "0"):
                     self.trader.conf["enabled"] = False
                 await self.tg.send(self.trader.status_line(), chat_id)
+        elif cmd == "/wallet":
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                await self.tg.send(await self.trader.wallet_info(), chat_id)
+        elif cmd == "/buy":
+            if self.trader is None or not arg:
+                await self.tg.send("Пример: <code>/buy &lt;минт&gt; [сколько SOL]</code>",
+                                   chat_id)
+            else:
+                size = num(parts[2], 0) if len(parts) > 2 else 0
+                if size:
+                    saved, self.trader.conf["size_sol"] = self.trader.conf["size_sol"], size
+                await self.tg.send(f"Покупаю на "
+                                   f"{num(self.trader.conf.get('size_sol')):.3f} SOL...",
+                                   chat_id)
+                pos = await self.trader.consider(arg, arg[:6], 100, "вручную")
+                if size:
+                    self.trader.conf["size_sol"] = saved
+                if not pos:
+                    await self.tg.send("Не вышло — причина в логе бота.", chat_id)
+        elif cmd == "/sell":
+            if self.trader is None or not arg:
+                await self.tg.send("Пример: <code>/sell &lt;минт или тикер&gt;</code>",
+                                   chat_id)
+            else:
+                pos = next((p for p in self.trader.positions
+                            if p.mint == arg or p.symbol.upper() == arg.upper()), None)
+                if not pos:
+                    await self.tg.send("Такой открытой позиции нет. /positions", chat_id)
+                else:
+                    sol = await self.trader.prices.sol_price()
+                    price = (await self.trader.prices.prices([pos.mint])).get(
+                        pos.mint, pos.last_price)
+                    await self.trader.close(pos, price, sol, "manual")
+        elif cmd == "/mode":
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            elif arg and arg.lower() in ("live", "реал"):
+                await self.tg.send(
+                    "Живой режим включается не командой, а в настройках — "
+                    "так нельзя случайно начать тратить деньги.\n\n"
+                    "1. Впиши <code>SOLANA_PRIVATE_KEY</code> в .env\n"
+                    "2. В memebot.py поставь <code>\"mode\": \"live\"</code> "
+                    "в блоке <code>CONFIG[\"trade\"]</code>\n"
+                    "3. Перезапусти бота и проверь /wallet", chat_id)
+            elif arg and arg.lower() in ("paper", "бумага"):
+                live_open = [p for p in self.trader.positions if p.mode == "live"]
+                if live_open:
+                    # иначе бот «закроет» их на бумаге, а купленные токены
+                    # так и останутся висеть в кошельке непроданными
+                    await self.tg.send(
+                        f"Сначала закрой реальные позиции ({len(live_open)} шт.) — "
+                        f"командой /sell по каждой. Иначе токены останутся в кошельке, "
+                        f"а бот будет считать их проданными.", chat_id)
+                else:
+                    self.trader.executor = trader.PaperExecutor(self.trader.conf)
+                    self.trader.conf["mode"] = "paper"
+                    await self.tg.send("Перешёл на бумагу. Реальные деньги "
+                                       "больше не тратятся.", chat_id)
+            else:
+                await self.tg.send(self.trader.status_line(), chat_id)
         elif cmd == "/size":
             if self.trader is None:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)
@@ -1918,9 +1983,11 @@ class Bot:
             f"Порог: {self.threshold:.0f}/100\n"
             + (f"Автопилот по свежим лончам: <b>{esc(self.fresh.preset.upper())}</b>, "
                f"порог {self.fresh.threshold:.0f}\n" if self.fresh else "")
-            + (f"Торговля: <b>{esc(self.trader.mode)}</b>, "
-               f"{num(self.trader.conf.get('size_sol')):.3f} SOL на сделку, "
-               f"лимит {num(self.trader.conf.get('daily_limit_sol')):.2f} SOL в сутки\n"
+            + (((f"💰 <b>РЕАЛЬНЫЕ ДЕНЬГИ</b> — кошелёк "
+                 f"<code>{esc(self.trader.wallet_address[:8])}…</code>\n"
+                 if self.trader.mode == "live" else "📄 Торговля бумажная\n")
+                + f"{num(self.trader.conf.get('size_sol')):.3f} SOL на сделку, "
+                  f"лимит {num(self.trader.conf.get('daily_limit_sol')):.2f} SOL в сутки\n")
                if self.trader else "")
             + f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)

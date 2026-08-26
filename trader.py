@@ -6,8 +6,9 @@
   paper — бумажная торговля (по умолчанию). Сделки только считаются: бот пишет,
           по какой цене вошёл бы, ведёт позицию, закрывает по тейку/стопу/таймауту
           и копит статистику. Реальных транзакций нет вообще.
-  live  — реальные сделки своим кошельком. Пока не подключено: сначала гоняем
-          бумагу, смотрим статистику, правим настройки, и только потом деньги.
+  live  — реальные сделки своим кошельком. Своп идёт через Jupiter, транзакция
+          подписывается локально ключом из SOLANA_PRIVATE_KEY и уходит в сеть
+          уже подписанной. Ключ никуда не отправляется и в логи не пишется.
 
 Бумажный расчёт честный: с проскальзыванием на входе и выходе, комиссией
 протокола и сетевым сбором. Иначе статистика врёт в плюс и решение принимается
@@ -17,8 +18,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import csv
+import json
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -59,13 +63,24 @@ DEFAULTS: dict[str, Any] = {
     "fee_pct": 1.0,                  # своп + комиссия лончпада
     "network_fee_sol": 0.0005,       # сеть + приоритетка на сделку
 
+    # ---- реальные сделки (mode: live) ----
+    "slippage_bps": 1000,            # 10% — у свежих монет стакан узкий, иначе не пройдёт
+    "priority_fee_lamports": 300000, # приоритетная комиссия, чтобы попасть в блок
+    "max_trade_sol": 0.5,            # жёсткий потолок на одну сделку
+    "min_sol_reserve": 0.02,         # неснижаемый остаток на комиссии
+    "confirm_timeout": 90,           # сколько ждём подтверждения сети
+    "rpc_url": "",                   # пусто = SOLANA_RPC_URL из .env или публичный
+
     "poll_seconds": 30,              # как часто переоценивать позиции
     "storage_path": "data/memebot.db",
 }
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
 JUP_LITE = "https://lite-api.jup.ag"
+JUP_SWAP = "https://lite-api.jup.ag/swap/v1"
 DEX_API = "https://api.dexscreener.com"
+DEFAULT_RPC = "https://api.mainnet-beta.solana.com"
+LAMPORTS = 1_000_000_000
 
 EXIT_PLAIN = {"take_profit": "тейк", "stop_loss": "стоп", "trailing": "трейлинг",
               "timeout": "таймаут", "manual": "вручную"}
@@ -377,26 +392,210 @@ class PaperExecutor:
         return max(0.0, net), fill
 
 
-class LiveExecutor(PaperExecutor):
-    """Реальные сделки своим кошельком — пока не подключено.
+def dig(obj: Any, *path: str, default: Any = None) -> Any:
+    cur = obj
+    for key in path:
+        if isinstance(cur, dict) and key in cur:
+            cur = cur[key]
+        else:
+            return default
+    return cur if cur is not None else default
 
-    Когда будем включать: приватный ключ кошелька читается из переменной
-    SOLANA_PRIVATE_KEY в .env, транзакция собирается через Jupiter Swap API
-    и подписывается локально. Ключ никуда не отправляется и в логи не пишется.
-    Включать только после того, как бумажная статистика покажет смысл.
+
+class WalletError(Exception):
+    """Проблема с кошельком или ключом."""
+
+
+class Wallet:
+    """Кошелёк из приватного ключа. Ключ живёт только в памяти процесса."""
+
+    def __init__(self, secret: str):
+        from solders.keypair import Keypair
+
+        secret = (secret or "").strip()
+        if not secret:
+            raise WalletError("SOLANA_PRIVATE_KEY не задан в .env")
+        try:
+            if secret.startswith("["):          # формат solana-keygen: массив байтов
+                self.keypair = Keypair.from_bytes(bytes(json.loads(secret)))
+            else:                               # base58 — так экспортирует Phantom
+                self.keypair = Keypair.from_base58_string(secret)
+        except Exception as e:                  # noqa: BLE001
+            raise WalletError("не смог прочитать приватный ключ — проверь, "
+                              "что он скопирован целиком") from e
+
+    @property
+    def address(self) -> str:
+        return str(self.keypair.pubkey())
+
+    def sign(self, tx_base64: str) -> str:
+        """Подписывает транзакцию, собранную Jupiter, и отдаёт готовую к отправке."""
+        from solders.transaction import VersionedTransaction
+
+        unsigned = VersionedTransaction.from_bytes(base64.b64decode(tx_base64))
+        signed = VersionedTransaction(unsigned.message, [self.keypair])
+        return base64.b64encode(bytes(signed)).decode()
+
+
+class SolanaRPC:
+    """Тонкий клиент RPC: баланс, отправка и подтверждение транзакций."""
+
+    def __init__(self, session: aiohttp.ClientSession, url: str = ""):
+        self.session = session
+        self.url = url or os.environ.get("SOLANA_RPC_URL", "").strip() or DEFAULT_RPC
+        self._id = 0
+
+    async def call(self, method: str, params: list) -> Any:
+        self._id += 1
+        payload = {"jsonrpc": "2.0", "id": self._id, "method": method, "params": params}
+        async with self.session.post(self.url, json=payload,
+                                     timeout=aiohttp.ClientTimeout(total=30)) as r:
+            data = await r.json(content_type=None)
+        if isinstance(data, dict) and data.get("error"):
+            raise RuntimeError(f"RPC {method}: {dig(data, 'error', 'message')}")
+        return (data or {}).get("result")
+
+    async def balance_sol(self, address: str) -> float:
+        res = await self.call("getBalance", [address])
+        return num(dig(res, "value")) / LAMPORTS
+
+    async def token_balance(self, owner: str, mint: str) -> tuple[int, int]:
+        """Сколько токенов лежит на кошельке: (сырое количество, знаков после запятой)."""
+        res = await self.call("getTokenAccountsByOwner",
+                              [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
+        total, decimals = 0, 0
+        for acc in (dig(res, "value", default=[]) or []):
+            info = dig(acc, "account", "data", "parsed", "info") or {}
+            total += int(num(dig(info, "tokenAmount", "amount")))
+            decimals = int(num(dig(info, "tokenAmount", "decimals")))
+        return total, decimals
+
+    async def send(self, signed_base64: str) -> str:
+        return await self.call("sendTransaction", [signed_base64, {
+            "encoding": "base64", "skipPreflight": True, "maxRetries": 3}])
+
+    async def confirm(self, signature: str, timeout: float = 90) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            res = await self.call("getSignatureStatuses",
+                                  [[signature], {"searchTransactionHistory": True}])
+            status = (dig(res, "value", default=[None]) or [None])[0]
+            if status:
+                if status.get("err"):
+                    raise RuntimeError(f"сеть отклонила транзакцию: {status['err']}")
+                if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                    return True
+            await asyncio.sleep(2)
+        return False
+
+
+class LiveExecutor(PaperExecutor):
+    """Реальные сделки: маршрут считает Jupiter, подпись ставится здесь.
+
+    Jupiter отдаёт неподписанную транзакцию — ключ ей не нужен и не передаётся.
+    Подпись происходит локально, в сеть уходит уже подписанная транзакция.
     """
 
     mode = "live"
 
+    def __init__(self, conf: dict[str, Any], session: aiohttp.ClientSession):
+        super().__init__(conf)
+        self.session = session
+        self.wallet = Wallet(os.environ.get("SOLANA_PRIVATE_KEY", ""))
+        self.rpc = SolanaRPC(session, str(conf.get("rpc_url", "")))
+        log.info("Кошелёк подключён: %s", self.wallet.address)
+
+    # ---------- Jupiter ----------
+
+    async def _quote(self, input_mint: str, output_mint: str, amount: int) -> dict:
+        params = {"inputMint": input_mint, "outputMint": output_mint,
+                  "amount": str(int(amount)),
+                  "slippageBps": str(int(num(self.conf.get("slippage_bps"), 1000))),
+                  "restrictIntermediateTokens": "true"}
+        async with self.session.get(f"{JUP_SWAP}/quote", params=params,
+                                    timeout=aiohttp.ClientTimeout(total=20)) as r:
+            data = await r.json(content_type=None)
+        if not isinstance(data, dict) or not data.get("outAmount"):
+            raise RuntimeError(f"Jupiter не нашёл маршрут: {str(data)[:160]}")
+        return data
+
+    async def _swap_tx(self, quote: dict) -> str:
+        payload = {
+            "quoteResponse": quote,
+            "userPublicKey": self.wallet.address,
+            "wrapAndUnwrapSol": True,
+            "dynamicComputeUnitLimit": True,
+            "prioritizationFeeLamports": {"priorityLevelWithMaxLamports": {
+                "maxLamports": int(num(self.conf.get("priority_fee_lamports"), 300000)),
+                "priorityLevel": "high"}},
+        }
+        async with self.session.post(f"{JUP_SWAP}/swap", json=payload,
+                                     timeout=aiohttp.ClientTimeout(total=30)) as r:
+            data = await r.json(content_type=None)
+        tx = dig(data, "swapTransaction")
+        if not tx:
+            raise RuntimeError(f"Jupiter не собрал транзакцию: {str(data)[:160]}")
+        return tx
+
+    async def _execute(self, quote: dict) -> str:
+        signature = await self.rpc.send(self.wallet.sign(await self._swap_tx(quote)))
+        if not await self.rpc.confirm(signature, num(self.conf.get("confirm_timeout"), 90)):
+            raise RuntimeError("сеть не подтвердила транзакцию за отведённое время: "
+                               f"https://solscan.io/tx/{signature}")
+        log.info("Транзакция прошла: https://solscan.io/tx/%s", signature)
+        return signature
+
+    # ---------- сделки ----------
+
     async def buy(self, mint: str, size_sol: float, price: float,
                   sol_price: float) -> tuple[float, float]:
-        raise NotImplementedError(
-            "Реальная торговля ещё не подключена — работаем в режиме paper")
+        cap = num(self.conf.get("max_trade_sol"), 0.5)
+        if cap and size_sol > cap:
+            raise RuntimeError(f"размер сделки {size_sol} SOL выше потолка {cap} SOL")
+
+        reserve = num(self.conf.get("min_sol_reserve"), 0.02)
+        balance = await self.rpc.balance_sol(self.wallet.address)
+        if balance < size_sol + reserve:
+            raise RuntimeError(f"на кошельке {balance:.4f} SOL — не хватает на сделку "
+                               f"{size_sol:.3f} плюс резерв {reserve:.3f}")
+
+        before, _ = await self.rpc.token_balance(self.wallet.address, mint)
+        await self._execute(await self._quote(SOL_MINT, mint, int(size_sol * LAMPORTS)))
+
+        # сколько токенов реально пришло — читаем с кошелька, а не верим котировке
+        raw, decimals = before, 0
+        for _ in range(10):
+            raw, decimals = await self.rpc.token_balance(self.wallet.address, mint)
+            if raw > before:
+                break
+            await asyncio.sleep(2)
+        got = (raw - before) / (10 ** decimals or 1)
+        if got <= 0:
+            raise RuntimeError("транзакция прошла, но токены на кошельке не появились")
+        fill = size_sol * sol_price / got
+        log.info("Куплено %.4f токенов по %.10f", got, fill)
+        return got, fill
 
     async def sell(self, position: Position, price: float,
                    sol_price: float) -> tuple[float, float]:
-        raise NotImplementedError(
-            "Реальная торговля ещё не подключена — работаем в режиме paper")
+        raw, decimals = await self.rpc.token_balance(self.wallet.address, position.mint)
+        if raw <= 0:
+            raise RuntimeError("токенов на кошельке нет — продавать нечего")
+
+        sol_before = await self.rpc.balance_sol(self.wallet.address)
+        await self._execute(await self._quote(position.mint, SOL_MINT, raw))
+
+        sol_after = sol_before
+        for _ in range(10):
+            sol_after = await self.rpc.balance_sol(self.wallet.address)
+            if sol_after > sol_before:
+                break
+            await asyncio.sleep(2)
+        got_sol = max(0.0, sol_after - sol_before)
+        tokens = raw / (10 ** decimals or 1)
+        fill = got_sol * sol_price / tokens if tokens else 0.0
+        log.info("Продано %.4f токенов, получено %.4f SOL", tokens, got_sol)
+        return got_sol, fill
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -537,18 +736,59 @@ class Trader:
         self.send = send
         self.prices = PriceFeed(session)
         self.store = TradeStore(storage, self.conf.get("storage_path", "data/memebot.db"))
-        self.executor: PaperExecutor = (LiveExecutor(self.conf)
-                                        if self.conf.get("mode") == "live"
-                                        else PaperExecutor(self.conf))
+        self.executor: PaperExecutor = self._make_executor()
         self.positions: list[Position] = self.store.open_positions()
         self.stop_event = asyncio.Event()
         self.last_error = ""
         if self.positions:
             log.info("Подхватил %d открытых позиций из базы", len(self.positions))
 
+    def _make_executor(self) -> PaperExecutor:
+        """Живой режим — только если кошелёк реально удалось открыть.
+
+        Не смогли (нет ключа, кривой ключ, нет solders) — честно откатываемся
+        на бумагу и говорим об этом, а не делаем вид, что торгуем.
+        """
+        if str(self.conf.get("mode", "paper")).lower() != "live":
+            return PaperExecutor(self.conf)
+        try:
+            return LiveExecutor(self.conf, self.session)
+        except WalletError as e:
+            log.error("Живой режим не включился (%s) — работаю на бумаге", e)
+        except ImportError:
+            log.error("Нет библиотеки solders — поставь зависимости заново "
+                      "(pip install -r requirements.txt). Работаю на бумаге")
+        except Exception as e:  # noqa: BLE001
+            log.error("Живой режим не включился: %s — работаю на бумаге", e)
+        self.conf["mode"] = "paper"
+        return PaperExecutor(self.conf)
+
     @property
     def mode(self) -> str:
         return self.executor.mode
+
+    @property
+    def wallet_address(self) -> str:
+        wallet = getattr(self.executor, "wallet", None)
+        return wallet.address if wallet else ""
+
+    async def wallet_info(self) -> str:
+        """Адрес кошелька и баланс — для команды /wallet."""
+        if self.mode != "live":
+            return ("Режим: <b>бумажный</b> — кошелёк не подключён, "
+                    "реальные деньги не тратятся.\n"
+                    "Чтобы включить: SOLANA_PRIVATE_KEY в .env и mode: live.")
+        try:
+            balance = await self.executor.rpc.balance_sol(self.wallet_address)
+        except Exception as e:  # noqa: BLE001
+            return f"Кошелёк: <code>{esc(self.wallet_address)}</code>\nБаланс не прочитался: {esc(e)}"
+        return "\n".join([
+            "💰 <b>Кошелёк бота</b>",
+            f"<code>{esc(self.wallet_address)}</code>",
+            f"Баланс: <b>{balance:.4f} SOL</b>",
+            f"Размер сделки: {num(self.conf.get('size_sol')):.3f} SOL · "
+            f"лимит {num(self.conf.get('daily_limit_sol')):.2f} SOL в сутки",
+        ])
 
     # ---------- вход ----------
 
@@ -592,8 +832,13 @@ class Trader:
         size = num(self.conf.get("size_sol"), 0.1)
         try:
             tokens, fill = await self.executor.buy(mint, size, price, sol_price)
-        except NotImplementedError as e:
-            log.error("%s", e)
+        except Exception as e:  # noqa: BLE001
+            # не влезли в маршрут, не хватило баланса, сеть отбила транзакцию —
+            # пропускаем монету, но говорим об этом вслух, а не молча
+            self.last_error = str(e)[:200]
+            log.error("Вход в $%s не состоялся: %s", symbol or mint[:8], e)
+            if self.send and self.mode == "live":
+                await self.send(f"⚠️ Не смог купить <b>${esc(symbol)}</b>: {esc(e)}")
             return None
         if tokens <= 0:
             return None
@@ -632,7 +877,17 @@ class Trader:
 
     async def close(self, p: Position, price: float, sol_price: float,
                     reason: str) -> None:
-        got_sol, fill = await self.executor.sell(p, price, sol_price)
+        try:
+            got_sol, fill = await self.executor.sell(p, price, sol_price)
+        except Exception as e:  # noqa: BLE001
+            # продажа не прошла — позиция остаётся открытой и будет
+            # переоценена в следующем цикле, а не потеряется
+            self.last_error = str(e)[:200]
+            log.error("Выход из $%s не состоялся: %s", p.symbol or p.mint[:8], e)
+            if self.send and self.mode == "live":
+                await self.send(f"⚠️ Не смог продать <b>${esc(p.symbol)}</b>: {esc(e)}\n"
+                                f"Позиция осталась открытой, попробую снова.")
+            return
         p.status = "closed"
         p.exit_price = fill
         p.exit_ts = time.time()
