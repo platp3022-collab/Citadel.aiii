@@ -756,8 +756,8 @@ class Trader:
         except WalletError as e:
             log.error("Живой режим не включился (%s) — работаю на бумаге", e)
         except ImportError:
-            log.error("Нет библиотеки solders — поставь зависимости заново "
-                      "(pip install -r requirements.txt). Работаю на бумаге")
+            log.error("Для живого режима нужны solders и base58. Поставь их: "
+                      "pip install -r requirements-live.txt. Работаю на бумаге")
         except Exception as e:  # noqa: BLE001
             log.error("Живой режим не включился: %s — работаю на бумаге", e)
         self.conf["mode"] = "paper"

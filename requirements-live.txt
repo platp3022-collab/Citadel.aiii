@@ -1,0 +1,8 @@
+# Нужно только для режима live (реальные сделки своим кошельком).
+# Для бумажной торговли не требуется.
+#
+#   .venv\Scripts\pip install -r requirements-live.txt      (Windows)
+#   .venv/bin/pip install -r requirements-live.txt          (Mac/Linux)
+
+solders>=0.21          # подпись транзакций Solana
+base58>=2.1
