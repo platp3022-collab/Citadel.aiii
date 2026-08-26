@@ -223,6 +223,25 @@ class TradeStore:
                 (since_ts,)).fetchone()
         return num(row["s"]) if row else 0.0
 
+    def recent_closed(self, limit: int = 10) -> list[dict]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM trades WHERE status='closed'"
+                " ORDER BY exit_ts DESC LIMIT ?", (int(limit),)).fetchall()
+        return [dict(r) for r in rows]
+
+    def totals(self) -> dict:
+        """Итог за всё время работы бота."""
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(pnl_sol),0) AS pnl,"
+                " COALESCE(SUM(size_sol),0) AS invested,"
+                " COALESCE(SUM(CASE WHEN pnl_sol>0 THEN 1 ELSE 0 END),0) AS wins,"
+                " COALESCE(AVG((exit_ts-opened_ts)/60.0),0) AS avg_minutes,"
+                " MIN(opened_ts) AS first_ts"
+                " FROM trades WHERE status='closed'").fetchone()
+        return dict(row) if row else {}
+
     def closed_since(self, since_ts: float) -> list[dict]:
         with self.lock:
             rows = self.conn.execute(
@@ -410,6 +429,33 @@ def positions_message(positions: list[Position], conf: dict[str, Any]) -> str:
                    + f" · сейчас {p.last_price:.10f}".rstrip("0")
                    + f" · макс {p.change_pct(p.high_price):+.0f}%\n"
                    f"   <code>{esc(p.mint)}</code>")
+    return "\n".join(out)
+
+
+def _ago(ts: float) -> str:
+    minutes = max(0.0, (time.time() - num(ts)) / 60.0)
+    if minutes < 60:
+        return f"{minutes:.0f} мин назад"
+    if minutes < 1440:
+        return f"{minutes/60:.0f} ч назад"
+    return f"{minutes/1440:.0f} дн назад"
+
+
+def history_message(rows: list[dict], limit: int) -> str:
+    """Список последних закрытых сделок."""
+    if not rows:
+        return "Сделок пока не было."
+    out = [f"📜 <b>Последние сделки</b> (показано {len(rows)})"]
+    for r in rows:
+        pnl = num(r.get("pnl_sol"))
+        emoji = "🟢" if pnl > 0 else "🔴"
+        held = (num(r.get("exit_ts")) - num(r.get("opened_ts"))) / 60.0
+        out.append(
+            f"\n{emoji} <b>${esc(r.get('symbol') or '—')}</b> "
+            f"{num(r.get('pnl_pct')):+.1f}% · {fmt_sol(pnl)}\n"
+            f"   {EXIT_LABELS.get(r.get('exit_reason'), r.get('exit_reason') or '')} · "
+            f"держал {held:.0f} мин · {_ago(r.get('exit_ts'))}\n"
+            f"   скор {num(r.get('score')):.0f} · вход {num(r.get('size_sol')):.3f} SOL")
     return "\n".join(out)
 
 
@@ -604,8 +650,30 @@ class Trader:
     # ---------- отчёты ----------
 
     def stats(self, hours: float = 24) -> str:
-        return pnl_message(self.store.closed_since(time.time() - hours * 3600),
+        """Сводка за период + итог за всё время + плавающий результат по открытым."""
+        text = pnl_message(self.store.closed_since(time.time() - hours * 3600),
                            hours, self.mode)
+        t = self.store.totals()
+        if num(t.get("n")):
+            invested = num(t.get("invested"))
+            pnl = num(t.get("pnl"))
+            since = (f" (первая сделка {_ago(t.get('first_ts'))})"
+                     if t.get("first_ts") else "")
+            text += ("\n\n<b>За всё время</b>" + esc(since) + ":\n"
+                     f"Сделок: {int(num(t.get('n')))} · в плюс: {int(num(t.get('wins')))}"
+                     f" ({num(t.get('wins'))/num(t.get('n'))*100:.0f}%)\n"
+                     f"Итог: <b>{fmt_sol(pnl)}</b>"
+                     + (f" ({pnl/invested*100:+.1f}% от вложенного)" if invested else "")
+                     + f"\nСредняя сделка длилась {num(t.get('avg_minutes')):.0f} мин")
+
+        if self.positions:
+            floating = sum(p.change_pct() for p in self.positions) / len(self.positions)
+            text += (f"\n\nСейчас открыто: {len(self.positions)} "
+                     f"(в среднем {floating:+.1f}%)")
+        return text
+
+    def history(self, limit: int = 10) -> str:
+        return history_message(self.store.recent_closed(max(1, min(limit, 30))), limit)
 
     def status_line(self) -> str:
         spent = self.store.spent_since(time.time() - 86400)
@@ -621,6 +689,7 @@ class Trader:
 TRADE_HELP = (
     "/positions — открытые позиции\n"
     "/pnl [часы] — результат торговли\n"
+    "/history [N] — список последних сделок\n"
     "/trade [on|off] — включить или остановить входы\n"
     "/close &lt;mint&gt; — закрыть позицию вручную\n"
     "/size [SOL] — размер одной сделки"

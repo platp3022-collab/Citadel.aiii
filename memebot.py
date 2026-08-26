@@ -1412,7 +1412,8 @@ HELP = (
     "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
     "\n<b>Торговля</b> (сейчас бумажная — реальных сделок нет):\n"
     "/positions — открытые позиции\n"
-    "/pnl [часы] — результат торговли\n"
+    "/pnl [часы] — итог: сколько заработал или потерял\n"
+    "/history [N] — история сделок\n"
     "/trade [on|off] — включить или остановить входы\n"
     "/close &lt;mint&gt; — закрыть позицию вручную\n"
     "/size [SOL] — размер одной сделки\n\n"
@@ -1730,6 +1731,12 @@ class Bot:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)
             else:
                 await self.tg.send(self.trader.stats(hours()), chat_id)
+        elif cmd in ("/history", "/trades"):
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                await self.tg.send(self.trader.history(int(num(arg, 10)) if arg else 10),
+                                   chat_id)
         elif cmd == "/trade":
             if self.trader is None:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)
