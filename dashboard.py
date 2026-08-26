@@ -336,6 +336,27 @@ class Dashboard:
         except Exception:  # noqa: BLE001
             pass
 
+    async def watch_tunnel(self, on_change, stop: asyncio.Event | None = None) -> None:
+        """Держит туннель живым.
+
+        Быстрый туннель существует ровно пока работает cloudflared: упал процесс —
+        домен перестаёт существовать (NXDOMAIN), и старая ссылка мертва навсегда.
+        Поэтому следим за процессом и поднимаем заново, сообщая новый адрес.
+        """
+        while not (stop and stop.is_set()):
+            if not self.tunnel_proc or not self.public_url:
+                await asyncio.sleep(30)
+                continue
+            await self.tunnel_proc.wait()
+            if stop and stop.is_set():
+                return
+            log.warning("Туннель отвалился — поднимаю заново")
+            self.tunnel_proc, self.public_url = None, ""
+            await on_change("")                       # старую ссылку убираем сразу
+            await asyncio.sleep(3)
+            if await self.start_tunnel():
+                await on_change(self.link())
+
     async def start(self) -> None:
         if not self.conf.get("enabled", True):
             return

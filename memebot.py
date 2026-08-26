@@ -1274,13 +1274,19 @@ class Telegram:
             log.warning("Отправка файла: %s", e)
             return False
 
-    async def set_menu_button(self, url: str, text: str = "Статистика") -> bool:
-        """Постоянная кнопка мини-аппа слева от поля ввода в чате с ботом."""
+    async def set_menu_button(self, url: str = "", text: str = "Статистика") -> bool:
+        """Кнопка мини-аппа слева от поля ввода в чате с ботом.
+
+        Пустой url убирает кнопку. Это важно: кнопка живёт на стороне Telegram
+        и остаётся от прошлого запуска, поэтому старый адрес туннеля продолжал
+        бы открываться даже после перезапуска бота с новым.
+        """
         if self.dry or not self.token or not self.admin_chat_id:
             return False
         payload = {"chat_id": self.admin_chat_id,
                    "menu_button": {"type": "web_app", "text": text,
-                                   "web_app": {"url": url}}}
+                                   "web_app": {"url": url}} if url
+                                  else {"type": "commands"}}
         try:
             async with self.session.post(f"{self.api}/setChatMenuButton", json=payload,
                                          timeout=aiohttp.ClientTimeout(total=20)) as r:
@@ -1721,6 +1727,20 @@ class Bot:
             mint=a.launch.mint, symbol=a.launch.symbol, score=a.score,
             launchpad=a.launch.launchpad, price_hint=a.launch.price_usd)
 
+    async def tunnel_loop(self) -> None:
+        """Туннель падает — поднимаем заново и обновляем кнопку с новым адресом."""
+        if self.dash is None:
+            return
+
+        async def on_change(link: str) -> None:
+            await self.tg.set_menu_button(link)
+            if link:
+                await self.tg.send(
+                    f"📊 Адрес статистики обновился:\n{esc(link)}",
+                    chat_id=self.tg.admin_chat_id or None)
+
+        await self.dash.watch_tunnel(on_change, self.stop_event)
+
     async def trader_loop(self) -> None:
         """Ведение открытых позиций: тейк, стоп, трейлинг, таймаут."""
         if self.trader is None:
@@ -2068,10 +2088,13 @@ class Bot:
         await self.preflight()
         if self.dash is not None:
             await self.dash.start()
-            # публичный адрес нужен, чтобы страница открывалась внутри Telegram
-            if await self.dash.start_tunnel():
-                await self.tg.set_menu_button(self.dash.link())
-            else:
+            # Публичный адрес нужен, чтобы страница открывалась внутри Telegram.
+            # Кнопку переписываем в любом случае: адрес быстрого туннеля меняется
+            # при каждом запуске, а старая кнопка на стороне Telegram живёт вечно
+            # и вела бы на уже несуществующий домен.
+            link = self.dash.link() if await self.dash.start_tunnel() else ""
+            await self.tg.set_menu_button(link)
+            if not link:
                 log.warning("Мини-апп в Telegram недоступен: %s",
                             self.dash.reason or "причина неизвестна")
         await self.news.refresh()
@@ -2091,7 +2114,8 @@ class Bot:
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
                              self.tracker_loop(), self.telegram_loop(),
-                             self.fresh_loop(), self.trader_loop())
+                             self.fresh_loop(), self.trader_loop(),
+                             self.tunnel_loop())
 
 
 # ════════════════════════════════════════════════════════════════════════════
