@@ -57,6 +57,11 @@ try:
 except ImportError:                        # модуль удалили — основной бот всё равно работает
     axiom_scout = None                     # type: ignore[assignment]
 
+try:
+    import trader                          # бумажная (позже — реальная) торговля
+except ImportError:
+    trader = None                          # type: ignore[assignment]
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("memebot")
 
@@ -128,6 +133,18 @@ CONFIG: dict[str, Any] = {
         "enabled": True,
         "preset": "axiom",                  # axiom | fomo | safe | degen
         "overrides": {},                    # точечно переопределить любой ключ пресета
+    },
+    # Торговля по находкам сканера — см. trader.py.
+    # mode: paper = только считаем сделки, реальных транзакций нет.
+    "trade": {
+        "enabled": True,
+        "mode": "paper",
+        "size_sol": 0.1,
+        "daily_limit_sol": 1.0,
+        "max_positions": 3,
+        "take_profit_pct": 60.0,
+        "stop_loss_pct": -35.0,
+        "timeout_minutes": 30.0,
     },
     "tracking": {"interval_minutes": 15, "window_hours": 48},
     "storage": {"path": "data/memebot.db", "keep_days": 7},
@@ -1201,6 +1218,11 @@ class Telegram:
     async def broadcast(self, text: str, short_text: str | None = None) -> bool:
         """Алерт во все адресаты: в канал — короткая версия (если включена),
         в личку — полная."""
+        if not self.alert_targets:
+            # ни канал, ни личка не заданы (например, прогон с --dry):
+            # печатаем в консоль и считаем доставленным, иначе цепочка
+            # «алерт → запись в базу → сделка» молча обрывается
+            return await self.send(text)
         ok = False
         for target in self.alert_targets:
             body = text
@@ -1388,6 +1410,12 @@ HELP = (
     "/check &lt;mint&gt; — полный разбор монеты по адресу\n"
     "/preset [axiom|fomo|safe|degen] — профиль автопилота\n"
     "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
+    "\n<b>Торговля</b> (сейчас бумажная — реальных сделок нет):\n"
+    "/positions — открытые позиции\n"
+    "/pnl [часы] — результат торговли\n"
+    "/trade [on|off] — включить или остановить входы\n"
+    "/close &lt;mint&gt; — закрыть позицию вручную\n"
+    "/size [SOL] — размер одной сделки\n\n"
     "/top [часы] — лучшие сигналы\n"
     "/stats [часы] — как отработали алерты\n"
     "/status — состояние бота\n"
@@ -1413,13 +1441,21 @@ class Bot:
                            os.environ.get("TELEGRAM_CHANNEL_ID", ""),
                            os.environ.get("TELEGRAM_CHAT_ID", ""), dry=dry)
         self.threshold = num(cfg("alerts.min_score"), 65)
+        self.trader = None
+        if trader is not None and cfg("trade.enabled", True):
+            self.trader = trader.Trader(
+                session, storage=self.store, send=self.tg.broadcast,
+                conf={**(cfg("trade") or {}),
+                      "storage_path": cfg("storage.path", "data/memebot.db")})
+
         self.fresh = None
         if axiom_scout is not None and cfg("fresh.enabled", True):
             self.fresh = axiom_scout.FreshScanner(
                 session, storage=self.store, send=self.tg.broadcast,
                 conf={**(cfg("fresh.overrides") or {}),
                       "storage_path": cfg("storage.path", "data/memebot.db")},
-                news=self.news, preset=str(cfg("fresh.preset", "axiom")))
+                news=self.news, preset=str(cfg("fresh.preset", "axiom")),
+                on_alert=self.on_fresh_alert)
         self.started = time.time()
         self.scans = 0
         self.alerts_sent = 0
@@ -1601,6 +1637,20 @@ class Bot:
             except Exception as e:  # noqa: BLE001
                 log.exception("Сбой трекера: %s", e)
 
+    async def on_fresh_alert(self, a: Any) -> None:
+        """Сканер нашёл монету с вердиктом «норм» — отдаём её трейдеру."""
+        if self.trader is None:
+            return
+        await self.trader.consider(
+            mint=a.launch.mint, symbol=a.launch.symbol, score=a.score,
+            launchpad=a.launch.launchpad, price_hint=a.launch.price_usd)
+
+    async def trader_loop(self) -> None:
+        """Ведение открытых позиций: тейк, стоп, трейлинг, таймаут."""
+        if self.trader is None:
+            return
+        await self.trader.loop(self.stop_event)
+
     async def fresh_loop(self) -> None:
         """Автопилот по свежим лончам: сам ищет, сам смотрит новости, сам решает."""
         if self.fresh is None:
@@ -1645,7 +1695,8 @@ class Bot:
                 f"Новостей в кэше: {len(self.news.items)}\n"
                 f"Канал: {esc(self.tg.channel_id or 'не задан')}\n"
                 f"Тишина: {'да' if self.store.is_muted('global') else 'нет'}\n"
-                + (self.fresh.status_line() if self.fresh else "Свежие лончи: выкл"), chat_id)
+                + (self.fresh.status_line() if self.fresh else "Свежие лончи: выкл")
+                + ("\n" + self.trader.status_line() if self.trader else ""), chat_id)
         elif cmd == "/scan":
             await self.tg.send("🔍 Запускаю скан...", chat_id)
             await self.scan_once(notify_empty=True)
@@ -1667,6 +1718,51 @@ class Bot:
         elif cmd == "/unmute":
             self.store.unmute("global")
             await self.tg.send("🔔 Алерты включены.", chat_id)
+        elif cmd == "/positions":
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                await self.tg.send(
+                    trader.positions_message(self.trader.positions, self.trader.conf),
+                    chat_id)
+        elif cmd == "/pnl":
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                await self.tg.send(self.trader.stats(hours()), chat_id)
+        elif cmd == "/trade":
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                if arg and arg.lower() in ("on", "вкл", "1"):
+                    self.trader.conf["enabled"] = True
+                elif arg and arg.lower() in ("off", "выкл", "0"):
+                    self.trader.conf["enabled"] = False
+                await self.tg.send(self.trader.status_line(), chat_id)
+        elif cmd == "/size":
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            elif arg:
+                self.trader.conf["size_sol"] = max(0.001, num(arg, 0.1))
+                await self.tg.send(f"Размер сделки: "
+                                   f"{self.trader.conf['size_sol']:.3f} SOL", chat_id)
+            else:
+                await self.tg.send(f"Размер сделки: "
+                                   f"{num(self.trader.conf.get('size_sol')):.3f} SOL. "
+                                   f"Пример: /size 0.25", chat_id)
+        elif cmd == "/close":
+            if self.trader is None or not arg:
+                await self.tg.send("Пример: <code>/close &lt;адрес минта&gt;</code>", chat_id)
+            else:
+                pos = next((p for p in self.trader.positions
+                            if p.mint == arg or p.symbol.upper() == arg.upper()), None)
+                if not pos:
+                    await self.tg.send("Такой открытой позиции нет. /positions", chat_id)
+                else:
+                    sol = await self.trader.prices.sol_price()
+                    price = (await self.trader.prices.prices([pos.mint])).get(
+                        pos.mint, pos.last_price)
+                    await self.trader.close(pos, price, sol, "manual")
         elif cmd in ("/fresh", "/new"):
             if self.fresh is None:
                 await self.tg.send("Модуль свежих лончей не подключён.", chat_id)
@@ -1764,11 +1860,15 @@ class Bot:
             f"Порог: {self.threshold:.0f}/100\n"
             + (f"Автопилот по свежим лончам: <b>{esc(self.fresh.preset.upper())}</b>, "
                f"порог {self.fresh.threshold:.0f}\n" if self.fresh else "")
+            + (f"Торговля: <b>{esc(self.trader.mode)}</b>, "
+               f"{num(self.trader.conf.get('size_sol')):.3f} SOL на сделку, "
+               f"лимит {num(self.trader.conf.get('daily_limit_sol')):.2f} SOL в сутки\n"
+               if self.trader else "")
             + f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
                              self.tracker_loop(), self.telegram_loop(),
-                             self.fresh_loop())
+                             self.fresh_loop(), self.trader_loop())
 
 
 # ════════════════════════════════════════════════════════════════════════════

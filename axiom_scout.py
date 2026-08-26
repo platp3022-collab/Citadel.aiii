@@ -1524,7 +1524,8 @@ class FreshScanner:
 
     def __init__(self, session: aiohttp.ClientSession, storage: Any = None,
                  send: SendFn | None = None, conf: dict[str, Any] | None = None,
-                 news: Any = None, preset: str = ""):
+                 news: Any = None, preset: str = "",
+                 on_alert: Callable[["FreshAnalysis"], Awaitable[Any]] | None = None):
         base = preset_conf(preset) if preset else dict(DEFAULTS)
         self.conf = merge_conf(base, conf or {})
         self.session = session
@@ -1532,6 +1533,7 @@ class FreshScanner:
         self.feed = LaunchFeed(session, self.conf)
         self.store = FreshStore(storage, self.conf.get("storage_path", "data/memebot.db"))
         self.send = send
+        self.on_alert = on_alert          # сюда уходят монеты с вердиктом «норм»
         self.threshold = num(self.conf.get("min_score"), 62)
         self.scans = 0
         self.alerts = 0
@@ -1649,6 +1651,11 @@ class FreshScanner:
                 self.store.record(a)
                 self.alerts += 1
                 sent.append(a)
+                if self.on_alert:
+                    try:
+                        await self.on_alert(a)
+                    except Exception as e:  # noqa: BLE001
+                        log.exception("обработчик алерта: %s", e)
                 await asyncio.sleep(0.8)
 
         log.info("[%s] свежие лончи: %d собрано, %d после фильтров, %d алертов",
