@@ -163,6 +163,7 @@ class Dashboard:
                            or str(self.conf.get("public_url", "")).strip())
         self.token = self._load_token()
         self.reason = ""          # почему мини-апп недоступен снаружи
+        self.ready = False        # проверен ли публичный адрес снаружи
 
     def _load_token(self) -> str:
         """Секрет для публичного адреса: без него страницу увидит любой,
@@ -279,12 +280,8 @@ class Dashboard:
                 if found:
                     self.public_url = found.group(0)
                     asyncio.create_task(self._drain_tunnel())
-                    if await self.selfcheck():
-                        log.info("Туннель поднят и отвечает: %s", self.public_url)
-                        return self.public_url
-                    log.warning("Туннель поднялся, но страница через него не открылась: %s",
-                                self.reason)
-                    return ""
+                    log.info("Туннель поднят: %s (проверяю доступность)", self.public_url)
+                    return self.public_url
         except asyncio.TimeoutError:
             self.reason = "cloudflared не отдал адрес за отведённое время"
             log.warning("Туннель не поднялся: %s", self.reason)
@@ -293,12 +290,15 @@ class Dashboard:
             log.warning("Туннель не поднялся: %s", e)
         return ""
 
-    async def selfcheck(self) -> bool:
+    async def selfcheck(self, attempts: int = 30, delay: float = 4.0) -> bool:
         """Проверяем публичный адрес снаружи: открывается ли страница на самом деле.
         Иначе кнопка в Telegram ведёт в никуда, а понять это можно только по факту."""
         url = self.link()
-        for attempt in range(6):
-            await asyncio.sleep(2)
+        # Свежему домену туннеля нужно время, чтобы разойтись по DNS —
+        # Cloudflare сам пишет «may take some time to be reachable».
+        # Поэтому ждём долго и не сдаёмся на первой же ошибке имени.
+        for attempt in range(attempts):
+            await asyncio.sleep(delay)
             try:
                 async with aiohttp.ClientSession() as s:
                     async with s.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
@@ -314,6 +314,7 @@ class Dashboard:
                                         url, body[:120])
                             return False
                         self.reason = ""
+                        self.ready = True
                         return True
             except Exception as e:  # noqa: BLE001
                 self.reason = f"адрес не отвечает ({type(e).__name__})"

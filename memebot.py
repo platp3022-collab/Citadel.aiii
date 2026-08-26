@@ -1727,17 +1727,35 @@ class Bot:
             mint=a.launch.mint, symbol=a.launch.symbol, score=a.score,
             launchpad=a.launch.launchpad, price_hint=a.launch.price_usd)
 
+    async def publish_app(self) -> None:
+        """Ждёт, пока адрес туннеля станет доступен снаружи, и вешает кнопку."""
+        if self.dash is None or not self.dash.public_url:
+            return
+        link = self.dash.link()
+        if await self.dash.selfcheck():
+            await self.tg.set_menu_button(link)
+            await self.tg.send(f"📊 Статистика открывается кнопкой в меню чата\n{esc(link)}",
+                               chat_id=self.tg.admin_chat_id or None)
+            return
+        # адрес может не открываться отсюда, но работать с телефона —
+        # ссылку отдаём, кнопку не вешаем, чтобы не вела в никуда
+        log.warning("Адрес туннеля не проверился: %s", self.dash.reason)
+        await self.tg.send(
+            f"📊 Статистика: {esc(link)}\n\n"
+            f"<i>Проверить отсюда не смог ({esc(self.dash.reason)}) — "
+            f"попробуй открыть, обычно домену нужно до минуты.</i>",
+            chat_id=self.tg.admin_chat_id or None)
+
     async def tunnel_loop(self) -> None:
         """Туннель падает — поднимаем заново и обновляем кнопку с новым адресом."""
         if self.dash is None:
             return
 
         async def on_change(link: str) -> None:
-            await self.tg.set_menu_button(link)
-            if link:
-                await self.tg.send(
-                    f"📊 Адрес статистики обновился:\n{esc(link)}",
-                    chat_id=self.tg.admin_chat_id or None)
+            if not link:
+                await self.tg.set_menu_button("")      # мёртвый адрес убираем сразу
+                return
+            await self.publish_app()                   # кнопку вешаем после проверки
 
         await self.dash.watch_tunnel(on_change, self.stop_event)
 
@@ -1871,6 +1889,11 @@ class Bot:
         elif cmd in ("/app", "/dash"):
             if self.dash is None:
                 await self.tg.send("Мини-апп выключен в настройках.", chat_id)
+            elif self.dash.public_url and not self.dash.ready:
+                await self.tg.send(
+                    f"📊 Адрес поднимается, обычно это до минуты:\n"
+                    f"{esc(self.dash.link())}\n\n"
+                    f"<i>Когда проверю доступность — повешу кнопку в меню.</i>", chat_id)
             elif self.dash.public_url:
                 # ссылку шлём отдельным сообщением и первой: если Telegram
                 # отобьёт кнопку мини-аппа, ответ всё равно придёт
@@ -2088,13 +2111,15 @@ class Bot:
         await self.preflight()
         if self.dash is not None:
             await self.dash.start()
-            # Публичный адрес нужен, чтобы страница открывалась внутри Telegram.
-            # Кнопку переписываем в любом случае: адрес быстрого туннеля меняется
-            # при каждом запуске, а старая кнопка на стороне Telegram живёт вечно
-            # и вела бы на уже несуществующий домен.
-            link = self.dash.link() if await self.dash.start_tunnel() else ""
-            await self.tg.set_menu_button(link)
-            if not link:
+            # Старую кнопку снимаем сразу: адрес быстрого туннеля меняется при
+            # каждом запуске, а кнопка живёт на стороне Telegram и вела бы на
+            # уже несуществующий домен.
+            await self.tg.set_menu_button("")
+            if await self.dash.start_tunnel():
+                # свежему домену нужно время разойтись по DNS — ждём в фоне,
+                # чтобы не задерживать запуск бота
+                asyncio.create_task(self.publish_app())
+            else:
                 log.warning("Мини-апп в Telegram недоступен: %s",
                             self.dash.reason or "причина неизвестна")
         await self.news.refresh()
