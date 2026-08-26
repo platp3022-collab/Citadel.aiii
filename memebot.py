@@ -67,6 +67,11 @@ try:
 except ImportError:
     dashboard = None                       # type: ignore[assignment]
 
+try:
+    import card                            # та же статистика картинкой в чат
+except ImportError:
+    card = None                            # type: ignore[assignment]
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("memebot")
 
@@ -155,7 +160,11 @@ CONFIG: dict[str, Any] = {
         "timeout_minutes": 30.0,
     },
     # Мини-апп со статистикой: http://localhost:8420 (см. dashboard.py)
-    "dashboard": {"enabled": True, "host": "127.0.0.1", "port": 8420},
+    "dashboard": {"enabled": True, "host": "127.0.0.1", "port": 8420,
+                  # туннель наружу нужен только чтобы открывать страницу
+                  # внутри Telegram; по умолчанию выключен — статистику
+                  # бот присылает картинкой, ей адрес не нужен
+                  "tunnel": False},
     "tracking": {"interval_minutes": 15, "window_hours": 48},
     "storage": {"path": "data/memebot.db", "keep_days": 7},
 }
@@ -1246,6 +1255,34 @@ class Telegram:
             await asyncio.sleep(0.4)
         return ok
 
+    async def send_photo(self, path: Path | str, caption: str = "",
+                         chat_id: str | None = None) -> bool:
+        """Картинка приходит прямо в чат — ей не нужны ни адрес, ни туннель."""
+        target = chat_id or self.admin_chat_id or self.channel_id
+        path = Path(path)
+        if not path.exists():
+            return False
+        if self.dry or not self.token or not target:
+            print(f"\n--- [TG картинка → {target or 'нет адресата'}] {path} ---\n{caption}\n")
+            return True
+        try:
+            data = aiohttp.FormData()
+            data.add_field("chat_id", str(target))
+            if caption:
+                data.add_field("caption", caption[:1000])
+                data.add_field("parse_mode", "HTML")
+            data.add_field("photo", path.read_bytes(), filename=path.name,
+                           content_type="image/png")
+            async with self.session.post(f"{self.api}/sendPhoto", data=data,
+                                         timeout=aiohttp.ClientTimeout(total=60)) as r:
+                if r.status != 200:
+                    log.warning("sendPhoto %s: %s", r.status, (await r.text())[:200])
+                    return False
+                return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("Отправка картинки: %s", e)
+            return False
+
     async def send_document(self, path: Path | str, caption: str = "",
                             chat_id: str | None = None) -> bool:
         """Отправить файл (например, выгрузку сделок) в чат."""
@@ -1886,39 +1923,22 @@ class Bot:
                 elif arg and arg.lower() in ("off", "выкл", "0"):
                     self.trader.conf["enabled"] = False
                 await self.tg.send(self.trader.status_line(), chat_id)
-        elif cmd in ("/app", "/dash"):
-            if self.dash is None:
-                await self.tg.send("Мини-апп выключен в настройках.", chat_id)
-            elif self.dash.public_url and not self.dash.ready:
-                await self.tg.send(
-                    f"📊 Адрес поднимается, обычно это до минуты:\n"
-                    f"{esc(self.dash.link())}\n\n"
-                    f"<i>Когда проверю доступность — повешу кнопку в меню.</i>", chat_id)
-            elif self.dash.public_url:
-                # ссылку шлём отдельным сообщением и первой: если Telegram
-                # отобьёт кнопку мини-аппа, ответ всё равно придёт
-                link = self.dash.link()
-                await self.tg.send(f"📊 <b>Статистика бота</b>\n{esc(link)}",
-                                   chat_id, preview=False)
-                ok = await self.tg.send(
-                    "Открыть прямо здесь:", chat_id,
-                    markup={"inline_keyboard": [[{
-                        "text": "📊 Открыть", "web_app": {"url": link}}]]})
-                if not ok:
-                    await self.tg.send(
-                        "Кнопку мини-аппа Telegram не принял — открой ссылку выше "
-                        "в браузере. Причина в логе бота.", chat_id)
+        elif cmd in ("/app", "/dash", "/stat"):
+            if card is None:
+                await self.tg.send("Модуль карточки не подключён.", chat_id)
             else:
-                await self.tg.send(
-                    "📊 <b>Статистика</b>\n"
-                    f"{esc(self.dash.status_line())}\n\n"
-                    + ("Поставь cloudflared и перезапусти бота:\n"
-                       "<code>winget install --id Cloudflare.cloudflared</code>"
-                       if "cloudflared" in self.dash.reason else
-                       "Закрой лишние окна бота и перезапусти — порт занят."
-                       if "порт" in self.dash.reason else
-                       "Подробности в логе бота."),
-                    chat_id)
+                await self.tg.send("📊 Рисую...", chat_id)
+                path = await asyncio.to_thread(
+                    card.render, cfg("storage.path", "data/memebot.db"), None,
+                    self.trader.mode if self.trader else "paper")
+                caption = "📊 Статистика бота"
+                if self.dash and self.dash.public_url:
+                    caption += f"\nЖивая версия: {esc(self.dash.link())}"
+                elif self.dash:
+                    caption += f"\nНа компьютере: {esc(self.dash.url)}"
+                if not await self.tg.send_photo(path, caption, chat_id):
+                    await self.tg.send(f"Не смог отправить картинку. Она тут:\n"
+                                       f"<code>{esc(path)}</code>", chat_id)
         elif cmd == "/details":
             if self.fresh is None:
                 await self.tg.send("Модуль свежих лончей не подключён.", chat_id)

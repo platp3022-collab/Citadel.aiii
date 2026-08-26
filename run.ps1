@@ -108,6 +108,21 @@ if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
     Write-Host ""
 }
 
+# ---- не давать компьютеру уснуть, пока бот работает ----
+# Ставим флаг только на время работы этого окна: системные настройки питания
+# не трогаем, закрыл окно — всё вернулось как было.
+try {
+    Add-Type -Namespace Power -Name Sleep -MemberDefinition @"
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern uint SetThreadExecutionState(uint esFlags);
+"@ -ErrorAction Stop
+    # ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED
+    [Power.Sleep]::SetThreadExecutionState([uint32]"0x80000041") | Out-Null
+    Write-Host "Сон отключён на время работы бота (экран гаснуть может)." -ForegroundColor DarkGray
+} catch {
+    Write-Host "Не смог запретить сон — проверь настройки питания вручную." -ForegroundColor Yellow
+}
+
 # ---- запуск с автоперезапуском ----
 Write-Host "Бот запущен. Не закрывай это окно — пока оно открыто, он сканирует рынок." -ForegroundColor Green
 Write-Host "Упадёт из-за сети — подниму сам через 10 секунд. Остановить: Ctrl+C."
@@ -123,3 +138,7 @@ while ($true) {
     Write-Host "Бот упал (код $code). Перезапуск через 10 секунд..." -ForegroundColor Yellow
     Start-Sleep -Seconds 10
 }
+
+# возвращаем обычное поведение сна
+try { [Power.Sleep]::SetThreadExecutionState([uint32]"0x80000000") | Out-Null } catch { }
+

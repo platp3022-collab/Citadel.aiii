@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY memebot.py axiom_scout.py trader.py dashboard.py dashboard.html ./
+COPY memebot.py axiom_scout.py trader.py dashboard.py dashboard.html card.py ./
 COPY assets ./assets
 
 VOLUME ["/app/data"]

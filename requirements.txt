@@ -1,5 +1,6 @@
 aiohttp>=3.9
 feedparser>=6.0
+pillow>=10.0        # карточка статистики картинкой
 
 # Для режима live (реальные сделки) нужны ещё solders и base58 —
 # они вынесены в requirements-live.txt, чтобы бумажный режим
