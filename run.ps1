@@ -47,20 +47,37 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---- настройки ----
+function Clear-InputBuffer {
+    # после `iex (iwr ...)` в буфере остаётся перевод строки, и первый Read-Host
+    # съедает его вместо ответа — вычищаем, иначе первый вопрос уйдёт пустым
+    try {
+        while ([Console]::KeyAvailable) { [Console]::ReadKey($true) | Out-Null }
+    } catch { }
+}
+
+function Read-Required([string]$Prompt) {
+    # спрашиваем, пока не ответят: пустой токен молча ломает всё дальше
+    while ($true) {
+        Clear-InputBuffer
+        $value = Read-Host $Prompt
+        if (-not [string]::IsNullOrWhiteSpace($value)) { return $value.Trim() }
+        Write-Host "Это поле обязательно — без него бот не сможет слать алерты." -ForegroundColor Yellow
+    }
+}
+
 if (-not (Test-Path ".env")) {
     Write-Host ""
     Write-Host "Первый запуск — настроим бота. Четыре вопроса, дальше он всё делает сам." -ForegroundColor Cyan
     Write-Host ""
-    $tgToken = Read-Host "Токен бота от @BotFather"
-    $tgChat  = Read-Host "Твой chat_id (узнать: напиши боту /id)"
+    $tgToken = Read-Required "Токен бота от @BotFather"
+    $tgChat  = Read-Required "Твой chat_id (узнать: напиши боту /id)"
+    Clear-InputBuffer
     $anthKey = Read-Host "Ключ Anthropic (Enter — пропустить)"
+    Clear-InputBuffer
     $preset  = Read-Host "Профиль axiom/axiom_strict/fomo/safe/degen [AXIOM]"
     if ([string]::IsNullOrWhiteSpace($preset)) { $preset = "AXIOM" }
-    if ([string]::IsNullOrWhiteSpace($tgToken) -or [string]::IsNullOrWhiteSpace($tgChat)) {
-        Write-Host "Токен и chat_id обязательны — без них слать алерты некуда." -ForegroundColor Red
-        Read-Host "Enter — выход" | Out-Null
-        exit 1
-    }
+    $anthKey = "$anthKey".Trim()
+    $preset  = "$preset".Trim()
     Write-EnvFile (Join-Path $PSScriptRoot ".env") @(
         "TELEGRAM_BOT_TOKEN=$tgToken",
         "TELEGRAM_CHANNEL_ID=",
