@@ -72,6 +72,11 @@ try:
 except ImportError:
     card = None                            # type: ignore[assignment]
 
+try:
+    import wallets as wallet_watch         # слежка за кошельками умных трейдеров
+except ImportError:
+    wallet_watch = None                    # type: ignore[assignment]
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("memebot")
 
@@ -158,6 +163,17 @@ CONFIG: dict[str, Any] = {
         "take_profit_pct": 60.0,
         "stop_loss_pct": -35.0,
         "timeout_minutes": 30.0,
+    },
+    # Слежка за кошельками: заходим следом за теми, кто стабильно в плюсе.
+    # Список кошельков — командой /wallet add, хранится в data/wallets.json.
+    "wallets": {
+        "enabled": True,
+        "poll_seconds": 45,
+        "window_minutes": 60,      # покупка считается свежей в этом окне
+        "min_hits": 2,             # столько кошельков должны совпасть
+        "bonus_per_hit": 9,        # прибавка к скору за совпадение
+        "max_bonus": 22,
+        "force_enter": True,       # совпало — заходим, даже если метрики слабее
     },
     # Мини-апп со статистикой: http://localhost:8420 (см. dashboard.py)
     "dashboard": {"enabled": True, "host": "127.0.0.1", "port": 8420,
@@ -1536,6 +1552,7 @@ HELP = (
     "/details [on|off] — показывать разбор монет в чате\n"
     "/why — почему бот не заходит в сделки\n"
     "/aggr [low|mid|high] — насколько охотно заходить\n"
+    "/wallets — кошельки под слежкой · /wallet add АДРЕС\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -1586,14 +1603,21 @@ class Bot:
                 {**(cfg("dashboard") or {}),
                  "storage_path": cfg("storage.path", "data/memebot.db")})
 
+        self.wallets = None
+        if wallet_watch is not None and cfg("wallets.enabled", True):
+            self.wallets = wallet_watch.WalletTracker(
+                session, conf=cfg("wallets") or {},
+                rpc_url=os.environ.get("SOLANA_RPC_URL", ""))
+
         self.fresh = None
         if axiom_scout is not None and cfg("fresh.enabled", True):
             self.fresh = axiom_scout.FreshScanner(
                 session, storage=self.store, send=self.tg.broadcast,
                 conf={**(cfg("fresh.overrides") or {}),
-                      "storage_path": cfg("storage.path", "data/memebot.db")},
+                      "storage_path": cfg("storage.path", "data/memebot.db"),
+                      "wallets": cfg("wallets") or {}},
                 news=self.news, preset=str(cfg("fresh.preset", "axiom")),
-                on_alert=self.on_fresh_alert)
+                on_alert=self.on_fresh_alert, wallets=self.wallets)
         self.started = time.time()
         self.scans = 0
         self.alerts_sent = 0
@@ -1811,6 +1835,12 @@ class Bot:
             f"попробуй открыть, обычно домену нужно до минуты.</i>",
             chat_id=self.tg.admin_chat_id or None)
 
+    async def wallets_loop(self) -> None:
+        """Обход отслеживаемых кошельков."""
+        if self.wallets is None:
+            return
+        await self.wallets.loop(self.stop_event)
+
     async def tunnel_loop(self) -> None:
         """Туннель падает — поднимаем заново и обновляем кнопку с новым адресом."""
         if self.dash is None:
@@ -1880,7 +1910,8 @@ class Bot:
                 f"Тишина: {'да' if self.store.is_muted('global') else 'нет'}\n"
                 + (self.fresh.status_line() if self.fresh else "Свежие лончи: выкл")
                 + ("\n" + self.trader.status_line() if self.trader else "")
-                + ("\n" + self.dash.status_line() if self.dash else ""), chat_id)
+                + ("\n" + self.dash.status_line() if self.dash else "")
+                + ("\n" + self.wallets.status_line() if self.wallets else ""), chat_id)
         elif cmd == "/scan":
             await self.tg.send("🔍 Запускаю скан...", chat_id)
             await self.scan_once(notify_empty=True)
@@ -1968,6 +1999,32 @@ class Bot:
                     self.trader.mode if self.trader else "paper")
                 if not await self.tg.send_photo(path, "", chat_id):
                     await self.tg.send(f"Картинка тут:\n<code>{esc(path)}</code>", chat_id)
+        elif cmd in ("/wallets", "/кошельки"):
+            await self.tg.send(self.wallets.list_message() if self.wallets
+                               else "Слежка за кошельками выключена.", chat_id)
+        elif cmd == "/wallet":
+            if self.wallets is None:
+                await self.tg.send("Слежка за кошельками выключена.", chat_id)
+            elif arg and arg.lower() in ("add", "добавить") and len(parts) > 2:
+                name = " ".join(parts[3:]) if len(parts) > 3 else ""
+                if self.wallets.add(parts[2], name):
+                    await self.tg.send(
+                        f"👛 Добавил: <b>{esc(self.wallets.wallets[parts[2].strip()])}</b>\n"
+                        f"Теперь под слежкой: {len(self.wallets.wallets)}", chat_id)
+                else:
+                    await self.tg.send("Это не похоже на адрес кошелька Solana.", chat_id)
+            elif arg and arg.lower() in ("del", "удалить", "remove") and len(parts) > 2:
+                ok = self.wallets.remove(parts[2])
+                await self.tg.send("👛 Удалил." if ok else "Такого в списке нет.", chat_id)
+            else:
+                await self.tg.send(
+                    "👛 <b>Кошельки под слежкой</b>\n\n"
+                    "<code>/wallet add АДРЕС Имя</code> — добавить\n"
+                    "<code>/wallet del АДРЕС</code> — убрать\n"
+                    "<code>/wallets</code> — список\n\n"
+                    "<i>Где брать адреса: gmgn.ai, kolscan.io, dune.com — "
+                    "там видно топы трейдеров, кто стабильно в плюсе. "
+                    "Совпали 2 кошелька на монете — бот заходит.</i>", chat_id)
         elif cmd in ("/aggr", "/агр"):
             if self.fresh is None:
                 await self.tg.send("Сканер не подключён.", chat_id)
@@ -2186,6 +2243,7 @@ class Bot:
         ("history", "История сделок"),
         ("why", "Почему нет сделок"),
         ("aggr", "Насколько охотно заходить"),
+        ("wallets", "Кошельки умных трейдеров"),
         ("fresh", "Что видит бот сейчас"),
         ("status", "Состояние бота"),
         ("trade", "Включить или остановить входы"),
@@ -2238,7 +2296,7 @@ class Bot:
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
                              self.tracker_loop(), self.telegram_loop(),
                              self.fresh_loop(), self.trader_loop(),
-                             self.tunnel_loop())
+                             self.tunnel_loop(), self.wallets_loop())
 
 
 # ════════════════════════════════════════════════════════════════════════════

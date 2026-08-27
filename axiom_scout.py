@@ -947,6 +947,8 @@ class FreshAnalysis:
     narratives: list[str] = field(default_factory=list)
     news_bonus: float = 0.0
     llm: dict | None = None
+    smart_hits: int = 0                    # сколько отслеживаемых кошельков зашло
+    smart_note: str = ""
 
     @property
     def mint(self) -> str:
@@ -1190,7 +1192,7 @@ def is_fatal(flag: str) -> bool:
 
 
 def decide(score: float, flags: list[str], llm: dict | None,
-           conf: dict[str, Any]) -> str:
+           conf: dict[str, Any], smart_hits: int = 0) -> str:
     """Автопилот: enter (норм) / watch (наблюдать) / skip (мимо)."""
     auto = conf.get("auto") or {}
     enter_at = num(auto.get("enter_score"), 70)
@@ -1198,6 +1200,14 @@ def decide(score: float, flags: list[str], llm: dict | None,
 
     if any(f.startswith("☠️") for f in flags):
         return "skip"
+
+    # Совпало несколько умных кошельков — заходим, даже если метрики не дотянули.
+    # Сломанный контракт всё равно блокирует: там минус гарантирован.
+    wconf = conf.get("wallets") or {}
+    if (wconf.get("force_enter", True)
+            and smart_hits >= int(num(wconf.get("min_hits"), 2))
+            and not any(is_fatal(f) for f in flags)):
+        return "enter"
     if llm:
         risk = num(llm.get("risk"))
         veto = num((conf.get("llm") or {}).get("veto_risk"), 9)
@@ -1215,7 +1225,7 @@ def decide(score: float, flags: list[str], llm: dict | None,
 
 
 def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
-                   conf: dict[str, Any] | None = None) -> FreshAnalysis:
+                   conf: dict[str, Any] | None = None, smart: Any = None) -> FreshAnalysis:
     conf = conf or DEFAULTS
     signals = [
         _sig_holders(l), _sig_holder_flow(l), _sig_buy_pressure(l), _sig_volume(l),
@@ -1231,12 +1241,24 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
                               num((conf.get("news") or {}).get("bonus_max"), 8),
                               ", ".join(narratives[:4])))
 
-    score = max(0.0, min(100.0, raw * mult + bonus))
+    # Кошельки, которые стабильно в плюсе, — сигнал сильнее любой метрики:
+    # это не догадка о монете, а факт, что в неё зашли те, кто умеет.
+    smart_hits, smart_note, smart_bonus = 0, "", 0.0
+    if smart is not None and getattr(smart, "hits", 0):
+        wconf = (conf.get("wallets") or {})
+        smart_hits, smart_note = smart.hits, smart.note
+        smart_bonus = min(num(wconf.get("max_bonus"), 22),
+                          smart_hits * num(wconf.get("bonus_per_hit"), 9))
+        signals.append(Signal("Умные кошельки", smart_bonus,
+                              num(wconf.get("max_bonus"), 22), smart_note))
+
+    score = max(0.0, min(100.0, raw * mult + bonus + smart_bonus))
     a = FreshAnalysis(launch=l, score=score, signals=signals, flags=flags,
                       multiplier=mult, verdict=verdict_text(score, flags),
                       news_titles=titles, narratives=narratives,
-                      news_bonus=bonus, llm=llm)
-    a.decision = decide(score, flags, llm, conf)
+                      news_bonus=bonus, llm=llm,
+                      smart_hits=smart_hits, smart_note=smart_note)
+    a.decision = decide(score, flags, llm, conf, smart_hits)
     if a.decision == "skip" and not a.verdict.startswith("☠️"):
         a.verdict = verdict_text(score, flags)
     return a
@@ -1540,11 +1562,13 @@ class FreshScanner:
     def __init__(self, session: aiohttp.ClientSession, storage: Any = None,
                  send: SendFn | None = None, conf: dict[str, Any] | None = None,
                  news: Any = None, preset: str = "",
-                 on_alert: Callable[["FreshAnalysis"], Awaitable[Any]] | None = None):
+                 on_alert: Callable[["FreshAnalysis"], Awaitable[Any]] | None = None,
+                 wallets: Any = None):
         base = preset_conf(preset) if preset else dict(DEFAULTS)
         self.conf = merge_conf(base, conf or {})
         self.session = session
         self.news = news
+        self.wallets = wallets          # слежка за кошельками, если подключена
         self.feed = LaunchFeed(session, self.conf)
         self.store = FreshStore(storage, self.conf.get("storage_path", "data/memebot.db"))
         self.send = send
@@ -1560,6 +1584,16 @@ class FreshScanner:
         self.last_drops: dict[str, int] = {}        # где отсеялись
         self.last_scan_ts = 0.0
         self.stop_event = asyncio.Event()
+
+    def _smart(self, mint: str):
+        """Сигнал по кошелькам для монеты, если слежка подключена."""
+        if self.wallets is None:
+            return None
+        try:
+            return self.wallets.signal(mint)
+        except Exception as e:  # noqa: BLE001
+            log.debug("сигнал кошельков: %s", e)
+            return None
 
     @property
     def preset(self) -> str:
@@ -1654,12 +1688,35 @@ class FreshScanner:
                 candidates.append(l)
         self.last_passed = len(candidates)
 
+        # Монеты, которые купили наши кошельки, тянем отдельно: в общую ленту
+        # они могут не попасть (слишком свежие или отсеялись), а это как раз
+        # самый ценный сигнал — упустить его нельзя.
+        if self.wallets is not None:
+            known = {l.mint for l in candidates}
+            extra = []
+            for mint in {b.mint for b in getattr(self.wallets, "buys", [])}:
+                if mint in known:
+                    continue
+                sig = self._smart(mint)
+                if not sig or sig.hits < int(num(
+                        (self.conf.get("wallets") or {}).get("min_hits"), 2)):
+                    continue
+                launch = await self.feed.jupiter_token(mint)
+                if launch:
+                    extra.append(launch)
+                    log.info("Монета от кошельков вне ленты: %s (%s)",
+                             launch.symbol or mint[:8], sig.note)
+            candidates.extend(extra)
+            self.last_passed = len(candidates)
+
         # предварительный скор → тяжёлые проверки только для лучших
-        candidates.sort(key=lambda l: analyze_launch(l, conf=self.conf).score, reverse=True)
+        candidates.sort(key=lambda l: analyze_launch(
+            l, conf=self.conf, smart=self._smart(l.mint)).score, reverse=True)
         shortlist = candidates[:int(num(self.conf.get("shortlist_limit"), 12))]
         await self.feed.enrich(shortlist)
 
-        out = [analyze_launch(l, news=self.news, conf=self.conf) for l in shortlist]
+        out = [analyze_launch(l, news=self.news, conf=self.conf,
+                              smart=self._smart(l.mint)) for l in shortlist]
         out.sort(key=lambda a: -a.score)
         if llm:
             await self._llm_pass(out)
@@ -1780,7 +1837,8 @@ class FreshScanner:
         if launch is None:
             return None
         await self.feed.enrich([launch])
-        a = analyze_launch(launch, news=self.news, conf=self.conf)
+        a = analyze_launch(launch, news=self.news, conf=self.conf,
+                           smart=self._smart(launch.mint))
         await self._llm_pass([a])
         return a
 
