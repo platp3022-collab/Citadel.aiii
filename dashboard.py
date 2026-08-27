@@ -17,11 +17,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import io
 import os
+import platform
 import re
 import secrets
 import shutil
 import sqlite3
+import stat
+import tarfile
 import time
 from pathlib import Path
 from typing import Any
@@ -236,6 +240,88 @@ class Dashboard:
         return web.json_response(self.data.state(),
                                  dumps=lambda d: json.dumps(d, ensure_ascii=False))
 
+    # Один файл, без установщика и без прав администратора: официальные сборки
+    # cloudflared лежат на GitHub. Раньше здесь требовался winget — у половины
+    # машин его нет, и мини-апп просто не поднимался.
+    CLOUDFLARED_BUILDS = {
+        ("windows", "amd64"): "cloudflared-windows-amd64.exe",
+        ("windows", "arm64"): "cloudflared-windows-amd64.exe",   # пойдёт через эмуляцию
+        ("windows", "386"): "cloudflared-windows-386.exe",
+        ("linux", "amd64"): "cloudflared-linux-amd64",
+        ("linux", "arm64"): "cloudflared-linux-arm64",
+        ("linux", "arm"): "cloudflared-linux-arm",
+        ("darwin", "amd64"): "cloudflared-darwin-amd64.tgz",
+        ("darwin", "arm64"): "cloudflared-darwin-arm64.tgz",
+    }
+    CLOUDFLARED_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/"
+
+    @property
+    def cloudflared_path(self) -> Path:
+        return ROOT / "bin" / ("cloudflared.exe" if os.name == "nt" else "cloudflared")
+
+    def _cloudflared_asset(self) -> str:
+        system = platform.system().lower()
+        machine = platform.machine().lower()
+        arch = ("arm64" if machine in ("arm64", "aarch64") else
+                "arm" if machine.startswith("arm") else
+                "386" if machine in ("i386", "i686", "x86") else
+                "amd64")
+        return self.CLOUDFLARED_BUILDS.get((system, arch), "")
+
+    @staticmethod
+    def _unpack_cloudflared(data: bytes, asset: str, target: Path) -> None:
+        """Пишет бинарник на диск; macOS отдаёт его архивом."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        part = target.with_name(target.name + ".part")
+        if asset.endswith(".tgz"):
+            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                member = next((m for m in tar.getmembers()
+                               if m.isfile() and m.name.rsplit("/", 1)[-1] == "cloudflared"), None)
+                if member is None:
+                    raise RuntimeError("в архиве нет cloudflared")
+                extracted = tar.extractfile(member)
+                if extracted is None:
+                    raise RuntimeError("архив cloudflared не читается")
+                part.write_bytes(extracted.read())
+        else:
+            part.write_bytes(data)
+        part.replace(target)
+        if os.name != "nt":
+            target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    async def ensure_cloudflared(self) -> str:
+        """Отдаёт путь к cloudflared: системный, ранее скачанный или свежий.
+        Ничего не устанавливает в систему — файл живёт в папке бота."""
+        exe = shutil.which("cloudflared")
+        if exe:
+            return exe
+        cached = self.cloudflared_path
+        # обрезанная закачка меньше мегабайта не весит — перекачаем
+        if cached.exists() and cached.stat().st_size > 1_000_000:
+            return str(cached)
+
+        asset = self._cloudflared_asset()
+        if not asset:
+            log.warning("Нет готовой сборки cloudflared для %s/%s — поставь вручную",
+                        platform.system(), platform.machine())
+            return ""
+
+        log.info("Скачиваю cloudflared (~40 МБ, один раз) — нужен для мини-аппа…")
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(self.CLOUDFLARED_URL + asset, allow_redirects=True,
+                                 timeout=aiohttp.ClientTimeout(total=600)) as r:
+                    r.raise_for_status()
+                    data = await r.read()
+            if len(data) < 1_000_000:
+                raise RuntimeError(f"файл подозрительно мал ({len(data)} байт)")
+            await asyncio.to_thread(self._unpack_cloudflared, data, asset, cached)
+        except Exception as e:  # noqa: BLE001
+            log.warning("cloudflared не скачался: %s", e)
+            return ""
+        log.info("cloudflared готов: %s", cached)
+        return str(cached)
+
     async def start_tunnel(self) -> str:
         """Публичный https-адрес через cloudflared — без него Telegram
         мини-апп не откроет. Аккаунт и домен не нужны."""
@@ -250,12 +336,11 @@ class Dashboard:
             self.reason = "локальный сервер не поднялся — порт занят другим окном бота?"
             log.warning("Туннель не запускаю: %s", self.reason)
             return ""
-        exe = shutil.which("cloudflared")
+        exe = await self.ensure_cloudflared()
         if not exe:
-            self.reason = "cloudflared не установлен"
-            log.warning("cloudflared не найден — мини-апп в Telegram не поднять. "
-                        "Установка: winget install Cloudflare.cloudflared "
-                        "(или brew install cloudflared)")
+            self.reason = "не удалось получить cloudflared"
+            log.warning("cloudflared нет и скачать не вышло — мини-апп в Telegram "
+                        "не поднять. Статистика придёт картинкой по /app")
             return ""
         try:
             self.tunnel_proc = await asyncio.create_subprocess_exec(
@@ -271,12 +356,22 @@ class Dashboard:
         # уводит на API Cloudflare, который отвечает "Method Not Allowed".
         # Адрес туннеля всегда из нескольких слов через дефис.
         pattern = re.compile(r"https://(?!api\.)[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com")
+        last_error = ""
         try:
             for _ in range(60):
                 line = await asyncio.wait_for(self.tunnel_proc.stdout.readline(), timeout=30)
                 if not line:
+                    # cloudflared закрылся, не отдав адрес — причину он уже
+                    # написал сам, её и показываем, вместо глухого молчания
+                    self.reason = last_error or "cloudflared завершился без адреса"
+                    log.warning("Туннель не поднялся: %s", self.reason)
                     break
-                found = pattern.search(line.decode("utf-8", "ignore"))
+                text = line.decode("utf-8", "ignore").strip()
+                if " ERR " in text or "error" in text.lower():
+                    # у cloudflared строка начинается с метки времени и уровня —
+                    # в сообщение пользователю это не нужно
+                    last_error = text.split(" ERR ", 1)[-1].split(" error=", 1)[0][:200]
+                found = pattern.search(text)
                 if found:
                     self.public_url = found.group(0)
                     asyncio.create_task(self._drain_tunnel())

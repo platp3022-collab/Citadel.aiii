@@ -90,23 +90,8 @@ if (-not (Test-Path ".env")) {
     Write-Host ""
 }
 
-# ---- cloudflared: без него статистику не открыть внутри Telegram ----
-if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
-    Write-Host "Ставлю cloudflared — через него статистика открывается в Telegram..." -ForegroundColor Cyan
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install --id Cloudflare.cloudflared --silent --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
-        # winget не обновляет PATH в текущем окне — подхватываем вручную
-        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-                    [Environment]::GetEnvironmentVariable("Path", "User")
-    }
-    if (Get-Command cloudflared -ErrorAction SilentlyContinue) {
-        Write-Host "cloudflared готов." -ForegroundColor Green
-    } else {
-        Write-Host "Не поставился — статистика будет только на этом компьютере." -ForegroundColor Yellow
-        Write-Host "Поставить вручную: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-    }
-    Write-Host ""
-}
+# cloudflared бот скачивает себе сам при первом запуске — ни winget,
+# ни прав администратора для мини-аппа больше не нужно.
 
 # ---- не давать компьютеру уснуть, пока бот работает ----
 # Ставим флаг только на время работы этого окна: системные настройки питания
