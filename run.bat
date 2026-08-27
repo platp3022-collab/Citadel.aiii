@@ -23,5 +23,5 @@ if not exist .env (
 )
 
 echo Запускаю бота. Не закрывай это окно — пока оно открыто, бот сканирует и шлёт алерты.
-python memebot.py
+python memebot.py %*
 pause

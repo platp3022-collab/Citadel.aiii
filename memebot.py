@@ -15,9 +15,12 @@
     ANTHROPIC_API_KEY=                     # опционально, для LLM-анализа
 
 Запуск:
-    python memebot.py            # боевой режим
-    python memebot.py --once     # один скан и выход
-    python memebot.py --dry      # без отправки в Telegram, всё в консоль
+    python memebot.py                                # боевой режим
+    python memebot.py --once                         # один скан и выход
+    python memebot.py --dry                          # без отправки в Telegram, всё в консоль
+    python memebot.py --preset kimchi --bankroll 300 # ранние соланские запуски
+
+Пресеты (kimchi / default / safe) и план сделки в алертах — см. KIMCHI.md.
 
 Отказ от ответственности: инструмент фильтрации информации, не финансовый совет.
 Подавляющее большинство мем-коинов уходит в ноль.
@@ -119,8 +122,100 @@ CONFIG: dict[str, Any] = {
     },
     "llm": {"enabled": False, "model": "claude-sonnet-5"},
     "tracking": {"interval_minutes": 15, "window_hours": 48},
+    # «Сетап»: план сделки считается из ликвидности пула и твоего банка, а не с потолка.
+    "trade": {
+        "enabled": True,
+        "bankroll_usd": 1000,          # депозит под мем-коины (только то, что не жалко потерять)
+        "risk_per_trade_pct": 2.0,     # сколько % банка теряешь, если сработал стоп
+        "max_position_pct": 5.0,       # потолок на одну монету, % банка
+        "max_price_impact_pct": 1.5,   # вход не больше N% от ликвидности пула
+        "stop_loss_pct": 35,           # стоп от цены входа
+        "take_profits": [[50, 40], [100, 25], [300, 20]],  # [+% к цене, продать % позиции]
+        "max_hold_minutes": 240,       # дальше выход по времени, а не «по надежде»
+        "max_open_positions": 3,
+    },
     "storage": {"path": "data/memebot.db", "keep_days": 7},
 }
+
+# ════════════════════════════════════════════════════════════════════════════
+#  ПРЕСЕТЫ — готовые режимы сканера (--preset kimchi  ·  команда /preset kimchi)
+# ════════════════════════════════════════════════════════════════════════════
+
+PRESETS: dict[str, dict[str, Any]] = {
+    # Базовый CONFIG как он есть выше: широкая сеть, средний риск.
+    "default": {},
+
+    # «Kimchi» — ранние соланские запуски, быстрый скальп, короткое удержание.
+    # Больше алертов, больше мусора, больше риска. Разбор логики — в KIMCHI.md.
+    "kimchi": {
+        "scan": {
+            "interval_seconds": 30,
+            "chains": ["solana"],
+            "max_tokens_per_scan": 150,
+            "drain_lookback_seconds": 600,
+        },
+        "filters": {
+            "min_liquidity_usd": 8000,
+            "max_liquidity_usd": 400000,
+            "min_volume_h1_usd": 25000,
+            "min_volume_h24_usd": 25000,
+            "min_txns_h1": 60,
+            "min_age_minutes": 5,
+            "max_age_hours": 12,
+            "min_fdv_usd": 30000,
+            "max_fdv_usd": 3000000,
+            "min_liq_to_fdv": 0.04,
+            "allowed_quotes": ["SOL", "USDC"],
+        },
+        "alerts": {
+            "min_score": 58,
+            "deep_check_margin": 15,
+            "cooldown_minutes": 45,
+            "rescore_delta": 8,
+            "max_per_scan": 8,
+        },
+        "trade": {
+            "risk_per_trade_pct": 1.5,
+            "max_position_pct": 3.0,
+            "max_price_impact_pct": 1.0,
+            "stop_loss_pct": 35,
+            "take_profits": [[50, 40], [120, 30], [300, 15]],
+            "max_hold_minutes": 120,
+            "max_open_positions": 3,
+        },
+        "tracking": {"interval_minutes": 10, "window_hours": 24},
+    },
+
+    # «Safe» — только устоявшиеся пулы с глубокой ликвидностью, редкие алерты.
+    "safe": {
+        "scan": {"interval_seconds": 120, "chains": ["solana", "base", "ethereum", "bsc"]},
+        "filters": {
+            "min_liquidity_usd": 120000,
+            "max_liquidity_usd": 0,
+            "min_volume_h1_usd": 50000,
+            "min_volume_h24_usd": 750000,
+            "min_txns_h1": 150,
+            "min_age_minutes": 720,
+            "max_age_hours": 720,
+            "min_fdv_usd": 500000,
+            "max_fdv_usd": 150000000,
+            "min_liq_to_fdv": 0.05,
+        },
+        "alerts": {"min_score": 72, "cooldown_minutes": 360, "rescore_delta": 12,
+                   "max_per_scan": 3},
+        "trade": {
+            "risk_per_trade_pct": 1.0,
+            "max_position_pct": 5.0,
+            "max_price_impact_pct": 0.5,
+            "stop_loss_pct": 25,
+            "take_profits": [[40, 40], [100, 30], [250, 15]],
+            "max_hold_minutes": 2880,
+            "max_open_positions": 5,
+        },
+    },
+}
+
+ACTIVE_PRESET = "default"
 
 BASE_API = "https://api.dexscreener.com"
 UA = {"User-Agent": "memecoin-scanner/1.0 (+research bot)"}
@@ -133,6 +228,29 @@ def cfg(path: str, default: Any = None) -> Any:
             return default
         node = node[part]
     return node
+
+
+_BASE_CONFIG = json.loads(json.dumps(CONFIG))   # снимок до применения пресетов
+
+
+def _merge(dst: dict, src: dict) -> None:
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _merge(dst[k], v)
+        else:
+            dst[k] = v
+
+
+def apply_preset(name: str) -> bool:
+    """Откатывает CONFIG к базовому и накладывает пресет. False — если имени нет."""
+    global ACTIVE_PRESET
+    patch = PRESETS.get(str(name).lower())
+    if patch is None:
+        return False
+    _merge(CONFIG, json.loads(json.dumps(_BASE_CONFIG)))
+    _merge(CONFIG, json.loads(json.dumps(patch)))
+    ACTIVE_PRESET = str(name).lower()
+    return True
 
 
 def load_env(path: Path = ROOT / ".env") -> None:
@@ -1256,6 +1374,127 @@ def _links(pair: dict) -> str:
     return " · ".join(out)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+#  ПЛАН СДЕЛКИ (сетап) — размер, стоп, лестница тейков, условия отмены
+# ════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class TradePlan:
+    entry: float                                   # цена входа (текущая)
+    size_usd: float                                # сколько денег в позицию
+    bankroll: float
+    risk_usd: float                                # сколько теряешь при стопе
+    impact_pct: float                              # размер входа к ликвидности пула
+    stop: float
+    stop_pct: float
+    slippage_pct: float
+    targets: list[tuple[float, float, float]]      # (+% к цене, цена, % позиции продать)
+    moonbag_pct: float
+    max_hold_minutes: float
+    limits: list[str] = field(default_factory=list)        # что ограничило размер
+    invalidation: list[str] = field(default_factory=list)  # когда выходишь без вопросов
+
+
+def build_plan(a: Analysis) -> TradePlan | None:
+    """Механический сетап из данных пары. Никакой магии: риск на сделку фиксирован,
+    размер урезается ликвидностью пула, выход разбит на лестницу."""
+    t = cfg("trade", {}) or {}
+    if not t.get("enabled", True):
+        return None
+    entry = num(a.pair.get("priceUsd"))
+    if entry <= 0:
+        return None
+
+    bankroll = max(0.0, num(t.get("bankroll_usd"), 1000))
+    stop_pct = max(5.0, min(90.0, num(t.get("stop_loss_pct"), 35)))
+    risk_pct = max(0.1, num(t.get("risk_per_trade_pct"), 2.0))
+    liq = num(dig(a.pair, "liquidity", "usd"))
+
+    limits: list[str] = []
+    size = bankroll * risk_pct / 100 / (stop_pct / 100)     # риск на сделку = стоп × размер
+    cap_bank = bankroll * max(0.1, num(t.get("max_position_pct"), 5.0)) / 100
+    if cap_bank < size:
+        size = cap_bank
+        limits.append(f"потолок на монету {num(t.get('max_position_pct'), 5.0):.0f}% банка")
+    cap_liq = liq * max(0.05, num(t.get("max_price_impact_pct"), 1.5)) / 100
+    if liq > 0 and cap_liq < size:
+        size = cap_liq
+        limits.append(f"тонкая ликвидность {fmt_usd(liq)} — вход бы двинул цену")
+    # Риск-флаги из анализа режут размер: сомневаешься — заходи меньше.
+    if a.multiplier < 0.85:
+        size *= 0.5
+        limits.append(f"риск-флаги (×{a.multiplier:.2f}) — размер урезан вдвое")
+    size = max(0.0, size)
+
+    impact = (size / liq * 100) if liq > 0 else 0.0
+    risk_usd = size * stop_pct / 100
+
+    pc = a.pair.get("priceChange") or {}
+    slippage = max(2.0, min(25.0, impact * 3 + abs(num(pc.get("m5"))) / 4 + 3))
+
+    targets: list[tuple[float, float, float]] = []
+    sold = 0.0
+    for row in (t.get("take_profits") or []):
+        try:
+            gain, part = num(row[0]), num(row[1])
+        except (TypeError, IndexError):
+            continue
+        if gain <= 0 or part <= 0:
+            continue
+        targets.append((gain, entry * (1 + gain / 100), part))
+        sold += part
+    moonbag = max(0.0, 100.0 - sold)
+
+    b, s = txns(a.pair, "h1")
+    hold = num(t.get("max_hold_minutes"), 240)
+    invalidation = [
+        f"цена ушла ниже {fmt_price(entry * (1 - stop_pct / 100))} — выходишь весь остаток",
+        f"ликвидность просела ниже {fmt_usd(liq * 0.7)} (−30%) — команда тянет LP",
+        "доля покупок за час упала ниже 45% — толпа развернулась",
+        f"объём за час ушёл ниже {fmt_usd(num(cfg('filters.min_volume_h1_usd'), 15000))} — "
+        f"интерес умер, сидеть больше не в чем",
+        f"прошло {hold:.0f} мин без взятия первого тейка — закрываешь по времени",
+    ]
+    if b + s > 0 and b / max(b + s, 1) < 0.5:
+        invalidation.insert(0, "прямо сейчас продаж больше, чем покупок — вход уже сомнительный")
+
+    return TradePlan(entry=entry, size_usd=size, bankroll=bankroll, risk_usd=risk_usd,
+                     impact_pct=impact, stop=entry * (1 - stop_pct / 100), stop_pct=stop_pct,
+                     slippage_pct=slippage, targets=targets, moonbag_pct=moonbag,
+                     max_hold_minutes=hold, limits=limits, invalidation=invalidation)
+
+
+def plan_message(plan: TradePlan) -> list[str]:
+    if plan.size_usd <= 0:
+        return ["", "<b>🎯 Сетап:</b> размер вышел нулевой — пул слишком тонкий, пропускай."]
+    half = plan.size_usd / 2
+    lines = [
+        "",
+        f"<b>🎯 Сетап</b> (банк {fmt_usd(plan.bankroll)}, пресет <code>{esc(ACTIVE_PRESET)}</code>)",
+        f"  • Размер: <b>{fmt_usd(plan.size_usd)}</b> "
+        f"({plan.size_usd / plan.bankroll * 100:.1f}% банка, "
+        f"{plan.impact_pct:.2f}% ликвидности пула)",
+        f"  • Вход двумя частями: {fmt_usd(half)} сейчас по {fmt_price(plan.entry)}, "
+        f"вторая половина — только если цена удержалась 10–15 мин",
+        f"  • Слиппедж: до {plan.slippage_pct:.0f}%",
+        f"  • Стоп: <b>{fmt_price(plan.stop)}</b> (−{plan.stop_pct:.0f}%), "
+        f"минус {fmt_usd(plan.risk_usd)} — это и есть цена ошибки",
+    ]
+    if plan.targets:
+        lines.append("  • Тейки:")
+        for gain, price, part in plan.targets:
+            lines.append(f"      +{gain:.0f}% → {fmt_price(price)} — продать {part:.0f}% позиции")
+        if plan.moonbag_pct > 0:
+            lines.append(f"      остаток {plan.moonbag_pct:.0f}% — мунбег, "
+                         f"стоп переносишь в безубыток после первого тейка")
+    lines.append(f"  • Время в позиции: до {plan.max_hold_minutes:.0f} мин")
+    if plan.limits:
+        lines.append("  • Размер ограничен: " + esc("; ".join(plan.limits)))
+    lines.append("  • <b>Выходишь без раздумий, если:</b>")
+    lines += [f"      — {esc(x)}" for x in plan.invalidation[:5]]
+    return lines
+
+
 def alert_message(a: Analysis) -> str:
     p = a.pair
     base = p.get("baseToken") or {}
@@ -1308,6 +1547,10 @@ def alert_message(a: Analysis) -> str:
         if a.multiplier < 1:
             lines.append(f"  <i>(итог снижен ×{a.multiplier:.2f})</i>")
 
+    plan = build_plan(a)
+    if plan:
+        lines += plan_message(plan)
+
     lines += ["", "🔗 " + _links(p),
               f"<code>{esc(dig(p, 'baseToken', 'address', default=''))}</code>",
               "", "<i>Не финансовый совет. Мем-коины = высокий риск потерять всё.</i>"]
@@ -1331,6 +1574,10 @@ def alert_message_short(a: Analysis) -> str:
         lines.append("🏷 " + esc(", ".join(a.news.narratives[:3])))
     if a.risks:
         lines.append("⚠️ " + esc(a.risks[0]))
+    plan = build_plan(a)
+    if plan and plan.size_usd > 0:
+        tp = f" · тейк +{plan.targets[0][0]:.0f}%" if plan.targets else ""
+        lines.append(f"🎯 {fmt_usd(plan.size_usd)} · стоп −{plan.stop_pct:.0f}%{tp}")
     lines += ["🔗 " + _links(p),
               f"<code>{esc(dig(p,'baseToken','address',default=''))}</code>"]
     return "\n".join(lines)
@@ -1356,6 +1603,28 @@ def top_message(rows: list[dict], hours: float) -> str:
     return "\n".join(out)
 
 
+def preset_message() -> str:
+    f = cfg("filters", {}) or {}
+    t = cfg("trade", {}) or {}
+    return (
+        f"⚙️ <b>Пресет: {esc(ACTIVE_PRESET)}</b>\n"
+        f"Сети: {esc(', '.join(cfg('scan.chains') or []))} · "
+        f"скан раз в {num(cfg('scan.interval_seconds'), 60):.0f}с\n"
+        f"Возраст пула: {num(f.get('min_age_minutes')):.0f} мин — "
+        f"{num(f.get('max_age_hours')):.0f} ч\n"
+        f"Ликвидность: от {fmt_usd(num(f.get('min_liquidity_usd')))}"
+        + (f" до {fmt_usd(num(f.get('max_liquidity_usd')))}"
+           if num(f.get("max_liquidity_usd")) else "") + "\n"
+        f"Порог алерта: {num(cfg('alerts.min_score')):.0f}/100 · "
+        f"кулдаун {num(cfg('alerts.cooldown_minutes')):.0f} мин\n"
+        f"Банк: {fmt_usd(num(t.get('bankroll_usd')))} · риск на сделку "
+        f"{num(t.get('risk_per_trade_pct')):.1f}% · стоп −{num(t.get('stop_loss_pct')):.0f}%\n"
+        f"Держим до {num(t.get('max_hold_minutes')):.0f} мин, "
+        f"максимум {num(t.get('max_open_positions'), 3):.0f} позиций одновременно\n\n"
+        f"Доступны: {esc(', '.join(PRESETS))} — <code>/preset kimchi</code>"
+    )
+
+
 HELP = (
     "🤖 <b>Мем-коин сканер</b> (DexScreener + новости)\n\n"
     "/scan — прогнать скан сейчас\n"
@@ -1363,6 +1632,9 @@ HELP = (
     "/stats [часы] — как отработали алерты\n"
     "/status — состояние бота\n"
     "/threshold [0-100] — порог алерта\n"
+    "/preset [kimchi|safe|default] — режим сканера\n"
+    "/plan &lt;тикер или адрес&gt; — разбор монеты + готовый сетап\n"
+    "/bankroll [сумма] — банк под мем-коины (от него считается размер входа)\n"
     "/mute [минуты] — тишина · /unmute\n"
     "/news — свежие заголовки\n"
     "/id — показать chat_id этого чата\n"
@@ -1517,6 +1789,37 @@ class Bot:
         return analyze(pair, news=nm, prev=prev, paid_orders=orders,
                        risk_report=report, llm=llm_res)
 
+    async def plan_for(self, query: str) -> str:
+        """Разбор конкретной монеты по тикеру или адресу + готовый сетап."""
+        query = query.strip()
+        try:
+            pairs = await self.dex.search(query)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Поиск %s: %s", query, e)
+            return "DexScreener не ответил, попробуй ещё раз."
+        cand = [p for p in pairs if isinstance(p, dict) and num(p.get("priceUsd")) > 0]
+        if not cand:
+            return "Ничего не нашёл по такому запросу."
+
+        chains = {c.lower() for c in (cfg("scan.chains") or [])}
+        low = query.lower()
+        exact = [p for p in cand
+                 if str(dig(p, "baseToken", "address", default="")).lower() == low
+                 or str(dig(p, "baseToken", "symbol", default="")).lower() == low]
+        pool = exact or [p for p in cand if str(p.get("chainId", "")).lower() in chains] or cand
+        pair = max(pool, key=lambda p: num(dig(p, "liquidity", "usd")))
+
+        ok, why = passes(pair)
+        nm = self.news.score(str(dig(pair, "baseToken", "symbol", default="")),
+                             str(dig(pair, "baseToken", "name", default="")))
+        prev = self.store.last_snapshot(
+            str(pair.get("pairAddress")),
+            min_age_sec=num(cfg("scan.drain_lookback_seconds"), 900))
+        a = await self.deep_analyze(pair, nm, prev)
+        head = "" if ok else (f"<i>⚠️ Монета не проходит фильтры текущего пресета "
+                              f"(<code>{esc(why)}</code>) — смотрю по твоей просьбе.</i>\n\n")
+        return head + alert_message(a)
+
     # ---------- циклы ----------
 
     async def scanner_loop(self) -> None:
@@ -1599,7 +1902,9 @@ class Bot:
             await self.tg.send(
                 f"🤖 <b>Статус</b>\nАптайм: {(time.time()-self.started)/3600:.1f}ч\n"
                 f"Сканов: {self.scans}\nАлертов: {self.alerts_sent}\n"
-                f"Порог: {self.threshold:.0f}\nПар в последнем скане: {self.last_seen}\n"
+                f"Порог: {self.threshold:.0f}\nПресет: {esc(ACTIVE_PRESET)}\n"
+                f"Банк: {fmt_usd(num(cfg('trade.bankroll_usd')))}\n"
+                f"Пар в последнем скане: {self.last_seen}\n"
                 f"Новостей в кэше: {len(self.news.items)}\n"
                 f"Канал: {esc(self.tg.channel_id or 'не задан')}\n"
                 f"Тишина: {'да' if self.store.is_muted('global') else 'нет'}", chat_id)
@@ -1617,6 +1922,35 @@ class Bot:
             else:
                 await self.tg.send(f"Текущий порог: {self.threshold:.0f}. "
                                    f"Пример: /threshold 70", chat_id)
+        elif cmd == "/preset":
+            if arg:
+                if apply_preset(arg):
+                    self.threshold = num(cfg("alerts.min_score"), self.threshold)
+                    await self.tg.send(preset_message(), chat_id)
+                else:
+                    await self.tg.send(
+                        f"Нет такого пресета. Доступны: {', '.join(PRESETS)}", chat_id)
+            else:
+                await self.tg.send(preset_message(), chat_id)
+        elif cmd == "/plan":
+            if not arg:
+                await self.tg.send("Пример: <code>/plan WIF</code> или "
+                                   "<code>/plan &lt;адрес токена&gt;</code>", chat_id)
+            else:
+                await self.tg.send("🔍 Смотрю монету...", chat_id)
+                await self.tg.send(await self.plan_for(" ".join(parts[1:])), chat_id)
+        elif cmd == "/bankroll":
+            if arg:
+                CONFIG["trade"]["bankroll_usd"] = max(0.0, num(arg, 1000))
+                await self.tg.send(
+                    f"Банк: {fmt_usd(num(cfg('trade.bankroll_usd')))}. "
+                    f"Риск на сделку {num(cfg('trade.risk_per_trade_pct')):.1f}% "
+                    f"= {fmt_usd(num(cfg('trade.bankroll_usd')) * num(cfg('trade.risk_per_trade_pct')) / 100)}",
+                    chat_id)
+            else:
+                await self.tg.send(
+                    f"Текущий банк: {fmt_usd(num(cfg('trade.bankroll_usd')))}. "
+                    f"Пример: <code>/bankroll 500</code>", chat_id)
         elif cmd == "/mute":
             minutes = num(arg, 60) if arg else 60
             self.store.mute("global", minutes)
@@ -1644,8 +1978,9 @@ class Bot:
     async def run(self) -> None:
         await self.news.refresh()
         await self.tg.send(
-            f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
-            f"Порог: {self.threshold:.0f}/100\n"
+            f"🤖 Сканер запущен.\nПресет: <b>{esc(ACTIVE_PRESET)}</b>\n"
+            f"Сети: {', '.join(cfg('scan.chains') or [])}\n"
+            f"Порог: {self.threshold:.0f}/100 · банк {fmt_usd(num(cfg('trade.bankroll_usd')))}\n"
             f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
@@ -1661,6 +1996,15 @@ async def amain(args: argparse.Namespace) -> None:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     load_env()
 
+    preset = args.preset or os.environ.get("MEMEBOT_PRESET", "").strip()
+    if preset and not apply_preset(preset):
+        sys.exit(f"Нет пресета '{preset}'. Доступны: {', '.join(PRESETS)}")
+    bankroll = args.bankroll
+    if bankroll is None and os.environ.get("MEMEBOT_BANKROLL"):
+        bankroll = num(os.environ["MEMEBOT_BANKROLL"], None)
+    if bankroll is not None:
+        CONFIG["trade"]["bankroll_usd"] = max(0.0, bankroll)
+    log.info("Пресет: %s · банк $%.0f", ACTIVE_PRESET, num(cfg("trade.bankroll_usd")))
     if args.threshold is not None:
         CONFIG["alerts"]["min_score"] = args.threshold
     if args.chains:
@@ -1696,6 +2040,8 @@ def main() -> None:
     ap.add_argument("--dry", action="store_true", help="не слать в Telegram, печатать в консоль")
     ap.add_argument("--threshold", type=float, help="порог алерта 0-100")
     ap.add_argument("--chains", type=str, help="сети через запятую, напр. solana,base")
+    ap.add_argument("--preset", type=str, help="режим сканера: kimchi | safe | default")
+    ap.add_argument("--bankroll", type=float, help="банк под мем-коины в USD")
     ap.add_argument("-v", "--verbose", action="store_true")
     try:
         asyncio.run(amain(ap.parse_args()))

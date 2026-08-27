@@ -21,4 +21,4 @@ if [ ! -f .env ]; then
 fi
 
 echo "Запускаю бота. Не закрывай терминал — пока он открыт, бот сканирует и шлёт алерты."
-python memebot.py
+python memebot.py "$@"
