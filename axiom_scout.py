@@ -98,7 +98,8 @@ DEFAULTS: dict[str, Any] = {
         "enabled": True,
         "fast_minutes": 15,        # для монет моложе этого проверка обязательна
         "max_dev_pct": 5.0,        # дев держит больше — не заходим
-        "max_top10_pct": 30.0,     # топ-10 держат больше — та же история
+        "max_top10_pct": 40.0,     # топ-10 держат больше — та же история
+        "top10_from_minutes": 3,   # в первые минуты концентрация всегда высокая
         "block_bundle": True,      # признак бандла = отказ
     },
     # Отдельная сделка: токен добегает кривую и переезжает на DEX.
@@ -1305,7 +1306,8 @@ def quick_audit(l: Launch, conf: dict[str, Any]) -> str:
         return ""
     if l.dev_pct and l.dev_pct > num(aconf.get("max_dev_pct"), 5):
         return f"дев держит {l.dev_pct:.1f}% на старте"
-    if l.top10_pct and l.top10_pct > num(aconf.get("max_top10_pct"), 30):
+    if (l.top10_pct and l.age_minutes >= num(aconf.get("top10_from_minutes"), 3)
+            and l.top10_pct > num(aconf.get("max_top10_pct"), 40)):
         return f"топ-10 держат {l.top10_pct:.0f}% на старте"
     if aconf.get("block_bundle", True) and l.bundle_flag:
         return "закуплен бандлом своих же кошельков"
@@ -1760,12 +1762,18 @@ class FreshScanner:
         return str(self.conf.get("preset", "default"))
 
     # Насколько охотно бот заходит. Одна ручка вместо пяти настроек.
+    # Кроме планки уровень двигает и пропускную способность: сколько монет
+    # доходит до полного разбора и насколько придирчив быстрый аудит. Иначе
+    # «high» опускал порог, но монеты до него всё равно не доезжали.
     AGGRESSION = {
-        "low":  {"min_score": 68, "enter": 72, "watch": 58, "veto": 7, "red": True},
-        "mid":  {"min_score": 58, "enter": 58, "watch": 45, "veto": 9, "red": True},
+        "low":  {"min_score": 68, "enter": 72, "watch": 58, "veto": 7, "red": True,
+                 "shortlist": 10, "top10": 30.0, "penalty": 1.0},
+        "mid":  {"min_score": 58, "enter": 58, "watch": 45, "veto": 9, "red": True,
+                 "shortlist": 15, "top10": 40.0, "penalty": 1.0},
         # фатальные флаги блокируют на любом уровне: mint не отозван или honeypot —
         # это не «рискованно», это гарантированный минус
-        "high": {"min_score": 48, "enter": 48, "watch": 38, "veto": 10, "red": True},
+        "high": {"min_score": 48, "enter": 48, "watch": 38, "veto": 10, "red": True,
+                 "shortlist": 25, "top10": 50.0, "penalty": 0.5},
     }
 
     def set_aggression(self, level: str) -> bool:
@@ -1779,13 +1787,26 @@ class FreshScanner:
                              "enter_score": p["enter"], "watch_score": p["watch"],
                              "block_on_red": p["red"]}
         self.conf["llm"] = {**(self.conf.get("llm") or {}), "veto_risk": p["veto"]}
-        log.info("Агрессивность: %s (вход от %s, вето нейросети от %s)",
-                 level, p["enter"], p["veto"])
+        self.conf["shortlist_limit"] = p["shortlist"]
+        self.conf["audit"] = {**(self.conf.get("audit") or {}),
+                              "max_top10_pct": p["top10"]}
+        # штрафы за клон и холодную мету на high режем вдвое: они хорошо
+        # отсеивают мусор, но на низкой планке лишний раз держат бота в стороне
+        base = self.conf.get("narrative") or {}
+        self.conf["narrative"] = {
+            **base,
+            "copycat_penalty": num(base.get("copycat_penalty"), -8) * p["penalty"],
+            "heat_penalty": num(base.get("heat_penalty"), -7) * p["penalty"]}
+        if self.reader is not None:
+            self.reader.conf.update(self.conf["narrative"])
+        log.info("Агрессивность: %s (вход от %s, вето нейросети от %s, "
+                 "в разбор до %s монет)", level, p["enter"], p["veto"], p["shortlist"])
         return True
 
     def aggression_line(self) -> str:
         auto = self.conf.get("auto") or {}
         return (f"Вход от <b>{num(auto.get('enter_score'), 58):.0f}</b>/100 · "
+                f"в разбор до {int(num(self.conf.get('shortlist_limit'), 15))} монет · "
                 f"«наблюдать» от {num(auto.get('watch_score'), 45):.0f} · "
                 f"вето нейросети при риске "
                 f"{num((self.conf.get('llm') or {}).get('veto_risk'), 9):.0f}/10 · "

@@ -915,6 +915,7 @@ class Trader:
         self.positions: list[Position] = self.store.open_positions()
         self.stop_event = asyncio.Event()
         self.last_error = ""
+        self.blocks: dict[str, int] = {}      # на чём отваливались входы
         if self.positions:
             log.info("Подхватил %d открытых позиций из базы", len(self.positions))
 
@@ -967,27 +968,43 @@ class Trader:
 
     # ---------- вход ----------
 
+    def _note_block(self, reason: str) -> str:
+        """Запоминаем, на чём именно отвалился вход: по этому видно, что
+        мешает — планка, лимиты или уже занятые слоты."""
+        self.blocks[reason.split(":")[0].strip()] = \
+            self.blocks.get(reason.split(":")[0].strip(), 0) + 1
+        return reason
+
+    def blocks_line(self) -> str:
+        if not self.blocks:
+            return "Отказов по входу пока не было."
+        top = sorted(self.blocks.items(), key=lambda kv: -kv[1])[:6]
+        return ("<b>Почему не заходил</b> (с запуска):\n"
+                + "\n".join(f"  • {esc(k)}: {v}" for k, v in top))
+
     def _blocked(self, mint: str, score: float) -> str:
         """Почему в эту монету заходить нельзя. Пустая строка — можно."""
         if not self.conf.get("enabled", True):
-            return "торговля выключена"
+            return self._note_block("торговля выключена")
         if score < num(self.conf.get("min_score")):
-            return f"скор {score:.0f} ниже торгового порога"
+            return self._note_block(f"скор ниже торгового порога: {score:.0f}")
         if any(p.mint == mint for p in self.positions):
-            return "позиция по этой монете уже открыта"
+            return self._note_block("позиция по этой монете уже открыта")
         if len(self.positions) >= int(num(self.conf.get("max_positions"), 3)):
-            return f"уже {len(self.positions)} открытых позиций"
+            return self._note_block(
+                f"все слоты заняты: {len(self.positions)} позиций")
 
         last = self.store.last_trade(mint)
         cooldown = num(self.conf.get("cooldown_minutes"), 120)
         if last and time.time() - num(last.get("opened_ts")) < cooldown * 60:
-            return "недавно уже торговали эту монету"
+            return self._note_block("недавно уже торговали эту монету")
 
         size = num(self.conf.get("size_sol"), 0.1)
         spent = self.store.spent_since(time.time() - 86400)
         limit = num(self.conf.get("daily_limit_sol"), 1.0)
         if limit and spent + size > limit:
-            return f"дневной лимит: потрачено {spent:.2f} из {limit:.2f} SOL"
+            return self._note_block(
+                f"дневной лимит исчерпан: {spent:.2f} из {limit:.2f} SOL")
         return ""
 
     async def consider(self, mint: str, symbol: str = "", score: float = 0.0,

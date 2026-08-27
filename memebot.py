@@ -1604,6 +1604,7 @@ HELP = (
     "/journal — журнал: зачем зашёл, чем кончилось, какой вывод\n"
     "/meta — какая мета кормит прямо сейчас\n"
     "/version — версия сборки и что в ней включено\n"
+    "/limits — сколько сделок бот может сделать за сутки\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -2132,6 +2133,40 @@ class Bot:
                     "<i>Где брать адреса: gmgn.ai, kolscan.io, dune.com — "
                     "там видно топы трейдеров, кто стабильно в плюсе. "
                     "Совпали 2 кошелька на монете — бот заходит.</i>", chat_id)
+        elif cmd in ("/limits", "/лимиты"):
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                c = self.trader.conf
+                names = {"positions": "max_positions", "позиции": "max_positions",
+                         "daily": "daily_limit_sol", "лимит": "daily_limit_sol",
+                         "cooldown": "cooldown_minutes", "пауза": "cooldown_minutes",
+                         "size": "size_sol", "размер": "size_sol"}
+                if (arg or "").lower() in names and len(parts) > 2:
+                    key = names[arg.lower()]
+                    value = num(parts[2].replace(",", "."), -1)
+                    if value < 0:
+                        await self.tg.send("Нужно число, например "
+                                           "<code>/limits positions 5</code>", chat_id)
+                    else:
+                        c[key] = int(value) if key == "max_positions" else value
+                        await self.tg.send(f"⚙️ {esc(key)} = {value:g}", chat_id)
+                else:
+                    per_day = (num(c.get("daily_limit_sol"), 1) / num(c.get("size_sol"), 0.1)
+                               if num(c.get("size_sol")) else 0)
+                    await self.tg.send(
+                        "⚙️ <b>Пропускная способность</b>\n\n"
+                        f"Позиций одновременно: <b>{int(num(c.get('max_positions'), 3))}</b>\n"
+                        f"Размер сделки: <b>{num(c.get('size_sol'), 0.1):.3f} SOL</b>\n"
+                        f"Лимит в сутки: <b>{num(c.get('daily_limit_sol'), 1):.2f} SOL</b> "
+                        f"→ это максимум <b>{per_day:.0f} сделок в сутки</b>\n"
+                        f"Пауза по одной монете: "
+                        f"<b>{num(c.get('cooldown_minutes'), 120):.0f} мин</b>\n\n"
+                        "Менять так:\n"
+                        "<code>/limits positions 5</code>\n"
+                        "<code>/limits daily 3</code>\n"
+                        "<code>/limits cooldown 60</code>\n"
+                        "<code>/limits size 0.05</code>", chat_id)
         elif cmd in ("/version", "/версия", "/сборка"):
             mods = [("сканер свежих лончей", axiom_scout), ("торговля", trader),
                     ("мини-апп", dashboard), ("картинка статистики", card),
@@ -2219,7 +2254,10 @@ class Bot:
             else:
                 text = self.fresh.why_message()
                 if self.trader is not None:
-                    text += ("\n\n<b>Торговля:</b> " + esc(self.trader.status_line()))
+                    # сканер мог найти монету, а вход всё равно не состоялся —
+                    # без этой части непонятно, почему сделок мало
+                    text += ("\n\n<b>Торговля:</b> " + esc(self.trader.status_line())
+                             + "\n" + self.trader.blocks_line())
                 await self.tg.send(text, chat_id)
         elif cmd == "/details":
             if self.fresh is None:
@@ -2423,6 +2461,7 @@ class Bot:
         ("journal", "Журнал сделок с разбором"),
         ("meta", "Какая мета кормит"),
         ("version", "Версия сборки и модули"),
+        ("limits", "Лимиты: позиции, размер, сутки"),
         ("fresh", "Что видит бот сейчас"),
         ("status", "Состояние бота"),
         ("trade", "Включить или остановить входы"),
