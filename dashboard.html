@@ -510,7 +510,9 @@ function paint(s) {
   $("winrateSub").textContent = `${t.wins} из ${t.trades} в плюс`;
 
   animateNumber($("openCount"), s.open.length, v => Math.round(v).toString());
-  const held = s.open.reduce((a, p) => a + p.size_sol, 0);
+  /* в рынке остаётся только непроданная часть позиции */
+  const left = p => p.size_sol * (1 - (p.sold_pct || 0) / 100);
+  const held = s.open.reduce((a, p) => a + left(p), 0);
   $("openSub").textContent = s.open.length ? `${held.toFixed(2)} SOL в рынке` : "всё в кэше";
 
   animateNumber($("best"), t.best, v => fmtPct(v));
@@ -531,7 +533,7 @@ function paint(s) {
 
   /* монеты */
   const box = $("positions");
-  const value = s.open.reduce((a, p) => a + p.size_sol * (1 + p.change_pct / 100), 0);
+  const value = s.open.reduce((a, p) => a + left(p) * (1 + p.change_pct / 100), 0);
   $("posNote").textContent = s.open.length ? `${s.open.length} · ${value.toFixed(3)} SOL` : "пусто";
   box.innerHTML = s.open.length ? "" : `<div class="empty" style="position:static;padding:36px 0">
       <b>Сейчас ничего не держим</b>
@@ -540,7 +542,7 @@ function paint(s) {
   s.open.forEach((p, i) => {
     const up = p.change_pct >= 0;
     const color = up ? "var(--up)" : "var(--down)";
-    const now = p.size_sol * (1 + p.change_pct / 100);
+    const now = left(p) * (1 + p.change_pct / 100);
     const el = document.createElement("div");
     el.className = "coin";
     el.style.animationDelay = (i * 50) + "ms";
@@ -558,9 +560,10 @@ function paint(s) {
       <div>
         <div class="coin-name">${p.symbol}</div>
         <div class="coin-sub">
-          <span><b>${p.size_sol.toFixed(3)}</b> SOL</span>
+          <span><b>${left(p).toFixed(3)}</b> SOL</span>
           <span class="sep">·</span><span>держим <b>${fmtMin(p.minutes)}</b></span>
           <span class="sep">·</span><span>макс <b>${fmtPct(p.high_pct)}</b></span>
+          ${p.sold_pct > 0 ? `<span class="sep">·</span><span>снято <b>${Math.round(p.sold_pct)}%</b></span>` : ""}
         </div>
       </div>
       <div class="coin-right">

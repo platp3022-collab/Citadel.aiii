@@ -259,10 +259,14 @@ def render(db_path: str | Path = "data/memebot.db",
         entry, last = num(r.get("entry_price")), num(r.get("last_price"))
         change = ((last / entry - 1) * 100) if entry > 0 and last > 0 else 0.0
         high = num(r.get("high_price"))
-        floating += num(r.get("size_sol")) * change / 100
+        # проданную часть считаем по факту сделки, а не по текущей цене
+        size = num(r.get("size_sol"))
+        sold = max(0.0, min(100.0, num(r.get("sold_pct")))) / 100
+        left = size * (1 - sold)
+        floating += num(r.get("realized_sol")) - size * sold + left * change / 100
         positions.append({
             "symbol": r.get("symbol") or "—",
-            "size_sol": num(r.get("size_sol")),
+            "size_sol": left,
             "change_pct": change,
             "high_pct": ((high / entry - 1) * 100) if entry > 0 and high > 0 else 0.0,
             "minutes": (time.time() - num(r.get("opened_ts"))) / 60,

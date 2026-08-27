@@ -1193,7 +1193,8 @@ def is_fatal(flag: str) -> bool:
 
 
 def decide(score: float, flags: list[str], llm: dict | None,
-           conf: dict[str, Any], smart_hits: int = 0) -> str:
+           conf: dict[str, Any], smart_hits: int = 0,
+           smart_minutes: float = 0.0) -> str:
     """Автопилот: enter (норм) / watch (наблюдать) / skip (мимо)."""
     auto = conf.get("auto") or {}
     enter_at = num(auto.get("enter_score"), 70)
@@ -1204,9 +1205,13 @@ def decide(score: float, flags: list[str], llm: dict | None,
 
     # Совпало несколько умных кошельков — заходим, даже если метрики не дотянули.
     # Сломанный контракт всё равно блокирует: там минус гарантирован.
+    # Но только пока след горячий: зайти через час после умных денег — значит
+    # купить у них же на выходе. Весь смысл этой стратегии в скорости.
     wconf = conf.get("wallets") or {}
+    follow_within = num(wconf.get("follow_within_minutes"), 20)
     if (wconf.get("force_enter", True)
             and smart_hits >= int(num(wconf.get("min_hits"), 2))
+            and (not follow_within or smart_minutes <= follow_within)
             and not any(is_fatal(f) for f in flags)):
         return "enter"
     if llm:
@@ -1259,10 +1264,13 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
                       news_titles=titles, narratives=narratives,
                       news_bonus=bonus, llm=llm,
                       smart_hits=smart_hits, smart_note=smart_note)
-    a.decision = decide(score, flags, llm, conf, smart_hits)
-    # чем обязана сделка: по этому потом видно, какая стратегия кормит
+    smart_minutes = num(getattr(smart, "minutes_ago", 0.0))
+    a.decision = decide(score, flags, llm, conf, smart_hits, smart_minutes)
+    # чем обязана сделка: по этому потом видно, какая стратегия кормит.
+    # «Кимчи» — вход следом за кошельками, которые уже доказали, что умеют:
+    # не догадка о монете, а факт, что умные деньги в ней прямо сейчас.
     if smart_hits >= int(num((conf.get("wallets") or {}).get("min_hits"), 2)):
-        a.strategy = "кошельки"
+        a.strategy = "кимчи"
     elif bonus >= 4:
         a.strategy = "новости"
     else:

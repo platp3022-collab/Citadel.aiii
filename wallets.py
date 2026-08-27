@@ -39,6 +39,7 @@ DEFAULTS: dict[str, Any] = {
     "bonus_per_hit": 9,          # прибавка к скору за каждое совпадение
     "max_bonus": 22,
     "force_enter": True,         # совпало min_hits — заходим, даже если скор ниже
+    "follow_within_minutes": 20, # позже — уже покупка у них на выходе, а не вход
     "signatures_per_wallet": 6,  # сколько последних сделок смотреть у кошелька
     "storage_path": "data/wallets.json",
 }

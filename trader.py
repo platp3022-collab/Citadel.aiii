@@ -57,6 +57,24 @@ DEFAULTS: dict[str, Any] = {
     "trailing_after_pct": 30.0,      # трейлинг включается после этой прибыли
     "timeout_minutes": 30.0,         # не растёт — выходим
 
+    # ---- правила выхода под конкретную стратегию ----
+    # У сделки по чужим кошелькам («кимчи») другая математика: там ловят не
+    # +60%, а иксы, и платят за это частыми мелкими минусами. Поэтому половину
+    # снимаем на удвоении, остаток едет дальше со стопом в ноль — рисковать
+    # там уже нечем, а верхняя граница не поставлена вовсе.
+    "rules": {
+        "кимчи": {
+            "take_profit_pct": 0.0,        # потолка нет: остаток бежит за иксами
+            "stop_loss_pct": -32.0,
+            "scale_out_at_pct": 100.0,     # удвоился — снимаем часть
+            "scale_out_pct": 50.0,         # ровно половину
+            "breakeven_after_scale": True, # после этого стоп переезжает в ноль
+            "trailing_after_pct": 120.0,
+            "trailing_stop_pct": 35.0,
+            "timeout_minutes": 90.0,
+        },
+    },
+
     # ---- реализм бумажных сделок ----
     "entry_slippage_pct": 2.0,
     "exit_slippage_pct": 2.0,
@@ -83,7 +101,7 @@ DEFAULT_RPC = "https://api.mainnet-beta.solana.com"
 LAMPORTS = 1_000_000_000
 
 EXIT_PLAIN = {"take_profit": "тейк", "stop_loss": "стоп", "trailing": "трейлинг",
-              "timeout": "таймаут", "manual": "вручную"}
+              "timeout": "таймаут", "manual": "вручную", "breakeven": "в ноль"}
 
 EXIT_LABELS = {
     "take_profit": "🎯 тейк-профит",
@@ -91,6 +109,7 @@ EXIT_LABELS = {
     "trailing": "📉 трейлинг-стоп",
     "timeout": "⏳ таймаут",
     "manual": "✋ вручную",
+    "breakeven": "🛟 стоп в ноль",
 }
 
 
@@ -131,6 +150,9 @@ class Position:
     size_sol: float = 0.0            # сколько SOL вложили (с учётом сборов)
     tokens: float = 0.0              # сколько токенов получили
 
+    realized_sol: float = 0.0        # уже снято частичной продажей
+    sold_pct: float = 0.0            # какую долю позиции успели продать
+
     high_price: float = 0.0          # максимум цены за время удержания
     last_price: float = 0.0
     last_check: float = 0.0
@@ -142,6 +164,11 @@ class Position:
     pnl_sol: float = 0.0
     pnl_pct: float = 0.0
     row_id: int | None = None
+
+    @property
+    def scaled_out(self) -> bool:
+        """Часть позиции уже в кармане — дальше едем без риска."""
+        return self.sold_pct > 0
 
     @property
     def age_minutes(self) -> float:
@@ -200,6 +227,10 @@ class TradeStore:
             cols = {r[1] for r in self.conn.execute("PRAGMA table_info(trades)")}
             if "strategy" not in cols:
                 self.conn.execute("ALTER TABLE trades ADD COLUMN strategy TEXT")
+            if "realized_sol" not in cols:
+                self.conn.execute("ALTER TABLE trades ADD COLUMN realized_sol REAL")
+            if "sold_pct" not in cols:
+                self.conn.execute("ALTER TABLE trades ADD COLUMN sold_pct REAL")
             self.conn.commit()
 
     def insert(self, p: Position) -> int:
@@ -207,12 +238,13 @@ class TradeStore:
             cur = self.conn.execute(
                 "INSERT INTO trades (mint, symbol, launchpad, mode, score, opened_ts,"
                 " entry_price, entry_sol_price, size_sol, tokens, high_price, last_price,"
-                " status, exit_price, exit_ts, exit_reason, pnl_sol, pnl_pct, strategy)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " status, exit_price, exit_ts, exit_reason, pnl_sol, pnl_pct, strategy,"
+                " realized_sol, sold_pct)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (p.mint, p.symbol, p.launchpad, p.mode, p.score, p.opened_ts,
                  p.entry_price, p.entry_sol_price, p.size_sol, p.tokens, p.high_price,
                  p.last_price, p.status, p.exit_price, p.exit_ts, p.exit_reason,
-                 p.pnl_sol, p.pnl_pct, p.strategy))
+                 p.pnl_sol, p.pnl_pct, p.strategy, p.realized_sol, p.sold_pct))
             self.conn.commit()
             return int(cur.lastrowid)
 
@@ -222,9 +254,11 @@ class TradeStore:
         with self.lock:
             self.conn.execute(
                 "UPDATE trades SET high_price=?, last_price=?, status=?, exit_price=?,"
-                " exit_ts=?, exit_reason=?, pnl_sol=?, pnl_pct=? WHERE id=?",
+                " exit_ts=?, exit_reason=?, pnl_sol=?, pnl_pct=?, tokens=?,"
+                " realized_sol=?, sold_pct=? WHERE id=?",
                 (p.high_price, p.last_price, p.status, p.exit_price, p.exit_ts,
-                 p.exit_reason, p.pnl_sol, p.pnl_pct, p.row_id))
+                 p.exit_reason, p.pnl_sol, p.pnl_pct, p.tokens,
+                 p.realized_sol, p.sold_pct, p.row_id))
             self.conn.commit()
 
     def open_positions(self) -> list[Position]:
@@ -300,6 +334,8 @@ class TradeStore:
         p.pnl_sol = num(d.get("pnl_sol"))
         p.pnl_pct = num(d.get("pnl_pct"))
         p.strategy = d.get("strategy") or "метрики"
+        p.realized_sol = num(d.get("realized_sol"))
+        p.sold_pct = num(d.get("sold_pct"))
         p.row_id = int(d["id"])
         return p
 
@@ -386,13 +422,14 @@ class PaperExecutor:
         tokens = usable * sol_price / fill
         return tokens, fill
 
-    async def sell(self, position: Position, price: float,
-                   sol_price: float) -> tuple[float, float]:
-        """Возвращает (сколько SOL получили, по какой фактической цене)."""
+    async def sell(self, position: Position, price: float, sol_price: float,
+                   fraction: float = 1.0) -> tuple[float, float]:
+        """Возвращает (сколько SOL получили, по какой фактической цене).
+        fraction < 1 — частичная фиксация, остаток позиции продолжает ехать."""
         fill = price * (1 - num(self.conf.get("exit_slippage_pct")) / 100.0)
         if fill <= 0 or sol_price <= 0:
             return 0.0, 0.0
-        gross = position.tokens * fill / sol_price
+        gross = position.tokens * max(0.0, min(1.0, fraction)) * fill / sol_price
         net = gross * (1 - num(self.conf.get("fee_pct")) / 100.0) \
                     - num(self.conf.get("network_fee_sol"))
         return max(0.0, net), fill
@@ -582,11 +619,13 @@ class LiveExecutor(PaperExecutor):
         log.info("Куплено %.4f токенов по %.10f", got, fill)
         return got, fill
 
-    async def sell(self, position: Position, price: float,
-                   sol_price: float) -> tuple[float, float]:
+    async def sell(self, position: Position, price: float, sol_price: float,
+                   fraction: float = 1.0) -> tuple[float, float]:
         raw, decimals = await self.rpc.token_balance(self.wallet.address, position.mint)
         if raw <= 0:
             raise RuntimeError("токенов на кошельке нет — продавать нечего")
+        # частичная фиксация: продаём долю остатка, а не всё подчистую
+        raw = max(1, int(raw * max(0.0, min(1.0, fraction))))
 
         sol_before = await self.rpc.balance_sol(self.wallet.address)
         await self._execute(await self._quote(position.mint, SOL_MINT, raw))
@@ -632,6 +671,14 @@ def close_message(p: Position) -> str:
             f"<b>{fmt_sol(p.pnl_sol)}</b> ({p.pnl_pct:+.0f}%) · {p.age_minutes:.0f} мин · "
             f"{EXIT_PLAIN.get(p.exit_reason, p.exit_reason)}\n"
             f"{price_str(p.entry_price)} → {price_str(p.exit_price)}")
+
+
+def scale_message(p: Position, fill: float, got_sol: float, share: float) -> str:
+    """Коротко: снял часть в плюс, остаток едет дальше."""
+    tag = "📄" if p.mode == "paper" else "💰"
+    return (f"{tag} 💰 <b>снял {share * 100:.0f}% ${esc(p.symbol)}</b>\n"
+            f"+{got_sol:.4f} SOL по {price_str(fill)} ({p.change_pct(fill):+.0f}%)\n"
+            f"остаток едет дальше, стоп — в ноль")
 
 
 def positions_message(positions: list[Position], conf: dict[str, Any]) -> str:
@@ -865,24 +912,59 @@ class Trader:
 
     # ---------- выход ----------
 
+    def rules(self, p: Position) -> dict[str, Any]:
+        """Правила выхода для этой сделки: общие плюс поправки её стратегии."""
+        by_strategy = (self.conf.get("rules") or {}).get(p.strategy) or {}
+        return {**self.conf, **by_strategy}
+
     def _exit_reason(self, p: Position, price: float) -> str:
+        r = self.rules(p)
         change = p.change_pct(price)
-        if change >= num(self.conf.get("take_profit_pct"), 60):
+
+        take = num(r.get("take_profit_pct"), 60)
+        if take > 0 and change >= take:
             return "take_profit"
-        if change <= num(self.conf.get("stop_loss_pct"), -35):
+
+        # половина уже в кармане — дальше не рискуем ничем: вернулось к входу,
+        # забираем остаток и всё равно остаёмся в плюсе
+        if p.scaled_out and r.get("breakeven_after_scale") and change <= 0:
+            return "breakeven"
+        if change <= num(r.get("stop_loss_pct"), -35):
             return "stop_loss"
 
-        trail_after = num(self.conf.get("trailing_after_pct"), 30)
-        trail = num(self.conf.get("trailing_stop_pct"), 25)
+        trail_after = num(r.get("trailing_after_pct"), 30)
+        trail = num(r.get("trailing_stop_pct"), 25)
         if trail and p.high_price > 0 and p.change_pct(p.high_price) >= trail_after:
             drop = (price / p.high_price - 1) * 100.0
             if drop <= -trail:
                 return "trailing"
 
-        timeout = num(self.conf.get("timeout_minutes"), 30)
+        timeout = num(r.get("timeout_minutes"), 30)
         if timeout and p.age_minutes >= timeout:
             return "timeout"
         return ""
+
+    async def scale_out(self, p: Position, price: float, sol_price: float,
+                        share: float) -> None:
+        """Снимает часть позиции в плюс, остаток оставляет ехать дальше."""
+        share = max(0.05, min(0.9, share))
+        try:
+            got_sol, fill = await self.executor.sell(p, price, sol_price, share)
+        except Exception as e:  # noqa: BLE001
+            # не получилось — позиция цела, попробуем на следующем круге
+            self.last_error = str(e)[:200]
+            log.error("Частичный выход из $%s не прошёл: %s", p.symbol or p.mint[:8], e)
+            return
+        if got_sol <= 0:
+            return
+        p.realized_sol += got_sol
+        p.tokens = max(0.0, p.tokens * (1 - share))
+        p.sold_pct = min(100.0, p.sold_pct + share * 100.0)
+        self.store.update(p)
+        log.info("Снял %.0f%% $%s: +%.4f SOL (%+.0f%%)",
+                 share * 100, p.symbol or p.mint[:8], got_sol, p.change_pct(fill))
+        if self.send:
+            await self.send(scale_message(p, fill, got_sol, share))
 
     async def close(self, p: Position, price: float, sol_price: float,
                     reason: str) -> None:
@@ -901,7 +983,8 @@ class Trader:
         p.exit_price = fill
         p.exit_ts = time.time()
         p.exit_reason = reason
-        p.pnl_sol = got_sol - p.size_sol
+        # к выручке добавляем то, что сняли раньше частичной продажей
+        p.pnl_sol = p.realized_sol + got_sol - p.size_sol
         p.pnl_pct = (p.pnl_sol / p.size_sol * 100.0) if p.size_sol else 0.0
         p.last_price = price
         self.store.update(p)
@@ -929,6 +1012,14 @@ class Trader:
             p.last_price = price
             p.high_price = max(p.high_price, price)
             p.last_check = time.time()
+
+            # сначала частичная фиксация: снять половину на удвоении важнее,
+            # чем ждать общего выхода — на этом и держится стратегия «кимчи»
+            r = self.rules(p)
+            at = num(r.get("scale_out_at_pct"))
+            share = num(r.get("scale_out_pct")) / 100.0
+            if not p.scaled_out and at > 0 and share > 0 and p.change_pct(price) >= at:
+                await self.scale_out(p, price, sol_price, share)
 
             reason = self._exit_reason(p, price)
             if reason:

@@ -107,7 +107,11 @@ class DashboardData:
             change = ((last / entry - 1) * 100.0) if entry > 0 and last > 0 else 0.0
             high = num(r.get("high_price"))
             size = num(r.get("size_sol"))
-            floating += size * change / 100.0
+            # часть позиции могла быть уже продана — она считается по факту,
+            # а не по текущей цене, иначе плавающий результат врёт
+            sold = max(0.0, min(100.0, num(r.get("sold_pct")))) / 100.0
+            left = size * (1 - sold)
+            floating += num(r.get("realized_sol")) - size * sold + left * change / 100.0
             positions.append({
                 "symbol": r.get("symbol") or "—",
                 "mint": r.get("mint") or "",
@@ -119,6 +123,7 @@ class DashboardData:
                 "score": num(r.get("score")),
                 "entry": entry,
                 "last": last,
+                "sold_pct": sold * 100.0,
             })
 
         return {

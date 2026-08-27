@@ -168,6 +168,20 @@ CONFIG: dict[str, Any] = {
         "take_profit_pct": 60.0,
         "stop_loss_pct": -35.0,
         "timeout_minutes": 30.0,
+        # Сделки по чужим кошелькам ведём иначе: там ловят иксы, а не +60%.
+        # Половину снимаем на удвоении, остаток едет дальше со стопом в ноль.
+        "rules": {
+            "кимчи": {
+                "take_profit_pct": 0.0,        # потолка нет
+                "stop_loss_pct": -32.0,
+                "scale_out_at_pct": 100.0,     # удвоился — фиксируем часть
+                "scale_out_pct": 50.0,
+                "breakeven_after_scale": True,
+                "trailing_after_pct": 120.0,
+                "trailing_stop_pct": 35.0,
+                "timeout_minutes": 90.0,
+            },
+        },
     },
     # Слежка за кошельками: заходим следом за теми, кто стабильно в плюсе.
     # Список кошельков — командой /wallet add, хранится в data/wallets.json.
@@ -179,6 +193,7 @@ CONFIG: dict[str, Any] = {
         "bonus_per_hit": 9,        # прибавка к скору за совпадение
         "max_bonus": 22,
         "force_enter": True,       # совпало — заходим, даже если метрики слабее
+        "follow_within_minutes": 20,  # позже — уже не заход, а покупка у них на выходе
     },
     # Разведка: бот сам ищет кошельки, а не берёт готовый список.
     # Запоминает цену увиденных монет, через час смотрит, какие выстрелили,
@@ -2073,7 +2088,10 @@ class Bot:
             lines.append("  включена" if os.environ.get("ANTHROPIC_API_KEY")
                          else "  выключена: нет ANTHROPIC_API_KEY")
             lines.append("")
-            lines.append("• <b>Кошельки</b> — заходим следом за теми, кто в плюсе")
+            lines.append("• <b>Кимчи</b> — заходим следом за кошельками, которые "
+                         "уже в плюсе, пока след горячий (до 20 мин)")
+            lines.append("  половину снимаем на удвоении, остаток едет "
+                         "со стопом в ноль")
             lines.append(f"  {esc(self.wallets.status_line())}" if self.wallets
                          else "  выключено")
             lines.append(f"  {esc(self.scout.status_line())}" if self.scout else "")
