@@ -161,10 +161,10 @@ CONFIG: dict[str, Any] = {
     },
     # Мини-апп со статистикой: http://localhost:8420 (см. dashboard.py)
     "dashboard": {"enabled": True, "host": "127.0.0.1", "port": 8420,
-                  # туннель наружу нужен только чтобы открывать страницу
-                  # внутри Telegram; по умолчанию выключен — статистику
-                  # бот присылает картинкой, ей адрес не нужен
-                  "tunnel": False},
+                  # туннель наружу даёт https-адрес, по которому страница
+                  # открывается внутри Telegram как мини-апп; если он не
+                  # поднимется, статистика всё равно придёт картинкой по /app
+                  "tunnel": True},
     "tracking": {"interval_minutes": 15, "window_hours": 48},
     "storage": {"path": "data/memebot.db", "keep_days": 7},
 }
@@ -1792,8 +1792,14 @@ class Bot:
         link = self.dash.link()
         if await self.dash.selfcheck():
             await self.tg.set_menu_button(link)
-            await self.tg.send(f"📊 Статистика открывается кнопкой в меню чата\n{esc(link)}",
-                               chat_id=self.tg.admin_chat_id or None)
+            # кнопкой в сообщении, а не только в меню: её видно сразу
+            await self.tg.send(
+                "📊 <b>Мини-апп готов</b>\n"
+                "Кнопка ниже открывает статистику прямо в Telegram.\n"
+                "Она же теперь в меню чата.",
+                chat_id=self.tg.admin_chat_id or None,
+                markup={"inline_keyboard": [[{
+                    "text": "📊 Открыть приложение", "web_app": {"url": link}}]]})
             return
         # адрес может не открываться отсюда, но работать с телефона —
         # ссылку отдаём, кнопку не вешаем, чтобы не вела в никуда
@@ -1945,21 +1951,22 @@ class Bot:
                     self.trader.conf["enabled"] = False
                 await self.tg.send(self.trader.status_line(), chat_id)
         elif cmd in ("/app", "/dash", "/stat"):
-            if card is None:
-                await self.tg.send("Модуль карточки не подключён.", chat_id)
-            else:
-                await self.tg.send("📊 Рисую...", chat_id)
+            # мини-апп кнопкой, если адрес поднялся; картинка — всегда
+            if self.dash is not None and self.dash.public_url and self.dash.ready:
+                await self.tg.send(
+                    "📊 <b>Статистика</b>", chat_id,
+                    markup={"inline_keyboard": [[{
+                        "text": "📊 Открыть приложение",
+                        "web_app": {"url": self.dash.link()}}]]})
+            elif self.dash is not None and self.dash.public_url:
+                await self.tg.send("📊 Адрес приложения ещё поднимается, "
+                                   "обычно это до минуты. Пока — картинкой:", chat_id)
+            if card is not None:
                 path = await asyncio.to_thread(
                     card.render, cfg("storage.path", "data/memebot.db"), None,
                     self.trader.mode if self.trader else "paper")
-                caption = "📊 Статистика бота"
-                if self.dash and self.dash.public_url:
-                    caption += f"\nЖивая версия: {esc(self.dash.link())}"
-                elif self.dash:
-                    caption += f"\nНа компьютере: {esc(self.dash.url)}"
-                if not await self.tg.send_photo(path, caption, chat_id):
-                    await self.tg.send(f"Не смог отправить картинку. Она тут:\n"
-                                       f"<code>{esc(path)}</code>", chat_id)
+                if not await self.tg.send_photo(path, "", chat_id):
+                    await self.tg.send(f"Картинка тут:\n<code>{esc(path)}</code>", chat_id)
         elif cmd in ("/why", "/почему"):
             if self.fresh is None:
                 await self.tg.send("Сканер не подключён.", chat_id)
