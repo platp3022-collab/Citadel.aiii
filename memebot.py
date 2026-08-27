@@ -1335,6 +1335,26 @@ class Telegram:
             log.warning("setChatMenuButton: %s", e)
             return False
 
+    async def set_commands(self, commands: list[tuple[str, str]]) -> bool:
+        """Список команд в меню чата — кнопка «Меню» слева от поля ввода.
+
+        Без этого у бота вообще нет видимой точки входа: человек должен
+        помнить команды наизусть.
+        """
+        if self.dry or not self.token:
+            return False
+        payload = {"commands": [{"command": c, "description": d} for c, d in commands]}
+        try:
+            async with self.session.post(f"{self.api}/setMyCommands", json=payload,
+                                         timeout=aiohttp.ClientTimeout(total=20)) as r:
+                if r.status != 200:
+                    log.warning("setMyCommands: %s", (await r.text())[:200])
+                    return False
+                return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("setMyCommands: %s", e)
+            return False
+
     async def me(self) -> dict | None:
         """Проверка токена: кто мы такие. None — токен битый или сети нет."""
         if not self.token:
@@ -2136,8 +2156,22 @@ class Bot:
             log.warning("ANTHROPIC_API_KEY не задан — вердикта нейросети не будет, "
                         "работает только скоринг")
 
+    # что видно в кнопке «Меню» рядом с полем ввода
+    MENU = [
+        ("app", "📊 Статистика картинкой"),
+        ("positions", "Открытые позиции"),
+        ("pnl", "Сколько заработал"),
+        ("history", "История сделок"),
+        ("why", "Почему нет сделок"),
+        ("fresh", "Что видит бот сейчас"),
+        ("status", "Состояние бота"),
+        ("trade", "Включить или остановить входы"),
+        ("help", "Все команды"),
+    ]
+
     async def run(self) -> None:
         await self.preflight()
+        await self.tg.set_commands(self.MENU)
         if self.dash is not None:
             await self.dash.start()
             # Старую кнопку снимаем сразу: адрес быстрого туннеля меняется при
@@ -2163,9 +2197,21 @@ class Bot:
                 + f"{num(self.trader.conf.get('size_sol')):.3f} SOL на сделку, "
                   f"лимит {num(self.trader.conf.get('daily_limit_sol')):.2f} SOL в сутки\n")
                if self.trader else "")
-            + (f"📊 {esc(self.dash.status_line())}\n" if self.dash else "")
+            + "📊 Статистика: команда /app — пришлю картинкой\n"
+            + (f"<i>На этом компьютере: {esc(self.dash.url)}</i>\n" if self.dash else "")
             + f"Канал: {esc(self.tg.channel_id or 'не задан')}\n/help — команды",
             chat_id=self.tg.admin_chat_id or None)
+        if card is not None:
+            # показываем карточку сразу — чтобы было видно, что статистика есть
+            try:
+                path = await asyncio.to_thread(
+                    card.render, cfg("storage.path", "data/memebot.db"), None,
+                    self.trader.mode if self.trader else "paper")
+                await self.tg.send_photo(path, "📊 Статистика — команда /app в любой момент",
+                                         chat_id=self.tg.admin_chat_id or None)
+            except Exception as e:  # noqa: BLE001
+                log.warning("карточка при старте: %s", e)
+
         await asyncio.gather(self.scanner_loop(), self.news_loop(),
                              self.tracker_loop(), self.telegram_loop(),
                              self.fresh_loop(), self.trader_loop(),
