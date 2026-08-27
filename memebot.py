@@ -85,6 +85,10 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("memebot")
 
+# Версия сборки. По ней видно, та ли копия запущена: после обновления она
+# приходит в чат при старте и показывается в /version.
+VERSION = "2026.08.27"
+
 # ════════════════════════════════════════════════════════════════════════════
 #  КОНФИГ — правь прямо здесь
 # ════════════════════════════════════════════════════════════════════════════
@@ -1599,6 +1603,7 @@ HELP = (
     "/strategies — что работает и что приносит\n"
     "/journal — журнал: зачем зашёл, чем кончилось, какой вывод\n"
     "/meta — какая мета кормит прямо сейчас\n"
+    "/version — версия сборки и что в ней включено\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -2127,6 +2132,28 @@ class Bot:
                     "<i>Где брать адреса: gmgn.ai, kolscan.io, dune.com — "
                     "там видно топы трейдеров, кто стабильно в плюсе. "
                     "Совпали 2 кошелька на монете — бот заходит.</i>", chat_id)
+        elif cmd in ("/version", "/версия", "/сборка"):
+            mods = [("сканер свежих лончей", axiom_scout), ("торговля", trader),
+                    ("мини-апп", dashboard), ("картинка статистики", card),
+                    ("слежка за кошельками", wallet_watch),
+                    ("разведка кошельков", wallet_scout)]
+            lines = [f"⚙️ <b>Сборка {esc(VERSION)}</b>", ""]
+            for title, mod in mods:
+                lines.append(("✅ " if mod is not None else "❌ ") + title)
+            lines.append(("✅ " if self.fresh is not None and self.fresh.reader is not None
+                          else "❌ ") + "нарратив и меты")
+            lines.append("")
+            if self.fresh is not None:
+                lines.append(f"Профиль: <b>{esc(self.fresh.preset.upper())}</b>, "
+                             f"порог {self.fresh.threshold:.0f}")
+            if self.trader is not None:
+                lines.append("Торговля: " + ("💰 реальные деньги"
+                                             if self.trader.mode == "live"
+                                             else "📄 бумага")
+                             + f", {num(self.trader.conf.get('size_sol')):.3f} SOL на сделку")
+            if self.dash is not None:
+                lines.append(esc(self.dash.status_line()))
+            await self.tg.send("\n".join(lines), chat_id)
         elif cmd in ("/journal", "/журнал"):
             if self.trader is None:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)
@@ -2395,6 +2422,7 @@ class Bot:
         ("strategies", "Что работает и что приносит"),
         ("journal", "Журнал сделок с разбором"),
         ("meta", "Какая мета кормит"),
+        ("version", "Версия сборки и модули"),
         ("fresh", "Что видит бот сейчас"),
         ("status", "Состояние бота"),
         ("trade", "Включить или остановить входы"),
@@ -2415,7 +2443,8 @@ class Bot:
             self.retry_app(quiet=True)
         await self.news.refresh()
         await self.tg.send(
-            f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
+            f"🤖 Сканер запущен. Сборка <b>{esc(VERSION)}</b>\n"
+            f"Сети: {', '.join(cfg('scan.chains') or [])}\n"
             f"Порог: {self.threshold:.0f}/100\n"
             + (f"Автопилот по свежим лончам: <b>{esc(self.fresh.preset.upper())}</b>, "
                f"порог {self.fresh.threshold:.0f}\n" if self.fresh else "")
