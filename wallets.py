@@ -266,8 +266,8 @@ class WalletTracker:
 
     def status_line(self) -> str:
         if not self.wallets:
-            return ("Слежка за кошельками: список пуст — "
-                    "добавь через /wallet add &lt;адрес&gt;")
+            return ("Слежка за кошельками: список пуст, "
+                    "бот наберёт его сам или добавь через /wallet add")
         ago = (time.time() - self.last_poll) / 60 if self.last_poll else -1
         return (f"Слежка за кошельками: {len(self.wallets)} шт., "
                 f"покупок в памяти {len(self.buys)}"

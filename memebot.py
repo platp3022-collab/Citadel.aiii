@@ -1570,6 +1570,7 @@ HELP = (
     "/aggr [low|mid|high] — насколько охотно заходить\n"
     "/wallets — кошельки под слежкой · /wallet add АДРЕС\n"
     "/scout — кого бот нашёл сам\n"
+    "/strategies — что работает и что приносит\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -1832,7 +1833,8 @@ class Bot:
             return
         await self.trader.consider(
             mint=a.launch.mint, symbol=a.launch.symbol, score=a.score,
-            launchpad=a.launch.launchpad, price_hint=a.launch.price_usd)
+            launchpad=a.launch.launchpad, price_hint=a.launch.price_usd,
+            strategy=getattr(a, "strategy", "метрики"))
 
     async def publish_app(self) -> None:
         """Ждёт, пока адрес туннеля станет доступен снаружи, и вешает кнопку."""
@@ -2056,6 +2058,28 @@ class Bot:
                     "<i>Где брать адреса: gmgn.ai, kolscan.io, dune.com — "
                     "там видно топы трейдеров, кто стабильно в плюсе. "
                     "Совпали 2 кошелька на монете — бот заходит.</i>", chat_id)
+        elif cmd in ("/strategies", "/стратегии"):
+            lines = ["🧠 <b>Что работает одновременно</b>", ""]
+            lines.append("• <b>Метрики</b> — холдеры, объём, давление покупок, "
+                         "распределение supply, бондинг-кривая")
+            lines.append(f"  профиль {esc(self.fresh.preset.upper())}, "
+                         f"{self.fresh.aggression_line()}" if self.fresh else "  выключено")
+            lines.append("")
+            lines.append("• <b>Новости</b> — тикер мелькает в свежих заголовках")
+            lines.append(f"  в ленте {len(self.news.items)} заголовков"
+                         if self.news else "  выключено")
+            lines.append("")
+            lines.append("• <b>Нейросеть</b> — финальный вердикт по монете")
+            lines.append("  включена" if os.environ.get("ANTHROPIC_API_KEY")
+                         else "  выключена: нет ANTHROPIC_API_KEY")
+            lines.append("")
+            lines.append("• <b>Кошельки</b> — заходим следом за теми, кто в плюсе")
+            lines.append(f"  {esc(self.wallets.status_line())}" if self.wallets
+                         else "  выключено")
+            lines.append(f"  {esc(self.scout.status_line())}" if self.scout else "")
+            if self.trader is not None:
+                lines += ["", self.trader.by_strategy()]
+            await self.tg.send("\n".join([l for l in lines if l is not None]), chat_id)
         elif cmd in ("/scout", "/разведка"):
             await self.tg.send(self.scout.report() if self.scout
                                else "Разведка кошельков выключена.", chat_id)
@@ -2279,6 +2303,7 @@ class Bot:
         ("aggr", "Насколько охотно заходить"),
         ("wallets", "Кошельки умных трейдеров"),
         ("scout", "Кого бот нашёл сам"),
+        ("strategies", "Что работает и что приносит"),
         ("fresh", "Что видит бот сейчас"),
         ("status", "Состояние бота"),
         ("trade", "Включить или остановить входы"),

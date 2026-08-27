@@ -949,6 +949,7 @@ class FreshAnalysis:
     llm: dict | None = None
     smart_hits: int = 0                    # сколько отслеживаемых кошельков зашло
     smart_note: str = ""
+    strategy: str = "метрики"              # что именно привело в сделку
 
     @property
     def mint(self) -> str:
@@ -1259,6 +1260,13 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
                       news_bonus=bonus, llm=llm,
                       smart_hits=smart_hits, smart_note=smart_note)
     a.decision = decide(score, flags, llm, conf, smart_hits)
+    # чем обязана сделка: по этому потом видно, какая стратегия кормит
+    if smart_hits >= int(num((conf.get("wallets") or {}).get("min_hits"), 2)):
+        a.strategy = "кошельки"
+    elif bonus >= 4:
+        a.strategy = "новости"
+    else:
+        a.strategy = "метрики"
     if a.decision == "skip" and not a.verdict.startswith("☠️"):
         a.verdict = verdict_text(score, flags)
     return a

@@ -123,6 +123,7 @@ class Position:
     launchpad: str = ""
     mode: str = "paper"
     score: float = 0.0
+    strategy: str = "метрики"        # что привело в эту сделку
 
     opened_ts: float = 0.0
     entry_price: float = 0.0         # цена токена в долларах на входе
@@ -195,6 +196,10 @@ class TradeStore:
             self.lock = threading.Lock()
         with self.lock:
             self.conn.executescript(TRADE_SCHEMA)
+            # у старых баз колонки нет — добавляем, чтобы история не потерялась
+            cols = {r[1] for r in self.conn.execute("PRAGMA table_info(trades)")}
+            if "strategy" not in cols:
+                self.conn.execute("ALTER TABLE trades ADD COLUMN strategy TEXT")
             self.conn.commit()
 
     def insert(self, p: Position) -> int:
@@ -202,12 +207,12 @@ class TradeStore:
             cur = self.conn.execute(
                 "INSERT INTO trades (mint, symbol, launchpad, mode, score, opened_ts,"
                 " entry_price, entry_sol_price, size_sol, tokens, high_price, last_price,"
-                " status, exit_price, exit_ts, exit_reason, pnl_sol, pnl_pct)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " status, exit_price, exit_ts, exit_reason, pnl_sol, pnl_pct, strategy)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (p.mint, p.symbol, p.launchpad, p.mode, p.score, p.opened_ts,
                  p.entry_price, p.entry_sol_price, p.size_sol, p.tokens, p.high_price,
                  p.last_price, p.status, p.exit_price, p.exit_ts, p.exit_reason,
-                 p.pnl_sol, p.pnl_pct))
+                 p.pnl_sol, p.pnl_pct, p.strategy))
             self.conn.commit()
             return int(cur.lastrowid)
 
@@ -294,6 +299,7 @@ class TradeStore:
         p.exit_reason = d.get("exit_reason") or ""
         p.pnl_sol = num(d.get("pnl_sol"))
         p.pnl_pct = num(d.get("pnl_pct"))
+        p.strategy = d.get("strategy") or "метрики"
         p.row_id = int(d["id"])
         return p
 
@@ -818,7 +824,8 @@ class Trader:
         return ""
 
     async def consider(self, mint: str, symbol: str = "", score: float = 0.0,
-                       launchpad: str = "", price_hint: float = 0.0) -> Position | None:
+                       launchpad: str = "", price_hint: float = 0.0,
+                       strategy: str = "метрики") -> Position | None:
         """Решает, входить ли в монету, и открывает позицию."""
         reason = self._blocked(mint, score)
         if reason:
@@ -846,7 +853,7 @@ class Trader:
             return None
 
         p = Position(mint=mint, symbol=symbol, launchpad=launchpad, mode=self.mode,
-                     score=score, opened_ts=time.time(), entry_price=fill,
+                     score=score, strategy=strategy, opened_ts=time.time(), entry_price=fill,
                      entry_sol_price=sol_price, size_sol=size, tokens=tokens,
                      high_price=fill, last_price=fill, last_check=time.time())
         p.row_id = self.store.insert(p)
@@ -970,6 +977,27 @@ class Trader:
             text += (f"\n\nСейчас открыто: {len(self.positions)} "
                      f"(в среднем {floating:+.1f}%)")
         return text
+
+    def by_strategy(self, hours: float = 24 * 7) -> str:
+        """Какая стратегия сколько принесла — по этому видно, что работает."""
+        rows = self.store.closed_since(time.time() - hours * 3600)
+        if not rows:
+            return "Закрытых сделок пока нет — сравнивать нечего."
+        groups: dict[str, list[dict]] = {}
+        for r in rows:
+            groups.setdefault(r.get("strategy") or "метрики", []).append(r)
+
+        out = [f"🎯 <b>Что приносит результат</b> (за {hours / 24:.0f} дн)"]
+        for name, items in sorted(groups.items(),
+                                  key=lambda kv: -sum(num(r.get("pnl_sol")) for r in kv[1])):
+            pnl = sum(num(r.get("pnl_sol")) for r in items)
+            wins = len([r for r in items if num(r.get("pnl_sol")) > 0])
+            invested = sum(num(r.get("size_sol")) for r in items)
+            out.append(f"\n<b>{esc(name)}</b> — {fmt_sol(pnl)}"
+                       + (f" ({pnl / invested * 100:+.0f}%)" if invested else "")
+                       + f"\n  сделок {len(items)}, в плюс {wins} "
+                         f"({wins / len(items) * 100:.0f}%)")
+        return "\n".join(out)
 
     def history(self, limit: int = 10) -> str:
         return history_message(self.store.recent_closed(max(1, min(limit, 30))), limit)
