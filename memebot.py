@@ -1514,6 +1514,7 @@ HELP = (
     "/preset [axiom|fomo|safe|degen] — профиль автопилота\n"
     "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
     "/details [on|off] — показывать разбор монет в чате\n"
+    "/why — почему бот не заходит в сделки\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -1939,6 +1940,14 @@ class Bot:
                 if not await self.tg.send_photo(path, caption, chat_id):
                     await self.tg.send(f"Не смог отправить картинку. Она тут:\n"
                                        f"<code>{esc(path)}</code>", chat_id)
+        elif cmd in ("/why", "/почему"):
+            if self.fresh is None:
+                await self.tg.send("Сканер не подключён.", chat_id)
+            else:
+                text = self.fresh.why_message()
+                if self.trader is not None:
+                    text += ("\n\n<b>Торговля:</b> " + esc(self.trader.status_line()))
+                await self.tg.send(text, chat_id)
         elif cmd == "/details":
             if self.fresh is None:
                 await self.tg.send("Модуль свежих лончей не подключён.", chat_id)

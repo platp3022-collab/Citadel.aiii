@@ -1542,6 +1542,9 @@ class FreshScanner:
         self.last_passed = 0
         self.last_error = ""
         self.llm_calls = 0
+        self.last_batch: list[FreshAnalysis] = []   # что видели в прошлый раз
+        self.last_drops: dict[str, int] = {}        # где отсеялись
+        self.last_scan_ts = 0.0
         self.stop_event = asyncio.Event()
 
     @property
@@ -1628,16 +1631,27 @@ class FreshScanner:
         max_per_scan = int(num(self.conf.get("max_per_scan"), 4))
         sent: list[FreshAnalysis] = []
 
+        # считаем, на каком шаге отсеялась каждая монета — иначе на вопрос
+        # «почему за ночь ноль сделок» можно только гадать
+        drops = {"скор ниже порога": 0, "вердикт «мимо»": 0, "только «наблюдать»": 0,
+                 "уже брали недавно": 0, "лимит за проход": 0}
+        self.last_batch = analyses[:8]
+
         for a in analyses:
             if a.score < self.threshold:
+                drops["скор ниже порога"] += 1
                 continue
             if a.decision == "skip":
+                drops["вердикт «мимо»"] += 1
                 continue
             if only_enter and a.decision != "enter":
+                drops["только «наблюдать»"] += 1
                 continue
             if not self.store.should_alert(a.mint, a.score, cooldown, delta):
+                drops["уже брали недавно"] += 1
                 continue
             if len(sent) >= max_per_scan:
+                drops["лимит за проход"] += 1
                 break
             ok = True
             # notify=False: монета всё равно уходит в работу (в трейдер),
@@ -1662,9 +1676,50 @@ class FreshScanner:
                         log.exception("обработчик алерта: %s", e)
                 await asyncio.sleep(0.8)
 
-        log.info("[%s] свежие лончи: %d собрано, %d после фильтров, %d алертов",
-                 self.preset, self.last_seen, self.last_passed, len(sent))
+        self.last_drops = {k: v for k, v in drops.items() if v}
+        self.last_scan_ts = time.time()
+        log.info("[%s] свежие лончи: %d собрано, %d после фильтров, %d в работу%s",
+                 self.preset, self.last_seen, self.last_passed, len(sent),
+                 (" · отсев: " + ", ".join(f"{k} {v}" for k, v in self.last_drops.items()))
+                 if self.last_drops else "")
         return sent
+
+    def why_message(self) -> str:
+        """Что бот увидел в последнем проходе и почему не зашёл."""
+        if not self.last_scan_ts:
+            return "Скана ещё не было — бот только запустился."
+        ago = (time.time() - self.last_scan_ts) / 60
+        out = [f"🔎 <b>Последний проход</b> ({ago:.0f} мин назад)",
+               f"Монет собрано: <b>{self.last_seen}</b>",
+               f"Прошло фильтры {self.preset.upper()}: <b>{self.last_passed}</b>",
+               f"Порог входа: <b>{self.threshold:.0f}</b>, "
+               f"вердикт «норм» от: <b>{num((self.conf.get('auto') or {}).get('enter_score'), 70):.0f}</b>"]
+
+        if self.last_seen == 0:
+            out += ["", "⚠️ Ноль монет из источников — значит данные не приходят.",
+                    "Проверь интернет; если он есть, источник мог временно закрыться."]
+        elif self.last_drops:
+            out += ["", "<b>Где отсеялись:</b>"]
+            out += [f"  • {k}: {v}" for k, v in self.last_drops.items()]
+
+        if self.last_batch:
+            out += ["", "<b>Лучшие кандидаты:</b>"]
+            for a in self.last_batch[:5]:
+                line = (f"  • ${esc(a.launch.symbol or a.mint[:6])} — {a.score:.0f}/100 · "
+                        f"{a.decision_label}")
+                if a.llm:
+                    line += (f"\n     🧠 {esc(str(a.llm.get('decision', '')))} · "
+                             f"риск {num(a.llm.get('risk')):.0f}/10")
+                    reason = str(a.llm.get("reason") or "")[:110]
+                    if reason:
+                        line += f"\n     {esc(reason)}"
+                if a.flags:
+                    line += f"\n     ⚠️ {esc(a.flags[0])}"
+                out.append(line)
+
+        out += ["", "<i>Планку можно опустить: /freshscore 55, или /auto off — "
+                    "тогда берём и «наблюдать».</i>"]
+        return "\n".join(out)
 
     async def inspect(self, mint: str) -> FreshAnalysis | None:
         """Разбор конкретной монеты по адресу минта (команда /check)."""
