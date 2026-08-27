@@ -44,7 +44,12 @@ DEFAULTS: dict[str, Any] = {
 
     # Открыть страницу внутри Telegram. Мини-апп работает только по публичному
     # HTTPS-адресу, localhost туда не пускают, поэтому нужен туннель наружу.
-    "tunnel": True,             # поднять cloudflared и получить https-адрес
+    "tunnel": True,             # поднять туннель и получить https-адрес
+    # Один сервис — одна точка отказа: Cloudflare то ограничивает быстрые
+    # туннели, то его режет файрвол. Поэтому пробуем по очереди, все без
+    # регистрации; ssh-варианты работают на встроенном клиенте Windows.
+    "tunnel_providers": ["cloudflared", "localhost.run", "serveo", "pinggy"],
+    "tunnel_wait_seconds": 45,  # сколько ждём адрес от одного сервиса
     "public_url": "",           # или впиши свой адрес, если он уже есть
 }
 
@@ -173,6 +178,7 @@ class Dashboard:
         self.token = self._load_token()
         self.reason = ""          # почему мини-апп недоступен снаружи
         self.ready = False        # проверен ли публичный адрес снаружи
+        self.provider = ""        # каким сервисом подняли туннель
 
     def _load_token(self) -> str:
         """Секрет для публичного адреса: без него страницу увидит любой,
@@ -327,9 +333,106 @@ class Dashboard:
         log.info("cloudflared готов: %s", cached)
         return str(cached)
 
+    PATTERNS = {
+        # у Cloudflare служебный api.trycloudflare.com мелькает в выводе раньше
+        # настоящего адреса — на него кнопка вела в «Method Not Allowed»
+        "cloudflared": r"https://(?!api\.)[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com",
+        "localhost.run": r"https://[a-z0-9]+\.lhr\.life",
+        "serveo": r"https://[a-z0-9-]+\.serveo\.net",
+        "pinggy": r"https://[a-z0-9.-]+\.pinggy\.link",
+    }
+
+    @property
+    def local_target(self) -> str:
+        return f"http://127.0.0.1:{int(num(self.conf.get('port'), 8420))}"
+
+    def _ssh_argv(self, extra: list[str]) -> list[str]:
+        """Команда ssh без вопросов в консоль: ключи не нужны, отпечаток
+        сервера принимаем молча — пробрасываем только свой локальный порт."""
+        exe = shutil.which("ssh")
+        if not exe:
+            return []
+        known = ROOT / "bin" / "known_hosts"
+        known.parent.mkdir(parents=True, exist_ok=True)
+        return [exe, "-o", "StrictHostKeyChecking=accept-new",
+                "-o", f"UserKnownHostsFile={known}",
+                "-o", "ExitOnForwardFailure=yes",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ConnectTimeout=15",
+                *extra]
+
+    async def _provider_argv(self, name: str) -> list[str]:
+        port = int(num(self.conf.get("port"), 8420))
+        if name == "cloudflared":
+            exe = await self.ensure_cloudflared()
+            return [exe, "tunnel", "--url", self.local_target,
+                    "--no-autoupdate"] if exe else []
+        if name == "localhost.run":
+            return self._ssh_argv(["-R", f"80:127.0.0.1:{port}", "nokey@localhost.run"])
+        if name == "serveo":
+            return self._ssh_argv(["-R", f"80:127.0.0.1:{port}", "serveo.net"])
+        if name == "pinggy":
+            return self._ssh_argv(["-p", "443", f"-R0:127.0.0.1:{port}", "a.pinggy.io"])
+        return []
+
+    async def _kill_tunnel(self) -> None:
+        proc, self.tunnel_proc = self.tunnel_proc, None
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _try_provider(self, name: str) -> str:
+        """Запускает один сервис и ждёт от него адрес. Пусто — значит не вышло,
+        причина остаётся в self.reason."""
+        argv = await self._provider_argv(name)
+        if not argv:
+            self.reason = ("нечем запустить" if name == "cloudflared"
+                           else "в системе нет ssh")
+            return ""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv, stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        except Exception as e:  # noqa: BLE001
+            self.reason = str(e)[:120]
+            return ""
+        self.tunnel_proc = proc
+        pattern = re.compile(self.PATTERNS.get(name, "https://\\S+"))
+        deadline = time.time() + num(self.conf.get("tunnel_wait_seconds"), 45)
+        last_error = ""
+        try:
+            while time.time() < deadline:
+                line = await asyncio.wait_for(proc.stdout.readline(),
+                                              timeout=max(1.0, deadline - time.time()))
+                if not line:
+                    # сервис закрылся сам — причину он уже написал в вывод
+                    self.reason = last_error or "закрылся, не дав адрес"
+                    break
+                text = line.decode("utf-8", "ignore").strip()
+                if not text:
+                    continue
+                low = text.lower()
+                if "err" in low or "denied" in low or "refused" in low:
+                    # метку времени и уровень в сообщение пользователю не тащим
+                    last_error = text.split(" ERR ", 1)[-1].split(" error=", 1)[0][:160]
+                found = pattern.search(text)
+                if found:
+                    return found.group(0)
+            else:
+                self.reason = "не отдал адрес за отведённое время"
+        except asyncio.TimeoutError:
+            self.reason = "не отдал адрес за отведённое время"
+        except Exception as e:  # noqa: BLE001
+            self.reason = str(e)[:120]
+        await self._kill_tunnel()
+        return ""
+
     async def start_tunnel(self) -> str:
-        """Публичный https-адрес через cloudflared — без него Telegram
-        мини-апп не откроет. Аккаунт и домен не нужны."""
+        """Публичный https-адрес: без него Telegram мини-апп не откроет.
+        Перебираем сервисы по очереди, пока адрес не откроется снаружи."""
         if self.public_url:
             return self.public_url
         if not self.conf.get("tunnel", True):
@@ -341,53 +444,29 @@ class Dashboard:
             self.reason = "локальный сервер не поднялся — порт занят другим окном бота?"
             log.warning("Туннель не запускаю: %s", self.reason)
             return ""
-        exe = await self.ensure_cloudflared()
-        if not exe:
-            self.reason = "не удалось получить cloudflared"
-            log.warning("cloudflared нет и скачать не вышло — мини-апп в Telegram "
-                        "не поднять. Статистика придёт картинкой по /app")
-            return ""
-        try:
-            self.tunnel_proc = await asyncio.create_subprocess_exec(
-                exe, "tunnel", "--url", f"http://127.0.0.1:{int(num(self.conf.get('port'), 8420))}",
-                "--no-autoupdate",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-        except Exception as e:  # noqa: BLE001
-            log.warning("не смог запустить cloudflared: %s", e)
-            return ""
 
-        # Адрес печатается в вывод в первые секунды. Служебный api.trycloudflare.com
-        # мелькает там раньше настоящего — его надо пропустить, иначе кнопка
-        # уводит на API Cloudflare, который отвечает "Method Not Allowed".
-        # Адрес туннеля всегда из нескольких слов через дефис.
-        pattern = re.compile(r"https://(?!api\.)[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com")
-        last_error = ""
-        try:
-            for _ in range(60):
-                line = await asyncio.wait_for(self.tunnel_proc.stdout.readline(), timeout=30)
-                if not line:
-                    # cloudflared закрылся, не отдав адрес — причину он уже
-                    # написал сам, её и показываем, вместо глухого молчания
-                    self.reason = last_error or "cloudflared завершился без адреса"
-                    log.warning("Туннель не поднялся: %s", self.reason)
-                    break
-                text = line.decode("utf-8", "ignore").strip()
-                if " ERR " in text or "error" in text.lower():
-                    # у cloudflared строка начинается с метки времени и уровня —
-                    # в сообщение пользователю это не нужно
-                    last_error = text.split(" ERR ", 1)[-1].split(" error=", 1)[0][:200]
-                found = pattern.search(text)
-                if found:
-                    self.public_url = found.group(0)
-                    asyncio.create_task(self._drain_tunnel())
-                    log.info("Туннель поднят: %s (проверяю доступность)", self.public_url)
-                    return self.public_url
-        except asyncio.TimeoutError:
-            self.reason = "cloudflared не отдал адрес за отведённое время"
-            log.warning("Туннель не поднялся: %s", self.reason)
-        except Exception as e:  # noqa: BLE001
-            self.reason = f"ошибка туннеля: {e}"
-            log.warning("Туннель не поднялся: %s", e)
+        problems: list[str] = []
+        for name in (self.conf.get("tunnel_providers") or list(self.PATTERNS)):
+            self.reason = ""
+            url = await self._try_provider(name)
+            if not url:
+                problems.append(f"{name} — {self.reason or 'не дал адрес'}")
+                log.info("Туннель %s не вышел: %s", name, self.reason)
+                continue
+            # адрес есть, но верить ему нельзя, пока страница не открылась:
+            # так уже уводило и на чужой сервис, и в несуществующий домен
+            self.public_url, self.provider = url, name
+            log.info("Туннель %s дал адрес %s — проверяю снаружи", name, url)
+            if await self.selfcheck(attempts=8, delay=3.0):
+                asyncio.create_task(self._drain_tunnel())
+                log.info("Мини-апп доступен: %s (%s)", url, name)
+                return url
+            problems.append(f"{name} — адрес не открылся ({self.reason})")
+            self.public_url, self.provider = "", ""
+            await self._kill_tunnel()
+
+        self.reason = "; ".join(problems)[:300] or "не удалось поднять туннель"
+        log.warning("Мини-апп: ни один сервис не поднялся — %s", self.reason)
         return ""
 
     async def selfcheck(self, attempts: int = 30, delay: float = 4.0) -> bool:
@@ -422,7 +501,8 @@ class Dashboard:
 
     def status_line(self) -> str:
         if self.public_url:
-            return f"Мини-апп: {self.public_url} (открывается в Telegram)"
+            return (f"Мини-апп: {self.public_url} (открывается в Telegram"
+                    + (f", через {self.provider}" if self.provider else "") + ")")
         if not self.runner:
             return "Мини-апп не работает: " + (self.reason or "сервер не поднялся")
         return (f"Мини-апп: {self.url} — только на этом компьютере"

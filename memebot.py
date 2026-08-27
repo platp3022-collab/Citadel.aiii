@@ -1663,6 +1663,7 @@ class Bot:
         self.alerts_sent = 0
         self.last_seen = 0
         self.stop_event = asyncio.Event()
+        self._app_task: asyncio.Task | None = None   # подъём мини-аппа
 
     # ---------- сбор кандидатов ----------
 
@@ -1851,6 +1852,28 @@ class Bot:
             launchpad=a.launch.launchpad, price_hint=a.launch.price_usd,
             strategy=getattr(a, "strategy", "метрики"))
 
+    def retry_app(self, quiet: bool = False) -> None:
+        """Поднять мини-апп заново — при старте и по команде /app."""
+        if self.dash is None:
+            return
+        if self._app_task and not self._app_task.done():
+            return          # попытка уже идёт, второй туннель ни к чему
+        self._app_task = asyncio.create_task(self._bring_up_app(quiet))
+
+    async def _bring_up_app(self, quiet: bool = False) -> None:
+        if await self.dash.start_tunnel():
+            await self.publish_app()
+            return
+        log.warning("Мини-апп в Telegram недоступен: %s",
+                    self.dash.reason or "причина неизвестна")
+        if not quiet:
+            await self.tg.send(
+                "📊 Мини-апп поднять не вышло.\n"
+                f"<i>{esc(self.dash.reason or 'причина неизвестна')}</i>\n\n"
+                "Статистику шлю картинкой — она выше.\n"
+                f"На самом компьютере страница открыта: <code>{esc(self.dash.url)}</code>",
+                chat_id=self.tg.admin_chat_id or None)
+
     async def publish_app(self) -> None:
         """Ждёт, пока адрес туннеля станет доступен снаружи, и вешает кнопку."""
         if self.dash is None or not self.dash.public_url:
@@ -1957,7 +1980,9 @@ class Bot:
                 f"Тишина: {'да' if self.store.is_muted('global') else 'нет'}\n"
                 + (self.fresh.status_line() if self.fresh else "Свежие лончи: выкл")
                 + ("\n" + self.trader.status_line() if self.trader else "")
-                + ("\n" + self.dash.status_line() if self.dash else "")
+                # в причине бывает вывод чужой программы — экранируем,
+                # иначе одна угловая скобка ломает отправку сообщения
+                + ("\n" + esc(self.dash.status_line()) if self.dash else "")
                 + ("\n" + self.wallets.status_line() if self.wallets else "")
                 + ("\n" + self.scout.status_line() if self.scout else ""), chat_id)
         elif cmd == "/scan":
@@ -2041,6 +2066,18 @@ class Bot:
             elif self.dash is not None and self.dash.public_url:
                 await self.tg.send("📊 Адрес приложения ещё поднимается, "
                                    "обычно это до минуты. Пока — картинкой:", chat_id)
+            elif self.dash is not None:
+                # раньше в этом месте бот молчал, и было непонятно,
+                # почему кнопки нет и чего ждать
+                busy = self._app_task and not self._app_task.done()
+                await self.tg.send(
+                    "📊 " + ("Поднимаю мини-апп, это до пары минут — "
+                             "кнопка придёт сама." if busy else
+                             "Мини-аппа пока нет, пробую поднять заново — "
+                             "кнопка придёт сама, если получится.")
+                    + (f"\n<i>Прошлая попытка: {esc(self.dash.reason)}</i>"
+                       if self.dash.reason and not busy else ""), chat_id)
+                self.retry_app()
             if card is not None:
                 path = await asyncio.to_thread(
                     card.render, cfg("storage.path", "data/memebot.db"), None,
@@ -2337,13 +2374,9 @@ class Bot:
             # каждом запуске, а кнопка живёт на стороне Telegram и вела бы на
             # уже несуществующий домен.
             await self.tg.set_menu_button("")
-            if await self.dash.start_tunnel():
-                # свежему домену нужно время разойтись по DNS — ждём в фоне,
-                # чтобы не задерживать запуск бота
-                asyncio.create_task(self.publish_app())
-            else:
-                log.warning("Мини-апп в Telegram недоступен: %s",
-                            self.dash.reason or "причина неизвестна")
+            # перебор сервисов занимает до пары минут — бот в это время
+            # уже сканирует и торгует, а кнопка появится, когда поднимется
+            self.retry_app(quiet=True)
         await self.news.refresh()
         await self.tg.send(
             f"🤖 Сканер запущен.\nСети: {', '.join(cfg('scan.chains') or [])}\n"
