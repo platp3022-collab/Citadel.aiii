@@ -1535,6 +1535,7 @@ HELP = (
     "/freshscore [0-100] — порог по свежим · /auto [on|off]\n"
     "/details [on|off] — показывать разбор монет в чате\n"
     "/why — почему бот не заходит в сделки\n"
+    "/aggr [low|mid|high] — насколько охотно заходить\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -1967,6 +1968,20 @@ class Bot:
                     self.trader.mode if self.trader else "paper")
                 if not await self.tg.send_photo(path, "", chat_id):
                     await self.tg.send(f"Картинка тут:\n<code>{esc(path)}</code>", chat_id)
+        elif cmd in ("/aggr", "/агр"):
+            if self.fresh is None:
+                await self.tg.send("Сканер не подключён.", chat_id)
+            elif arg and self.fresh.set_aggression(arg):
+                await self.tg.send(
+                    f"⚙️ Агрессивность: <b>{esc(arg.lower())}</b>\n"
+                    f"{self.fresh.aggression_line()}", chat_id)
+            else:
+                await self.tg.send(
+                    "⚙️ <b>Насколько охотно бот заходит</b>\n"
+                    f"{self.fresh.aggression_line()}\n\n"
+                    "/aggr low — редко, только отличные\n"
+                    "/aggr mid — по умолчанию\n"
+                    "/aggr high — заходит почти во всё, кроме явного скама", chat_id)
         elif cmd in ("/why", "/почему"):
             if self.fresh is None:
                 await self.tg.send("Сканер не подключён.", chat_id)
@@ -2170,6 +2185,7 @@ class Bot:
         ("pnl", "Сколько заработал"),
         ("history", "История сделок"),
         ("why", "Почему нет сделок"),
+        ("aggr", "Насколько охотно заходить"),
         ("fresh", "Что видит бот сейчас"),
         ("status", "Состояние бота"),
         ("trade", "Включить или остановить входы"),

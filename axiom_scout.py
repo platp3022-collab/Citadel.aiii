@@ -112,7 +112,7 @@ DEFAULTS: dict[str, Any] = {
         "model": "claude-sonnet-5",
         "min_score": 58,           # гонять LLM только по кандидатам от этого скора
         "max_per_scan": 3,
-        "veto_risk": 8,            # risk >= N от LLM → монета отбраковывается
+        "veto_risk": 9,            # отбраковка только при почти явном скаме
     },
 
     "storage_path": "data/memebot.db",
@@ -136,11 +136,11 @@ PRESETS: dict[str, dict[str, Any]] = {
         "launchpads": ["pump", "bonk"], "quote_tokens": ["SOL", "USD1"],
         "max_dev_pct": 100.0, "max_top10_pct": 100.0, "max_dev_migrations": 9999,
         "require_mint_revoked": False, "require_freeze_revoked": False,
-        "min_score": 62, "interval_seconds": 40, "max_per_scan": 4,
+        "min_score": 58, "interval_seconds": 40, "max_per_scan": 4,
         "shortlist_limit": 15,
         "terminals_shown": ["Axiom", "FOMO", "GMGN", "Photon"],
-        "auto": {"enabled": True, "only_enter": True, "enter_score": 68,
-                 "watch_score": 52, "block_on_red": True},
+        "auto": {"enabled": True, "only_enter": True, "enter_score": 58,
+                 "watch_score": 45, "block_on_red": True},
     },
     # То же самое, но с жёстким предотсевом по ончейну — меньше шума, меньше находок.
     "axiom_strict": {
@@ -1176,6 +1176,19 @@ def news_bonus(l: Launch, news: Any, conf: dict[str, Any]) -> tuple[float, list[
     return pts, list(getattr(match, "narratives", []) or []), titles
 
 
+# Флаги, при которых вход невозможен в принципе: у монеты сломан сам контракт.
+# Остальные красные флаги (доля дева, концентрация, RugCheck) уже срезают скор
+# множителем — блокировать вход ещё и ими значило бы штрафовать дважды,
+# и тогда свежие лончи не проходят вообще никогда.
+FATAL = ("mint authority активен", "freeze authority активен",
+         "honeypot", "rug pull", "продать не дадут")
+
+
+def is_fatal(flag: str) -> bool:
+    low = flag.lower()
+    return any(f in low for f in FATAL)
+
+
 def decide(score: float, flags: list[str], llm: dict | None,
            conf: dict[str, Any]) -> str:
     """Автопилот: enter (норм) / watch (наблюдать) / skip (мимо)."""
@@ -1187,7 +1200,7 @@ def decide(score: float, flags: list[str], llm: dict | None,
         return "skip"
     if llm:
         risk = num(llm.get("risk"))
-        veto = num((conf.get("llm") or {}).get("veto_risk"), 8)
+        veto = num((conf.get("llm") or {}).get("veto_risk"), 9)
         if veto and risk >= veto:
             return "skip"
         if str(llm.get("decision", "")).lower().startswith(("мимо", "skip", "нет")):
@@ -1196,7 +1209,7 @@ def decide(score: float, flags: list[str], llm: dict | None,
         return "skip"
     if score < enter_at:
         return "watch"
-    if auto.get("block_on_red", True) and any(f.startswith("🔴") for f in flags):
+    if auto.get("block_on_red", True) and any(is_fatal(f) for f in flags):
         return "watch"
     return "enter"
 
@@ -1241,7 +1254,8 @@ LLM_SYSTEM = (
     '"reason": "одно предложение по-русски", "reasons": ["до трёх коротких пунктов"]}. '
     "hype — способность нарратива собрать толпу в ближайший час. "
     "risk — вероятность скама, бандла или слива дева. "
-    "Будь скептичен: 9 из 10 свежих мем-коинов — мусор, «мимо» это нормальный ответ."
+    "Не занижай оценку из общей осторожности: «мимо» ставь, когда видишь конкретный признак скама или слива, а не просто потому, что монета новая. "
+    "Если данные обычные для свежего лонча — это «наблюдать» или «норм»."
 )
 
 
@@ -1550,6 +1564,39 @@ class FreshScanner:
     @property
     def preset(self) -> str:
         return str(self.conf.get("preset", "default"))
+
+    # Насколько охотно бот заходит. Одна ручка вместо пяти настроек.
+    AGGRESSION = {
+        "low":  {"min_score": 68, "enter": 72, "watch": 58, "veto": 7, "red": True},
+        "mid":  {"min_score": 58, "enter": 58, "watch": 45, "veto": 9, "red": True},
+        # фатальные флаги блокируют на любом уровне: mint не отозван или honeypot —
+        # это не «рискованно», это гарантированный минус
+        "high": {"min_score": 48, "enter": 48, "watch": 38, "veto": 10, "red": True},
+    }
+
+    def set_aggression(self, level: str) -> bool:
+        """low — редко и придирчиво, mid — по умолчанию, high — заходит почти во всё."""
+        p = self.AGGRESSION.get(str(level).strip().lower())
+        if not p:
+            return False
+        self.threshold = float(p["min_score"])
+        self.conf["min_score"] = p["min_score"]
+        self.conf["auto"] = {**(self.conf.get("auto") or {}),
+                             "enter_score": p["enter"], "watch_score": p["watch"],
+                             "block_on_red": p["red"]}
+        self.conf["llm"] = {**(self.conf.get("llm") or {}), "veto_risk": p["veto"]}
+        log.info("Агрессивность: %s (вход от %s, вето нейросети от %s)",
+                 level, p["enter"], p["veto"])
+        return True
+
+    def aggression_line(self) -> str:
+        auto = self.conf.get("auto") or {}
+        return (f"Вход от <b>{num(auto.get('enter_score'), 58):.0f}</b>/100 · "
+                f"«наблюдать» от {num(auto.get('watch_score'), 45):.0f} · "
+                f"вето нейросети при риске "
+                f"{num((self.conf.get('llm') or {}).get('veto_risk'), 9):.0f}/10 · "
+                f"фатальные флаги "
+                f"{'блокируют' if auto.get('block_on_red', True) else 'не блокируют'}")
 
     def apply_preset(self, name: str) -> bool:
         """Переключить профиль на лету: /preset axiom."""
