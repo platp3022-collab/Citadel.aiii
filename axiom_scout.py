@@ -91,6 +91,23 @@ DEFAULTS: dict[str, Any] = {
     "sources": {"jupiter": True, "pumpfun": False, "dexscreener": True},
     "enrich_dexscreener": True,      # догружать пул/соцсети для шорт-листа
     "rugcheck": True,
+
+    # Быстрый аудит на старте кривой — то, что трейдер успевает глазами за
+    # три секунды: не держит ли дев пачку, не закуплен ли токен бандлом.
+    "audit": {
+        "enabled": True,
+        "fast_minutes": 15,        # для монет моложе этого проверка обязательна
+        "max_dev_pct": 5.0,        # дев держит больше — не заходим
+        "max_top10_pct": 30.0,     # топ-10 держат больше — та же история
+        "block_bundle": True,      # признак бандла = отказ
+    },
+    # Отдельная сделка: токен добегает кривую и переезжает на DEX.
+    "migration": {
+        "enabled": True,
+        "curve_from": 88.0,        # с какого процента кривой считаем «на миграции»
+        "bonus": 6,                # прибавка к скору за этот момент
+        "min_volume_5m_usd": 3000, # без объёма миграция не отрабатывает
+    },
     "shortlist_limit": 12,           # сколько кандидатов тянуть в тяжёлые проверки
 
     # ---- ссылки на терминалы ----
@@ -443,6 +460,7 @@ class Launch:
     telegram: str = ""
     website: str = ""
 
+    bundle_flag: bool = False             # признаки бандла/снайперов из риск-чека
     rug_score: float | None = None        # RugCheck score_normalised (0 = чисто)
     rug_flags: list[str] = field(default_factory=list)
     rug_danger: bool = False
@@ -829,6 +847,9 @@ class LaunchFeed:
             low = name.lower()
             if "lp" in low and ("unlock" in low or "not burned" in low or "unburn" in low):
                 launch.locked_ratio = launch.locked_ratio or 0.0
+            if any(w in low for w in ("insider", "sniper", "bundle", "bundler")):
+                # закупленная своими же кошельками пачка — её сливают первой
+                launch.bundle_flag = True
             if "mint authority" in low:
                 launch.mint_revoked = False
             if "freeze authority" in low:
@@ -982,6 +1003,7 @@ class FreshAnalysis:
     smart_hits: int = 0                    # сколько отслеживаемых кошельков зашло
     smart_note: str = ""
     strategy: str = "метрики"              # что именно привело в сделку
+    audit_fail: str = ""                   # чем монета не прошла быстрый аудит
     meta: str = ""                         # в какой мете сидит монета
     ceiling: str = ""                      # потолок: первопроходец / подражатель
     thesis: str = ""                       # зачем зашли — строка для журнала
@@ -1269,6 +1291,41 @@ def decide(score: float, flags: list[str], llm: dict | None,
     return "enter"
 
 
+def quick_audit(l: Launch, conf: dict[str, Any]) -> str:
+    """Проверка за три секунды, как её делают руками на старте кривой.
+
+    Дев с пачкой на руках и бандл из своих кошельков сливают первыми, и
+    никакие метрики этого не перебивают. Для монет постарше проверка мягче:
+    там распределение уже видно по обычным сигналам.
+    """
+    aconf = conf.get("audit") or {}
+    if not aconf.get("enabled", True):
+        return ""
+    if l.age_minutes > num(aconf.get("fast_minutes"), 15):
+        return ""
+    if l.dev_pct and l.dev_pct > num(aconf.get("max_dev_pct"), 5):
+        return f"дев держит {l.dev_pct:.1f}% на старте"
+    if l.top10_pct and l.top10_pct > num(aconf.get("max_top10_pct"), 30):
+        return f"топ-10 держат {l.top10_pct:.0f}% на старте"
+    if aconf.get("block_bundle", True) and l.bundle_flag:
+        return "закуплен бандлом своих же кошельков"
+    return ""
+
+
+def on_migration(l: Launch, conf: dict[str, Any]) -> bool:
+    """Токен добегает кривую или только что переехал на DEX."""
+    mconf = conf.get("migration") or {}
+    if not mconf.get("enabled", True):
+        return False
+    if l.vol_5m and l.vol_5m < num(mconf.get("min_volume_5m_usd"), 3000):
+        return False          # без объёма миграция не отрабатывает
+    curve = l.bonding_curve
+    if curve is not None and curve >= num(mconf.get("curve_from"), 88):
+        return True
+    # только что мигрировавший: кривая уже пройдена, объём ещё живой
+    return bool(l.graduated and l.age_minutes <= 90 and l.vol_5m)
+
+
 def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
                    conf: dict[str, Any] | None = None, smart: Any = None,
                    reader: Any = None) -> FreshAnalysis:
@@ -1310,7 +1367,18 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
     if nar is not None:
         signals.append(Signal("Мета и нарратив", nar_points, 15, nar.note))
 
-    score = max(0.0, min(100.0, raw * mult + bonus + smart_bonus + nar_points))
+    # Момент миграции — отдельная сделка: кривая пройдена, покупатели с DEX
+    # ещё впереди. Но только пока идёт объём, иначе переезжать нечему.
+    mig_points = 0.0
+    if on_migration(l, conf):
+        mig_points = num((conf.get("migration") or {}).get("bonus"), 6)
+        curve = l.bonding_curve
+        signals.append(Signal("Миграция", mig_points, mig_points,
+                              "уже на DEX, объём живой" if l.graduated
+                              else f"кривая {curve:.0f}%" if curve is not None
+                              else "добегает кривую"))
+
+    score = max(0.0, min(100.0, raw * mult + bonus + smart_bonus + nar_points + mig_points))
     a = FreshAnalysis(launch=l, score=score, signals=signals, flags=flags,
                       multiplier=mult, verdict=verdict_text(score, flags),
                       news_titles=titles, narratives=narratives,
@@ -1318,6 +1386,13 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
                       smart_hits=smart_hits, smart_note=smart_note)
     smart_minutes = num(getattr(smart, "minutes_ago", 0.0))
     a.decision = decide(score, flags, llm, conf, smart_hits, smart_minutes)
+
+    # быстрый аудит перебивает всё: и скор, и кошельки, и вердикт нейросети
+    a.audit_fail = quick_audit(l, conf)
+    if a.audit_fail:
+        a.flags = list(a.flags) + [f"🔴 {a.audit_fail}"]
+        a.decision = "skip"
+        a.verdict = f"🔴 МИМО — {a.audit_fail}"
     # чем обязана сделка: по этому потом видно, какая стратегия кормит.
     # «Кимчи» — вход следом за кошельками, которые уже доказали, что умеют:
     # не догадка о монете, а факт, что умные деньги в ней прямо сейчас.
@@ -1327,6 +1402,13 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
         a.thesis = nar.thesis(l.symbol or l.mint[:6])
     if smart_hits >= int(num((conf.get("wallets") or {}).get("min_hits"), 2)):
         a.strategy = "кимчи"
+        # чем позже пришёл след умных денег, тем меньше денег кладём:
+        # через двадцать минут это уже покупка у них на выходе
+        fast = num((conf.get("wallets") or {}).get("fast_follow_minutes"), 5)
+        if fast and smart_minutes > fast:
+            a.size_mult = min(a.size_mult, 0.6)
+    elif on_migration(l, conf):
+        a.strategy = "миграция"
     elif bonus >= 4:
         a.strategy = "новости"
     else:

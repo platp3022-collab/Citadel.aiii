@@ -93,6 +93,20 @@ DEFAULTS: dict[str, Any] = {
         },
     },
     "rules": {
+        # Токен добегает кривую и переезжает на DEX. Тут платит не потолок,
+        # а объём: пока он есть — держим, пропал — выходим быстро.
+        "миграция": {
+            "take_profit_pct": 0.0,
+            "stop_loss_pct": -25.0,
+            "scale_out_at_pct": 100.0,     # вернули вложенное на удвоении
+            "scale_out_pct": 50.0,
+            "breakeven_after_scale": True,
+            "trailing_after_pct": 80.0,
+            "trailing_stop_pct": 30.0,
+            "timeout_minutes": 45.0,
+            "decay_after_pct": 35.0,
+            "decay_stall_minutes": 10.0,
+        },
         "кимчи": {
             "take_profit_pct": 0.0,        # потолка нет: остаток бежит за иксами
             "stop_loss_pct": -32.0,
@@ -113,7 +127,13 @@ DEFAULTS: dict[str, Any] = {
 
     # ---- реальные сделки (mode: live) ----
     "slippage_bps": 1000,            # 10% — у свежих монет стакан узкий, иначе не пройдёт
-    "priority_fee_lamports": 300000, # приоритетная комиссия, чтобы попасть в блок
+    # На свежем лонче всё решает, попадёт ли сделка в ближайший блок: 0.0003 SOL
+    # приоритетки на старте кривой не хватает, там платят от 0.005 SOL.
+    "priority_fee_sol": 0.006,       # приоритетная комиссия за скорость
+    "priority_fee_lamports": 0,      # старый ключ; заполнен — перебивает верхний
+    # Чаевые Jito отправляют сделку мимо открытого mempool: сэндвич-ботам нечего опережать.
+    "mev_protect": True,             # слать через Jito, а не в открытый mempool
+    "jito_tip_sol": 0.003,           # чаевые валидатору за приватную доставку
     "max_trade_sol": 0.5,            # жёсткий потолок на одну сделку
     "min_sol_reserve": 0.02,         # неснижаемый остаток на комиссии
     "confirm_timeout": 90,           # сколько ждём подтверждения сети
@@ -528,15 +548,20 @@ class Wallet:
 class SolanaRPC:
     """Тонкий клиент RPC: баланс, отправка и подтверждение транзакций."""
 
-    def __init__(self, session: aiohttp.ClientSession, url: str = ""):
+    def __init__(self, session: aiohttp.ClientSession, url: str = "",
+                 send_url: str = ""):
         self.session = session
         self.url = url or os.environ.get("SOLANA_RPC_URL", "").strip() or DEFAULT_RPC
+        # Отправлять сделку лучше через приватный узел: в открытом mempool её
+        # видят сэндвич-боты и успевают встать перед ней.
+        self.send_url = send_url or os.environ.get("PRIVATE_RPC_URL", "").strip()
         self._id = 0
 
     async def call(self, method: str, params: list) -> Any:
         self._id += 1
         payload = {"jsonrpc": "2.0", "id": self._id, "method": method, "params": params}
-        async with self.session.post(self.url, json=payload,
+        url = self.send_url if (method == "sendTransaction" and self.send_url) else self.url
+        async with self.session.post(url, json=payload,
                                      timeout=aiohttp.ClientTimeout(total=30)) as r:
             data = await r.json(content_type=None)
         if isinstance(data, dict) and data.get("error"):
@@ -590,7 +615,8 @@ class LiveExecutor(PaperExecutor):
         super().__init__(conf)
         self.session = session
         self.wallet = Wallet(os.environ.get("SOLANA_PRIVATE_KEY", ""))
-        self.rpc = SolanaRPC(session, str(conf.get("rpc_url", "")))
+        self.rpc = SolanaRPC(session, str(conf.get("rpc_url", "")),
+                             str(conf.get("private_rpc_url", "")))
         log.info("Кошелёк подключён: %s", self.wallet.address)
 
     # ---------- Jupiter ----------
@@ -613,10 +639,18 @@ class LiveExecutor(PaperExecutor):
             "userPublicKey": self.wallet.address,
             "wrapAndUnwrapSol": True,
             "dynamicComputeUnitLimit": True,
-            "prioritizationFeeLamports": {"priorityLevelWithMaxLamports": {
-                "maxLamports": int(num(self.conf.get("priority_fee_lamports"), 300000)),
-                "priorityLevel": "high"}},
         }
+        # Либо чаевые Jito (сделка идёт приватно, мимо сэндвич-ботов), либо
+        # обычная приоритетная комиссия — но высокая, иначе в блок не попасть.
+        tip = num(self.conf.get("jito_tip_sol"))
+        if self.conf.get("mev_protect", True) and tip > 0:
+            payload["prioritizationFeeLamports"] = {
+                "jitoTipLamports": int(tip * LAMPORTS)}
+        else:
+            lamports = int(num(self.conf.get("priority_fee_lamports"))
+                           or num(self.conf.get("priority_fee_sol"), 0.006) * LAMPORTS)
+            payload["prioritizationFeeLamports"] = {"priorityLevelWithMaxLamports": {
+                "maxLamports": lamports, "priorityLevel": "veryHigh"}}
         async with self.session.post(f"{JUP_SWAP}/swap", json=payload,
                                      timeout=aiohttp.ClientTimeout(total=30)) as r:
             data = await r.json(content_type=None)
@@ -721,9 +755,10 @@ def close_message(p: Position) -> str:
 def scale_message(p: Position, fill: float, got_sol: float, share: float) -> str:
     """Коротко: снял часть в плюс, остаток едет дальше."""
     tag = "📄" if p.mode == "paper" else "💰"
+    back = "вложенное вернул" if got_sol >= p.size_sol * 0.9 else "часть в карман"
     return (f"{tag} 💰 <b>снял {share * 100:.0f}% ${esc(p.symbol)}</b>\n"
             f"+{got_sol:.4f} SOL по {price_str(fill)} ({p.change_pct(fill):+.0f}%)\n"
-            f"остаток едет дальше, стоп — в ноль")
+            f"{back}, остаток — мунбег, стоп в ноль")
 
 
 def positions_message(positions: list[Position], conf: dict[str, Any]) -> str:

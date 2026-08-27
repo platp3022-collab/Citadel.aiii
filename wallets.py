@@ -41,6 +41,7 @@ DEFAULTS: dict[str, Any] = {
     "force_enter": True,         # совпало min_hits — заходим, даже если скор ниже
     "follow_within_minutes": 20, # позже — уже покупка у них на выходе, а не вход
     "min_own_score": 25,         # совсем мусорную монету не берём и за ними
+    "fast_follow_minutes": 5,    # позже — заходим уменьшенным размером
     "signatures_per_wallet": 6,  # сколько последних сделок смотреть у кошелька
     "storage_path": "data/wallets.json",
 }
