@@ -1563,12 +1563,13 @@ class FreshScanner:
                  send: SendFn | None = None, conf: dict[str, Any] | None = None,
                  news: Any = None, preset: str = "",
                  on_alert: Callable[["FreshAnalysis"], Awaitable[Any]] | None = None,
-                 wallets: Any = None):
+                 wallets: Any = None, scout: Any = None):
         base = preset_conf(preset) if preset else dict(DEFAULTS)
         self.conf = merge_conf(base, conf or {})
         self.session = session
         self.news = news
         self.wallets = wallets          # слежка за кошельками, если подключена
+        self.scout = scout              # разведчик: сам ищет такие кошельки
         self.feed = LaunchFeed(session, self.conf)
         self.store = FreshStore(storage, self.conf.get("storage_path", "data/memebot.db"))
         self.send = send
@@ -1714,6 +1715,10 @@ class FreshScanner:
             l, conf=self.conf, smart=self._smart(l.mint)).score, reverse=True)
         shortlist = candidates[:int(num(self.conf.get("shortlist_limit"), 12))]
         await self.feed.enrich(shortlist)
+
+        if self.scout is not None:
+            for l in candidates:
+                self.scout.observe(l.mint, l.symbol, l.price_usd)
 
         out = [analyze_launch(l, news=self.news, conf=self.conf,
                               smart=self._smart(l.mint)) for l in shortlist]
