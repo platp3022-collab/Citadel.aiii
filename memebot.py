@@ -194,6 +194,16 @@ CONFIG: dict[str, Any] = {
         "max_bonus": 22,
         "force_enter": True,       # совпало — заходим, даже если метрики слабее
         "follow_within_minutes": 20,  # позже — уже не заход, а покупка у них на выходе
+        "min_own_score": 25,       # ниже этого не заходим даже за кошельками
+    },
+    # Нарратив и внимание: в какой мете монета, первая она или клон,
+    # и платит ли эта мета по собственным закрытым сделкам бота.
+    "narrative": {
+        "enabled": True,
+        "heat_days": 3,            # за сколько дней считаем, что мета кормит
+        "copycat_after": 3,        # столько монет с тем же корнем = волна клонов
+        "first_bonus": 7,          # первопроходцу нарратива
+        "copycat_penalty": -8,     # клону: потолок низкий
     },
     # Разведка: бот сам ищет кошельки, а не берёт готовый список.
     # Запоминает цену увиденных монет, через час смотрит, какие выстрелили,
@@ -1586,6 +1596,8 @@ HELP = (
     "/wallets — кошельки под слежкой · /wallet add АДРЕС\n"
     "/scout — кого бот нашёл сам\n"
     "/strategies — что работает и что приносит\n"
+    "/journal — журнал: зачем зашёл, чем кончилось, какой вывод\n"
+    "/meta — какая мета кормит прямо сейчас\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -1654,7 +1666,8 @@ class Bot:
                 session, storage=self.store, send=self.tg.broadcast,
                 conf={**(cfg("fresh.overrides") or {}),
                       "storage_path": cfg("storage.path", "data/memebot.db"),
-                      "wallets": cfg("wallets") or {}},
+                      "wallets": cfg("wallets") or {},
+                      "narrative": cfg("narrative") or {}},
                 news=self.news, preset=str(cfg("fresh.preset", "axiom")),
                 on_alert=self.on_fresh_alert, wallets=self.wallets,
                 scout=self.scout)
@@ -1850,7 +1863,10 @@ class Bot:
         await self.trader.consider(
             mint=a.launch.mint, symbol=a.launch.symbol, score=a.score,
             launchpad=a.launch.launchpad, price_hint=a.launch.price_usd,
-            strategy=getattr(a, "strategy", "метрики"))
+            strategy=getattr(a, "strategy", "метрики"),
+            meta=getattr(a, "meta", ""), ceiling=getattr(a, "ceiling", ""),
+            thesis=getattr(a, "thesis", ""),
+            size_mult=num(getattr(a, "size_mult", 1.0), 1.0))
 
     def retry_app(self, quiet: bool = False) -> None:
         """Поднять мини-апп заново — при старте и по команде /app."""
@@ -2110,6 +2126,17 @@ class Bot:
                     "<i>Где брать адреса: gmgn.ai, kolscan.io, dune.com — "
                     "там видно топы трейдеров, кто стабильно в плюсе. "
                     "Совпали 2 кошелька на монете — бот заходит.</i>", chat_id)
+        elif cmd in ("/journal", "/журнал"):
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                n = int(num(arg, 8)) if arg.isdigit() else 8
+                await self.tg.send(self.trader.journal(n), chat_id)
+        elif cmd in ("/meta", "/мета"):
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                await self.tg.send(self.trader.by_meta(), chat_id)
         elif cmd in ("/strategies", "/стратегии"):
             lines = ["🧠 <b>Что работает одновременно</b>", ""]
             lines.append("• <b>Метрики</b> — холдеры, объём, давление покупок, "
@@ -2124,6 +2151,12 @@ class Bot:
             lines.append("• <b>Нейросеть</b> — финальный вердикт по монете")
             lines.append("  включена" if os.environ.get("ANTHROPIC_API_KEY")
                          else "  выключена: нет ANTHROPIC_API_KEY")
+            lines.append("")
+            lines.append("• <b>Нарратив и мета</b> — в какой мете монета "
+                         "(ИИ-агенты, политика, животные, чейны), первая она "
+                         "или клон, и платит ли эта мета в последние дни")
+            lines.append("  клону — меньше денег и быстрый выход, "
+                         "первому в нарративе — полный размер и время на иксы")
             lines.append("")
             lines.append("• <b>Кимчи</b> — заходим следом за кошельками, которые "
                          "уже в плюсе, пока след горячий (до 20 мин)")
@@ -2359,6 +2392,8 @@ class Bot:
         ("wallets", "Кошельки умных трейдеров"),
         ("scout", "Кого бот нашёл сам"),
         ("strategies", "Что работает и что приносит"),
+        ("journal", "Журнал сделок с разбором"),
+        ("meta", "Какая мета кормит"),
         ("fresh", "Что видит бот сейчас"),
         ("status", "Состояние бота"),
         ("trade", "Включить или остановить входы"),

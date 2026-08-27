@@ -62,6 +62,36 @@ DEFAULTS: dict[str, Any] = {
     # +60%, а иксы, и платят за это частыми мелкими минусами. Поэтому половину
     # снимаем на удвоении, остаток едет дальше со стопом в ноль — рисковать
     # там уже нечем, а верхняя граница не поставлена вовсе.
+    # Внимание не держится вечно: пошёл максимум, а дальше монета встала —
+    # это и есть момент, когда пора выходить, не дожидаясь стопа.
+    "decay_after_pct": 40.0,         # с какого плюса следим за угасанием
+    "decay_stall_minutes": 12.0,     # столько без нового максимума
+    "decay_drop_pct": 15.0,          # и настолько ниже максимума
+
+    # Потолок монеты решает, как её вести. Клон чужого нарратива отрабатывает
+    # быстрый скальп: у него нет шанса на иксы, зато есть шанс успеть выйти.
+    # Первый в нарративе — наоборот, его держим дольше и без потолка.
+    "ceiling_rules": {
+        "подражатель": {
+            "take_profit_pct": 35.0,
+            "stop_loss_pct": -25.0,
+            "trailing_after_pct": 20.0,
+            "trailing_stop_pct": 15.0,
+            "timeout_minutes": 15.0,
+            "decay_after_pct": 25.0,
+            "decay_stall_minutes": 8.0,
+        },
+        "первопроходец": {
+            "take_profit_pct": 0.0,        # потолка нет
+            "scale_out_at_pct": 100.0,
+            "scale_out_pct": 40.0,
+            "breakeven_after_scale": True,
+            "trailing_after_pct": 130.0,
+            "trailing_stop_pct": 35.0,
+            "timeout_minutes": 120.0,
+            "decay_stall_minutes": 20.0,
+        },
+    },
     "rules": {
         "кимчи": {
             "take_profit_pct": 0.0,        # потолка нет: остаток бежит за иксами
@@ -101,7 +131,8 @@ DEFAULT_RPC = "https://api.mainnet-beta.solana.com"
 LAMPORTS = 1_000_000_000
 
 EXIT_PLAIN = {"take_profit": "тейк", "stop_loss": "стоп", "trailing": "трейлинг",
-              "timeout": "таймаут", "manual": "вручную", "breakeven": "в ноль"}
+              "timeout": "таймаут", "manual": "вручную", "breakeven": "в ноль",
+              "decay": "внимание ушло"}
 
 EXIT_LABELS = {
     "take_profit": "🎯 тейк-профит",
@@ -110,6 +141,7 @@ EXIT_LABELS = {
     "timeout": "⏳ таймаут",
     "manual": "✋ вручную",
     "breakeven": "🛟 стоп в ноль",
+    "decay": "🥱 внимание ушло",
 }
 
 
@@ -143,6 +175,9 @@ class Position:
     mode: str = "paper"
     score: float = 0.0
     strategy: str = "метрики"        # что привело в эту сделку
+    meta: str = ""                   # мета: ИИ-агенты, политика, животные…
+    ceiling: str = ""                # потолок: первопроходец / подражатель
+    thesis: str = ""                 # зачем зашли — строка для журнала
 
     opened_ts: float = 0.0
     entry_price: float = 0.0         # цена токена в долларах на входе
@@ -154,6 +189,7 @@ class Position:
     sold_pct: float = 0.0            # какую долю позиции успели продать
 
     high_price: float = 0.0          # максимум цены за время удержания
+    high_ts: float = 0.0             # когда этот максимум был
     last_price: float = 0.0
     last_check: float = 0.0
 
@@ -231,6 +267,10 @@ class TradeStore:
                 self.conn.execute("ALTER TABLE trades ADD COLUMN realized_sol REAL")
             if "sold_pct" not in cols:
                 self.conn.execute("ALTER TABLE trades ADD COLUMN sold_pct REAL")
+            for extra, kind in (("meta", "TEXT"), ("ceiling", "TEXT"),
+                                ("thesis", "TEXT"), ("high_ts", "REAL")):
+                if extra not in cols:
+                    self.conn.execute(f"ALTER TABLE trades ADD COLUMN {extra} {kind}")
             self.conn.commit()
 
     def insert(self, p: Position) -> int:
@@ -239,12 +279,13 @@ class TradeStore:
                 "INSERT INTO trades (mint, symbol, launchpad, mode, score, opened_ts,"
                 " entry_price, entry_sol_price, size_sol, tokens, high_price, last_price,"
                 " status, exit_price, exit_ts, exit_reason, pnl_sol, pnl_pct, strategy,"
-                " realized_sol, sold_pct)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " realized_sol, sold_pct, meta, ceiling, thesis, high_ts)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (p.mint, p.symbol, p.launchpad, p.mode, p.score, p.opened_ts,
                  p.entry_price, p.entry_sol_price, p.size_sol, p.tokens, p.high_price,
                  p.last_price, p.status, p.exit_price, p.exit_ts, p.exit_reason,
-                 p.pnl_sol, p.pnl_pct, p.strategy, p.realized_sol, p.sold_pct))
+                 p.pnl_sol, p.pnl_pct, p.strategy, p.realized_sol, p.sold_pct,
+                 p.meta, p.ceiling, p.thesis, p.high_ts))
             self.conn.commit()
             return int(cur.lastrowid)
 
@@ -255,10 +296,10 @@ class TradeStore:
             self.conn.execute(
                 "UPDATE trades SET high_price=?, last_price=?, status=?, exit_price=?,"
                 " exit_ts=?, exit_reason=?, pnl_sol=?, pnl_pct=?, tokens=?,"
-                " realized_sol=?, sold_pct=? WHERE id=?",
+                " realized_sol=?, sold_pct=?, high_ts=? WHERE id=?",
                 (p.high_price, p.last_price, p.status, p.exit_price, p.exit_ts,
                  p.exit_reason, p.pnl_sol, p.pnl_pct, p.tokens,
-                 p.realized_sol, p.sold_pct, p.row_id))
+                 p.realized_sol, p.sold_pct, p.high_ts, p.row_id))
             self.conn.commit()
 
     def open_positions(self) -> list[Position]:
@@ -336,6 +377,10 @@ class TradeStore:
         p.strategy = d.get("strategy") or "метрики"
         p.realized_sol = num(d.get("realized_sol"))
         p.sold_pct = num(d.get("sold_pct"))
+        p.meta = d.get("meta") or ""
+        p.ceiling = d.get("ceiling") or ""
+        p.thesis = d.get("thesis") or ""
+        p.high_ts = num(d.get("high_ts")) or p.opened_ts
         p.row_id = int(d["id"])
         return p
 
@@ -755,6 +800,46 @@ def history_message(rows: list[dict], limit: int) -> str:
     return "\n".join(out)
 
 
+def lesson(r: dict) -> str:
+    """Короткий вывод по закрытой сделке — то, ради чего ведут журнал."""
+    pnl = num(r.get("pnl_pct"))
+    reason = r.get("exit_reason") or ""
+    held = (num(r.get("exit_ts")) - num(r.get("opened_ts"))) / 60.0
+    if reason == "stop_loss":
+        return ("нарратив не поехал"
+                + (", развалилось сразу" if held < 10 else f", {held:.0f} мин на дне"))
+    if reason == "decay":
+        return "максимум был давно, цена отошла — забрали, пока было что"
+    if reason == "breakeven":
+        return "половину сняли на удвоении, остаток закрыт по входу — итог в плюсе"
+    if reason == "trailing":
+        return f"дали доехать, {pnl:+.0f}% и откат от максимума"
+    if reason == "take_profit":
+        return f"цель отработала за {held:.0f} мин"
+    if reason == "timeout":
+        return "монета встала на месте, ждать было нечего"
+    return f"{pnl:+.0f}% за {held:.0f} мин"
+
+
+def journal_message(rows: list[dict]) -> str:
+    """Журнал: что купили, почему, чем закончилось и какой вывод."""
+    if not rows:
+        return ("📓 <b>Журнал сделок</b>\n\nПока пусто — записи появятся "
+                "после первых закрытых сделок.")
+    out = [f"📓 <b>Журнал сделок</b> (последние {len(rows)})"]
+    for r in rows:
+        pnl = num(r.get("pnl_sol"))
+        emoji = "🟢" if pnl > 0 else "🔴"
+        when = time.strftime("%d.%m %H:%M", time.localtime(num(r.get("exit_ts"))))
+        out.append(
+            f"\n{emoji} <b>${esc(r.get('symbol') or '—')}</b> "
+            f"{num(r.get('pnl_pct')):+.0f}% · {fmt_sol(pnl)} · {when}\n"
+            f"   <i>тезис:</i> {esc(r.get('thesis') or 'без разбора нарратива')}\n"
+            f"   <i>выход:</i> {EXIT_PLAIN.get(r.get('exit_reason'), '—')} — "
+            f"{esc(lesson(r))}")
+    return "\n".join(out)
+
+
 def pnl_message(rows: list[dict], hours: float, mode: str) -> str:
     if not rows:
         return f"За {hours:.0f}ч закрытых сделок не было."
@@ -872,7 +957,9 @@ class Trader:
 
     async def consider(self, mint: str, symbol: str = "", score: float = 0.0,
                        launchpad: str = "", price_hint: float = 0.0,
-                       strategy: str = "метрики") -> Position | None:
+                       strategy: str = "метрики", meta: str = "",
+                       ceiling: str = "", thesis: str = "",
+                       size_mult: float = 1.0) -> Position | None:
         """Решает, входить ли в монету, и открывает позицию."""
         reason = self._blocked(mint, score)
         if reason:
@@ -885,7 +972,9 @@ class Trader:
             log.warning("Нет цены для $%s — вход отменён", symbol or mint[:8])
             return None
 
-        size = num(self.conf.get("size_sol"), 0.1)
+        # клонам чужого нарратива даём меньше денег: потолок ниже, риск тот же
+        size = num(self.conf.get("size_sol"), 0.1) * max(0.3, min(1.0, num(size_mult, 1.0)))
+        size = round(size, 4)
         try:
             tokens, fill = await self.executor.buy(mint, size, price, sol_price)
         except Exception as e:  # noqa: BLE001
@@ -900,9 +989,11 @@ class Trader:
             return None
 
         p = Position(mint=mint, symbol=symbol, launchpad=launchpad, mode=self.mode,
-                     score=score, strategy=strategy, opened_ts=time.time(), entry_price=fill,
+                     score=score, strategy=strategy, meta=meta, ceiling=ceiling,
+                     thesis=thesis, opened_ts=time.time(), entry_price=fill,
                      entry_sol_price=sol_price, size_sol=size, tokens=tokens,
-                     high_price=fill, last_price=fill, last_check=time.time())
+                     high_price=fill, high_ts=time.time(),
+                     last_price=fill, last_check=time.time())
         p.row_id = self.store.insert(p)
         self.positions.append(p)
         log.info("Вход $%s по %.10f, %.3f SOL (%s)", symbol or mint[:8], fill, size, self.mode)
@@ -913,9 +1004,14 @@ class Trader:
     # ---------- выход ----------
 
     def rules(self, p: Position) -> dict[str, Any]:
-        """Правила выхода для этой сделки: общие плюс поправки её стратегии."""
+        """Правила выхода: общие, поправки стратегии и поправки на потолок.
+
+        Потолок идёт последним: клон чужого нарратива ведём как скальп, даже
+        если зашли по кошелькам, — иксов там всё равно не будет.
+        """
         by_strategy = (self.conf.get("rules") or {}).get(p.strategy) or {}
-        return {**self.conf, **by_strategy}
+        by_ceiling = (self.conf.get("ceiling_rules") or {}).get(p.ceiling) or {}
+        return {**self.conf, **by_strategy, **by_ceiling}
 
     def _exit_reason(self, p: Position, price: float) -> str:
         r = self.rules(p)
@@ -931,6 +1027,17 @@ class Trader:
             return "breakeven"
         if change <= num(r.get("stop_loss_pct"), -35):
             return "stop_loss"
+
+        # Хайп кончился: максимум был давно, цена от него отошла и не растёт.
+        # Ждать стопа в этом случае — отдавать назад уже заработанное.
+        decay_after = num(r.get("decay_after_pct"), 40)
+        stall = num(r.get("decay_stall_minutes"), 12)
+        drop = num(r.get("decay_drop_pct"), 15)
+        if decay_after and stall and p.high_ts and p.high_price > 0 \
+                and p.change_pct(p.high_price) >= decay_after \
+                and (time.time() - p.high_ts) / 60.0 >= stall \
+                and (price / p.high_price - 1) * 100.0 <= -drop:
+            return "decay"
 
         trail_after = num(r.get("trailing_after_pct"), 30)
         trail = num(r.get("trailing_stop_pct"), 25)
@@ -1010,7 +1117,8 @@ class Trader:
                     await self.close(p, p.last_price, sol_price, "timeout")
                 continue
             p.last_price = price
-            p.high_price = max(p.high_price, price)
+            if price > p.high_price:
+                p.high_price, p.high_ts = price, time.time()
             p.last_check = time.time()
 
             # сначала частичная фиксация: снять половину на удвоении важнее,
@@ -1090,6 +1198,27 @@ class Trader:
                          f"({wins / len(items) * 100:.0f}%)")
         return "\n".join(out)
 
+    def journal(self, limit: int = 8) -> str:
+        return journal_message(self.store.recent_closed(max(1, min(limit, 20))))
+
+    def by_meta(self, hours: float = 24 * 7) -> str:
+        """Какая мета приносит: то же самое, что по стратегиям, но по смыслу."""
+        rows = [r for r in self.store.closed_since(time.time() - hours * 3600)
+                if (r.get("meta") or "").strip()]
+        if not rows:
+            return "Сделок с распознанной метой пока нет."
+        groups: dict[str, list[dict]] = {}
+        for r in rows:
+            groups.setdefault(r["meta"], []).append(r)
+        out = [f"🌊 <b>Какая мета кормит</b> (за {hours / 24:.0f} дн)"]
+        for name, items in sorted(groups.items(),
+                                  key=lambda kv: -sum(num(r.get("pnl_sol")) for r in kv[1])):
+            pnl = sum(num(r.get("pnl_sol")) for r in items)
+            wins = len([r for r in items if num(r.get("pnl_sol")) > 0])
+            out.append(f"\n<b>{esc(name)}</b> — {fmt_sol(pnl)}\n"
+                       f"  сделок {len(items)}, в плюс {wins}")
+        return "\n".join(out)
+
     def history(self, limit: int = 10) -> str:
         return history_message(self.store.recent_closed(max(1, min(limit, 30))), limit)
 
@@ -1136,7 +1265,8 @@ class Trader:
             w = csv.writer(fh, delimiter=";")
             w.writerow(["Вход", "Выход", "Тикер", "Лончпад", "Режим", "Скор",
                         "Размер SOL", "Цена входа", "Цена выхода", "Причина выхода",
-                        "Минут в позиции", "Итог SOL", "Итог %", "Статус", "Минт"])
+                        "Минут в позиции", "Итог SOL", "Итог %", "Статус",
+                        "Стратегия", "Мета", "Потолок", "Тезис", "Вывод", "Минт"])
             for r in rows:
                 held = ((num(r.get("exit_ts")) - num(r.get("opened_ts"))) / 60.0
                         if num(r.get("exit_ts")) else
@@ -1153,6 +1283,9 @@ class Trader:
                     f"{num(r.get('pnl_sol')):.4f}".replace(".", ","),
                     f"{num(r.get('pnl_pct')):.1f}".replace(".", ","),
                     "закрыта" if r.get("status") == "closed" else "открыта",
+                    r.get("strategy") or "", r.get("meta") or "",
+                    r.get("ceiling") or "", r.get("thesis") or "",
+                    lesson(r) if r.get("status") == "closed" else "",
                     r.get("mint") or "",
                 ])
         return out

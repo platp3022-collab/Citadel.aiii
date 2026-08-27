@@ -41,6 +41,11 @@ from typing import Any, Awaitable, Callable, Iterable
 
 import aiohttp
 
+try:
+    import narrative as narratives          # мета, нарратив, внимание
+except ImportError:                          # noqa: BLE001
+    narratives = None
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("axiom_scout")
 
@@ -139,6 +144,25 @@ PRESETS: dict[str, dict[str, Any]] = {
         "min_score": 58, "interval_seconds": 40, "max_per_scan": 4,
         "shortlist_limit": 15,
         "terminals_shown": ["Axiom", "FOMO", "GMGN", "Photon"],
+        "auto": {"enabled": True, "only_enter": True, "enter_score": 58,
+                 "watch_score": 45, "block_on_red": True},
+    },
+    # Разбор из обучающих видео по FOMO/Axiom: те же вкладки, но пороги
+    # отдельно для бонда и для мигрировавших, а комиссии — от 0.5 SOL.
+    # Комиссии здесь главный фильтр: бандл-раг их просто не платит.
+    "fomo_pro": {
+        "min_age_minutes": 1, "max_age_minutes": 240,
+        "min_liquidity_usd": 0, "min_mcap_usd": 0, "max_mcap_usd": 0,
+        "min_mcap_bonding": 10000,      # Final Stretch: от $10K
+        "min_mcap_migrated": 30000,     # Migrated: от $30K
+        "min_volume_usd": 50, "min_fees_sol": 0.5, "fee_rate": 0.01,
+        "min_holders": 0, "min_buys_5m": 0, "min_volume_5m_usd": 0,
+        "launchpads": ["pump", "bonk"], "quote_tokens": ["SOL", "USD1"],
+        "max_dev_pct": 100.0, "max_top10_pct": 100.0, "max_dev_migrations": 9999,
+        "require_mint_revoked": False, "require_freeze_revoked": False,
+        "min_score": 58, "interval_seconds": 40, "max_per_scan": 4,
+        "shortlist_limit": 15,
+        "terminals_shown": ["FOMO", "Axiom", "GMGN", "Photon"],
         "auto": {"enabled": True, "only_enter": True, "enter_score": 58,
                  "watch_score": 45, "block_on_red": True},
     },
@@ -875,8 +899,16 @@ def fresh_passes(l: Launch, conf: dict[str, Any]) -> tuple[bool, str]:
 
     if l.liquidity and l.liquidity < num(conf.get("min_liquidity_usd"), 8000):
         return False, "мало ликвидности"
-    if l.mcap and l.mcap < num(conf.get("min_mcap_usd"), 15000):
-        return False, "капитализация ниже порога"
+    # На кривой и после миграции пороги разные: пока монета на бонде, живой
+    # считается от $10K, а у мигрировавшей ниже $30K уже нечего ловить —
+    # именно так отсеиваются бандл-раги, которые «выпускают» пустышку на DEX.
+    min_mcap = num(conf.get("min_mcap_usd"), 15000)
+    stage_key = "min_mcap_migrated" if l.graduated else "min_mcap_bonding"
+    if conf.get(stage_key) is not None:
+        min_mcap = max(min_mcap, num(conf.get(stage_key)))
+    if l.mcap and l.mcap < min_mcap:
+        return False, ("капитализация ниже порога"
+                       + (" для мигрировавшей" if l.graduated else " на кривой"))
     max_mcap = num(conf.get("max_mcap_usd"))
     if max_mcap and l.mcap > max_mcap:
         return False, "капитализация выше порога"
@@ -950,6 +982,10 @@ class FreshAnalysis:
     smart_hits: int = 0                    # сколько отслеживаемых кошельков зашло
     smart_note: str = ""
     strategy: str = "метрики"              # что именно привело в сделку
+    meta: str = ""                         # в какой мете сидит монета
+    ceiling: str = ""                      # потолок: первопроходец / подражатель
+    thesis: str = ""                       # зачем зашли — строка для журнала
+    size_mult: float = 1.0                 # поправка к размеру позиции
 
     @property
     def mint(self) -> str:
@@ -1207,11 +1243,14 @@ def decide(score: float, flags: list[str], llm: dict | None,
     # Сломанный контракт всё равно блокирует: там минус гарантирован.
     # Но только пока след горячий: зайти через час после умных денег — значит
     # купить у них же на выходе. Весь смысл этой стратегии в скорости.
+    # И всё же не вслепую: чужая покупка — повод посмотреть монету, а не
+    # причина купить что угодно. Совсем мусорный скор перебивает даже кошельки.
     wconf = conf.get("wallets") or {}
     follow_within = num(wconf.get("follow_within_minutes"), 20)
     if (wconf.get("force_enter", True)
             and smart_hits >= int(num(wconf.get("min_hits"), 2))
             and (not follow_within or smart_minutes <= follow_within)
+            and score >= num(wconf.get("min_own_score"), 25)
             and not any(is_fatal(f) for f in flags)):
         return "enter"
     if llm:
@@ -1231,7 +1270,8 @@ def decide(score: float, flags: list[str], llm: dict | None,
 
 
 def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
-                   conf: dict[str, Any] | None = None, smart: Any = None) -> FreshAnalysis:
+                   conf: dict[str, Any] | None = None, smart: Any = None,
+                   reader: Any = None) -> FreshAnalysis:
     conf = conf or DEFAULTS
     signals = [
         _sig_holders(l), _sig_holder_flow(l), _sig_buy_pressure(l), _sig_volume(l),
@@ -1258,7 +1298,19 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
         signals.append(Signal("Умные кошельки", smart_bonus,
                               num(wconf.get("max_bonus"), 22), smart_note))
 
-    score = max(0.0, min(100.0, raw * mult + bonus + smart_bonus))
+    # Смысл монеты, а не только её цифры: в какой мете сидит, первая она в
+    # нарративе или двадцатый клон, и платит ли эта мета в последние дни.
+    nar = None
+    if reader is not None:
+        try:
+            nar = reader.read(l.symbol, l.name, news_hit=bool(bonus), mint=l.mint)
+        except Exception as e:  # noqa: BLE001
+            log.debug("нарратив не разобрался: %s", e)
+    nar_points = num(getattr(nar, "points", 0.0))
+    if nar is not None:
+        signals.append(Signal("Мета и нарратив", nar_points, 15, nar.note))
+
+    score = max(0.0, min(100.0, raw * mult + bonus + smart_bonus + nar_points))
     a = FreshAnalysis(launch=l, score=score, signals=signals, flags=flags,
                       multiplier=mult, verdict=verdict_text(score, flags),
                       news_titles=titles, narratives=narratives,
@@ -1269,6 +1321,10 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
     # чем обязана сделка: по этому потом видно, какая стратегия кормит.
     # «Кимчи» — вход следом за кошельками, которые уже доказали, что умеют:
     # не догадка о монете, а факт, что умные деньги в ней прямо сейчас.
+    if nar is not None:
+        a.meta, a.ceiling = nar.meta, nar.ceiling
+        a.size_mult = nar.size_multiplier
+        a.thesis = nar.thesis(l.symbol or l.mint[:6])
     if smart_hits >= int(num((conf.get("wallets") or {}).get("min_hits"), 2)):
         a.strategy = "кимчи"
     elif bonus >= 4:
@@ -1586,6 +1642,11 @@ class FreshScanner:
         self.news = news
         self.wallets = wallets          # слежка за кошельками, если подключена
         self.scout = scout              # разведчик: сам ищет такие кошельки
+        self.reader = None              # разбор нарратива и меты
+        if narratives is not None and (self.conf.get("narrative") or {}).get("enabled", True):
+            self.reader = narratives.NarrativeReader({
+                **(self.conf.get("narrative") or {}),
+                "storage_path": self.conf.get("storage_path", "data/memebot.db")})
         self.feed = LaunchFeed(session, self.conf)
         self.store = FreshStore(storage, self.conf.get("storage_path", "data/memebot.db"))
         self.send = send
@@ -1737,7 +1798,8 @@ class FreshScanner:
                 self.scout.observe(l.mint, l.symbol, l.price_usd)
 
         out = [analyze_launch(l, news=self.news, conf=self.conf,
-                              smart=self._smart(l.mint)) for l in shortlist]
+                              smart=self._smart(l.mint), reader=self.reader)
+               for l in shortlist]
         out.sort(key=lambda a: -a.score)
         if llm:
             await self._llm_pass(out)
@@ -1859,7 +1921,7 @@ class FreshScanner:
             return None
         await self.feed.enrich([launch])
         a = analyze_launch(launch, news=self.news, conf=self.conf,
-                           smart=self._smart(launch.mint))
+                           smart=self._smart(launch.mint), reader=self.reader)
         await self._llm_pass([a])
         return a
 
