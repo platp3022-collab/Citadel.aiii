@@ -167,8 +167,12 @@ CONFIG: dict[str, Any] = {
         "enabled": True,
         "mode": "paper",
         "size_sol": 0.1,
-        "daily_limit_sol": 1.0,
-        "max_positions": 3,
+        # 0 в любом из этих трёх = без ограничения. Бумажная торговля ничего
+        # не стоит, а на живых деньгах остаются свои предохранители:
+        # max_trade_sol на одну сделку и min_sol_reserve на кошельке.
+        "daily_limit_sol": 0,      # 0 = сколько угодно за сутки
+        "max_positions": 0,        # 0 = сколько угодно монет одновременно
+        "cooldown_minutes": 0,     # 0 = можно заходить в монету снова сразу
         "take_profit_pct": 60.0,
         "stop_loss_pct": -35.0,
         "timeout_minutes": 30.0,
@@ -2152,17 +2156,24 @@ class Bot:
                         c[key] = int(value) if key == "max_positions" else value
                         await self.tg.send(f"⚙️ {esc(key)} = {value:g}", chat_id)
                 else:
-                    per_day = (num(c.get("daily_limit_sol"), 1) / num(c.get("size_sol"), 0.1)
-                               if num(c.get("size_sol")) else 0)
+                    daily = num(c.get("daily_limit_sol"))
+                    slots = int(num(c.get("max_positions")))
+                    pause = num(c.get("cooldown_minutes"))
+                    per_day = (daily / num(c.get("size_sol"), 0.1)
+                               if daily and num(c.get("size_sol")) else 0)
                     await self.tg.send(
                         "⚙️ <b>Пропускная способность</b>\n\n"
-                        f"Позиций одновременно: <b>{int(num(c.get('max_positions'), 3))}</b>\n"
+                        "Позиций одновременно: <b>"
+                        + (f"{slots}" if slots > 0 else "без лимита") + "</b>\n"
                         f"Размер сделки: <b>{num(c.get('size_sol'), 0.1):.3f} SOL</b>\n"
-                        f"Лимит в сутки: <b>{num(c.get('daily_limit_sol'), 1):.2f} SOL</b> "
-                        f"→ это максимум <b>{per_day:.0f} сделок в сутки</b>\n"
-                        f"Пауза по одной монете: "
-                        f"<b>{num(c.get('cooldown_minutes'), 120):.0f} мин</b>\n\n"
-                        "Менять так:\n"
+                        "Лимит в сутки: <b>"
+                        + (f"{daily:.2f} SOL</b> → максимум <b>{per_day:.0f} сделок"
+                           if daily else "без лимита</b>") + "</b>\n"
+                        "Пауза по одной монете: <b>"
+                        + (f"{pause:.0f} мин" if pause else "нет") + "</b>\n\n"
+                        + ("<i>Ограничений нет: бот заходит во всё, что проходит "
+                           "анализ.</i>\n\n" if not (daily or slots > 0 or pause) else "")
+                        + "Менять так (0 — снять ограничение):\n"
                         "<code>/limits positions 5</code>\n"
                         "<code>/limits daily 3</code>\n"
                         "<code>/limits cooldown 60</code>\n"

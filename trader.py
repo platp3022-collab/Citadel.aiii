@@ -990,7 +990,8 @@ class Trader:
             return self._note_block(f"скор ниже торгового порога: {score:.0f}")
         if any(p.mint == mint for p in self.positions):
             return self._note_block("позиция по этой монете уже открыта")
-        if len(self.positions) >= int(num(self.conf.get("max_positions"), 3)):
+        slots = int(num(self.conf.get("max_positions"), 3))
+        if slots > 0 and len(self.positions) >= slots:   # 0 = без ограничения
             return self._note_block(
                 f"все слоты заняты: {len(self.positions)} позиций")
 
@@ -1345,11 +1346,13 @@ class Trader:
     def status_line(self) -> str:
         spent = self.store.spent_since(time.time() - 86400)
         limit = num(self.conf.get("daily_limit_sol"), 1.0)
+        slots = int(num(self.conf.get("max_positions"), 3))
         state = "вкл" if self.conf.get("enabled", True) else "выкл"
         return (f"Торговля [{self.mode}]: {state}, позиций {len(self.positions)}"
-                f"/{int(num(self.conf.get('max_positions'), 3))}, "
-                f"за сутки {spent:.2f}/{limit:.2f} SOL, "
-                f"размер сделки {num(self.conf.get('size_sol')):.3f} SOL"
+                + (f"/{slots}" if slots > 0 else " (без лимита)") + ", "
+                + (f"за сутки {spent:.2f}/{limit:.2f} SOL, " if limit
+                   else f"за сутки {spent:.2f} SOL без лимита, ")
+                + f"размер сделки {num(self.conf.get('size_sol')):.3f} SOL"
                 + (f", ошибка: {esc(self.last_error)}" if self.last_error else ""))
 
 
