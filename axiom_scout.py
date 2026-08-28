@@ -175,6 +175,29 @@ PRESETS: dict[str, dict[str, Any]] = {
         "auto": {"enabled": True, "only_enter": True, "enter_score": 58,
                  "watch_score": 45, "block_on_red": True},
     },
+    # «Деку»: ранний вход строго на кривой, маленькая капа, жёсткий контроль
+    # доли раздачи и выход траншами к капитализации $50-60K. Размер сделки
+    # здесь по методике 1-3 SOL — задаётся в CONFIG["trade"]["size_sol"].
+    "deku": {
+        "min_age_minutes": 1, "max_age_minutes": 120,
+        "min_liquidity_usd": 0, "min_mcap_usd": 0, "max_mcap_usd": 20000,
+        "require_bonding": True,                 # только до миграции
+        "bonded_min_volume_5m_usd": 25000,       # исключение: явный объём
+        "min_volume_usd": 50, "min_fees_sol": 0.3, "fee_rate": 0.01,
+        "min_holders": 0, "min_buys_5m": 0, "min_volume_5m_usd": 0,
+        "launchpads": ["pump"], "quote_tokens": ["SOL"],
+        "max_dev_pct": 100.0, "max_top10_pct": 100.0, "max_dev_migrations": 9999,
+        "require_mint_revoked": False, "require_freeze_revoked": False,
+        "strategy_label": "деку",
+        "audit": {"enabled": True, "fast_minutes": 30, "max_dev_pct": 5.0,
+                  "max_top10_pct": 25.0, "top10_from_minutes": 3,
+                  "block_bundle": True},
+        "min_score": 55, "interval_seconds": 30, "max_per_scan": 5,
+        "shortlist_limit": 18,
+        "terminals_shown": ["Axiom", "FOMO", "pump.fun", "Photon"],
+        "auto": {"enabled": True, "only_enter": True, "enter_score": 55,
+                 "watch_score": 42, "block_on_red": True},
+    },
     # Разбор из обучающих видео по FOMO/Axiom: те же вкладки, но пороги
     # отдельно для бонда и для мигрировавших, а комиссии — от 0.5 SOL.
     # Комиссии здесь главный фильтр: бандл-раг их просто не платит.
@@ -973,6 +996,13 @@ def fresh_passes(l: Launch, conf: dict[str, Any]) -> tuple[bool, str]:
     if l.honeypot or l.rugpull_flag:
         return False, "помечен как honeypot/rugpull"
 
+    # Только до миграции: после переезда на DEX ранний вход уже невозможен,
+    # там другая игра. Исключение — если объём подтверждает движение.
+    if conf.get("require_bonding") and l.graduated:
+        confirm = num(conf.get("bonded_min_volume_5m_usd"))
+        if not (confirm and l.vol_5m >= confirm):
+            return False, "уже мигрировал, а вход только до кривой"
+
     if not launchpad_matches(l.launchpad, conf.get("launchpads") or []):
         return False, f"протокол {l.launchpad} не выбран"
 
@@ -1435,7 +1465,7 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
     elif bonus >= 4:
         a.strategy = "новости"
     else:
-        a.strategy = "метрики"
+        a.strategy = str(conf.get("strategy_label") or "метрики")
     if a.decision == "skip" and not a.verdict.startswith("☠️"):
         a.verdict = verdict_text(score, flags)
     return a

@@ -1900,7 +1900,8 @@ class Bot:
             strategy=getattr(a, "strategy", "метрики"),
             meta=getattr(a, "meta", ""), ceiling=getattr(a, "ceiling", ""),
             thesis=getattr(a, "thesis", ""),
-            size_mult=num(getattr(a, "size_mult", 1.0), 1.0))
+            size_mult=num(getattr(a, "size_mult", 1.0), 1.0),
+            mcap=num(getattr(a.launch, "mcap", 0.0)))
 
     def retry_app(self, quiet: bool = False) -> None:
         """Поднять мини-апп заново — при старте и по команде /app."""

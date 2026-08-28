@@ -50,6 +50,26 @@ DEFAULTS: dict[str, Any] = {
     "cooldown_minutes": 120,         # не заходить в ту же монету повторно
     "min_score": 0,                  # 0 = берём всё, что бот назвал «НОРМ»
 
+    # Доля от всей раздачи монеты, которую держим в одном кошельке. Крупная
+    # доля — это не «больше прибыли», а невозможность выйти: продажа своей же
+    # пачкой роняет цену раньше, чем сделка закроется.
+    "max_supply_pct": 3.8,           # 0 = не ограничивать
+
+    # Выход траншами: снимаем понемногу на каждом рывке вместо одной продажи.
+    "tranche_pct": 0,                # 0 = выключено, работает обычная фиксация
+    "tranche_step_pct": 25.0,        # шаг цены между траншами
+    "moonbag_sol": 0.0,              # остаток такого размера не трогаем вовсе
+    "target_mcap_usd": 0,            # дошли до этой капитализации — выходим
+
+    # Защита серии: три минуса подряд — это не «невезение», это сигнал, что
+    # рынок сейчас не наш. Уменьшаем размер, потом отходим в сторону.
+    "streak_guard": {
+        "enabled": True,
+        "half_after": 3,             # столько минусов подряд → половинный размер
+        "pause_after": 5,            # столько → пауза
+        "pause_minutes": 60,
+    },
+
     # ---- выход ----
     # Форма сделки важнее точности входа: минусов на мем-коинах всегда больше,
     # чем плюсов, поэтому минус должен быть маленьким, а плюс — без потолка.
@@ -104,6 +124,22 @@ DEFAULTS: dict[str, Any] = {
         },
     },
     "rules": {
+        # «Деку»: ранний вход на кривой, выход траншами к капитализации
+        # $50-60K, мунбег на случай, если монета поедет в миллионы.
+        "деку": {
+            "take_profit_pct": 0.0,
+            "target_mcap_usd": 55000,      # доехали до этой капы — выходим
+            "stop_loss_pct": -20.0,
+            "scale_out_at_pct": 40.0,      # с этого плюса начинаем снимать
+            "tranche_pct": 15.0,           # по 15% на каждом рывке
+            "tranche_step_pct": 25.0,
+            "moonbag_sol": 0.05,           # остаток такого размера не трогаем
+            "breakeven_after_scale": True,
+            "keep_after_scale_pct": 15.0,
+            "trailing_after_pct": 60.0,
+            "trailing_stop_pct": 22.0,
+            "timeout_minutes": 30.0,
+        },
         # Токен добегает кривую и переезжает на DEX. Тут платит не потолок,
         # а объём: пока он есть — держим, пропал — выходим быстро.
         "миграция": {
@@ -175,7 +211,8 @@ LAMPORTS = 1_000_000_000
 
 EXIT_PLAIN = {"take_profit": "тейк", "stop_loss": "стоп", "trailing": "трейлинг",
               "timeout": "таймаут", "manual": "вручную", "breakeven": "в ноль",
-              "decay": "внимание ушло", "locked": "забрал остаток в плюсе"}
+              "decay": "внимание ушло", "locked": "забрал остаток в плюсе",
+              "target": "дошёл до цели по капе", "tranche": "транш"}
 
 EXIT_LABELS = {
     "take_profit": "🎯 тейк-профит",
@@ -185,6 +222,7 @@ EXIT_LABELS = {
     "manual": "✋ вручную",
     "breakeven": "🛟 стоп в ноль",
     "locked": "🔒 остаток забрал в плюсе",
+    "target": "🎯 цель по капитализации",
     "decay": "🥱 внимание ушло",
 }
 
@@ -219,6 +257,8 @@ class Position:
     mode: str = "paper"
     score: float = 0.0
     strategy: str = "метрики"        # что привело в эту сделку
+    entry_mcap: float = 0.0          # капитализация на входе — для целей по MC
+    supply_pct: float = 0.0          # какую долю раздачи держим
     meta: str = ""                   # мета: ИИ-агенты, политика, животные…
     ceiling: str = ""                # потолок: первопроходец / подражатель
     thesis: str = ""                 # зачем зашли — строка для журнала
@@ -312,7 +352,8 @@ class TradeStore:
             if "sold_pct" not in cols:
                 self.conn.execute("ALTER TABLE trades ADD COLUMN sold_pct REAL")
             for extra, kind in (("meta", "TEXT"), ("ceiling", "TEXT"),
-                                ("thesis", "TEXT"), ("high_ts", "REAL")):
+                                ("thesis", "TEXT"), ("high_ts", "REAL"),
+                                ("entry_mcap", "REAL"), ("supply_pct", "REAL")):
                 if extra not in cols:
                     self.conn.execute(f"ALTER TABLE trades ADD COLUMN {extra} {kind}")
             self.conn.commit()
@@ -323,13 +364,15 @@ class TradeStore:
                 "INSERT INTO trades (mint, symbol, launchpad, mode, score, opened_ts,"
                 " entry_price, entry_sol_price, size_sol, tokens, high_price, last_price,"
                 " status, exit_price, exit_ts, exit_reason, pnl_sol, pnl_pct, strategy,"
-                " realized_sol, sold_pct, meta, ceiling, thesis, high_ts)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " realized_sol, sold_pct, meta, ceiling, thesis, high_ts,"
+                " entry_mcap, supply_pct)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (p.mint, p.symbol, p.launchpad, p.mode, p.score, p.opened_ts,
                  p.entry_price, p.entry_sol_price, p.size_sol, p.tokens, p.high_price,
                  p.last_price, p.status, p.exit_price, p.exit_ts, p.exit_reason,
                  p.pnl_sol, p.pnl_pct, p.strategy, p.realized_sol, p.sold_pct,
-                 p.meta, p.ceiling, p.thesis, p.high_ts))
+                 p.meta, p.ceiling, p.thesis, p.high_ts,
+                 p.entry_mcap, p.supply_pct))
             self.conn.commit()
             return int(cur.lastrowid)
 
@@ -428,6 +471,8 @@ class TradeStore:
         p.strategy = d.get("strategy") or "метрики"
         p.realized_sol = num(d.get("realized_sol"))
         p.sold_pct = num(d.get("sold_pct"))
+        p.entry_mcap = num(d.get("entry_mcap"))
+        p.supply_pct = num(d.get("supply_pct"))
         p.meta = d.get("meta") or ""
         p.ceiling = d.get("ceiling") or ""
         p.thesis = d.get("thesis") or ""
@@ -950,6 +995,7 @@ class Trader:
         self.last_error = ""
         self.blocks: dict[str, int] = {}      # на чём отваливались входы
         self.paused: dict[str, float] = {}    # стратегия → до какого времени пауза
+        self.streak_until = 0.0               # пауза после серии минусов
         if self.positions:
             log.info("Подхватил %d открытых позиций из базы", len(self.positions))
 
@@ -1015,6 +1061,51 @@ class Trader:
         top = sorted(self.blocks.items(), key=lambda kv: -kv[1])[:6]
         return ("<b>Почему не заходил</b> (с запуска):\n"
                 + "\n".join(f"  • {esc(k)}: {v}" for k, v in top))
+
+    def loss_streak(self) -> int:
+        """Сколько минусов подряд прямо сейчас."""
+        streak = 0
+        for r in self.store.recent_closed(12):
+            if num(r.get("pnl_sol")) < 0:
+                streak += 1
+            else:
+                break
+        return streak
+
+    def streak_guard(self) -> tuple[float, str]:
+        """Серия минусов подряд — повод уменьшиться, а не отыгрываться."""
+        conf = self.conf.get("streak_guard") or {}
+        if not conf.get("enabled", True):
+            return 1.0, ""
+        if self.streak_until > time.time():
+            return 0.0, (f"после серии минусов пауза ещё "
+                         f"{(self.streak_until - time.time()) / 60:.0f} мин")
+        streak = self.loss_streak()
+        if streak >= int(num(conf.get("pause_after"), 5)):
+            self.streak_until = time.time() + num(conf.get("pause_minutes"), 60) * 60
+            note = f"{streak} минусов подряд — отхожу в сторону"
+            log.warning(note)
+            return 0.0, note
+        if streak >= int(num(conf.get("half_after"), 3)):
+            return 0.5, f"{streak} минуса подряд — вхожу половинным размером"
+        return 1.0, ""
+
+    def supply_cap(self, size_sol: float, sol_price: float,
+                   mcap: float) -> tuple[float, str]:
+        """Ограничивает вход так, чтобы доля от раздачи осталась безопасной.
+
+        Держать крупную долю в свежей монете — значит не суметь из неё выйти:
+        собственная продажа роняет цену раньше, чем сделка закроется.
+        """
+        limit = num(self.conf.get("max_supply_pct"))
+        if limit <= 0 or mcap <= 0 or sol_price <= 0:
+            return size_sol, ""
+        share = size_sol * sol_price / mcap * 100.0
+        if share <= limit:
+            return size_sol, ""
+        allowed = limit / 100.0 * mcap / sol_price
+        return allowed, (f"доля раздачи была бы {share:.1f}% — "
+                         f"режу вход до {allowed:.3f} SOL ({limit:.1f}%)")
 
     def strategy_health(self, strategy: str) -> tuple[float, str]:
         """Как эта стратегия отработала на последних сделках.
@@ -1090,7 +1181,7 @@ class Trader:
                        launchpad: str = "", price_hint: float = 0.0,
                        strategy: str = "метрики", meta: str = "",
                        ceiling: str = "", thesis: str = "",
-                       size_mult: float = 1.0) -> Position | None:
+                       size_mult: float = 1.0, mcap: float = 0.0) -> Position | None:
         """Решает, входить ли в монету, и открывает позицию."""
         reason = self._blocked(mint, score)
         if reason:
@@ -1103,6 +1194,16 @@ class Trader:
             log.warning("Нет цены для $%s — вход отменён", symbol or mint[:8])
             return None
 
+        # серия минусов подряд важнее любой отдельной монеты: сначала
+        # уменьшаемся, потом отходим — отыгрываться нельзя
+        guard, guard_why = self.streak_guard()
+        if guard <= 0:
+            log.info("Пропускаю $%s: %s", symbol or mint[:8], guard_why)
+            self._note_block("серия минусов: пауза")
+            return None
+        if guard_why:
+            log.info("$%s: %s", symbol or mint[:8], guard_why)
+
         # стратегия, которая на дистанции сливает, входит уменьшенным размером
         # или не входит вовсе — это важнее любого сигнала на конкретной монете
         health, why = self.strategy_health(strategy)
@@ -1114,9 +1215,17 @@ class Trader:
             log.info("$%s: %s", symbol or mint[:8], why)
 
         # клонам чужого нарратива даём меньше денег: потолок ниже, риск тот же
-        size = (num(self.conf.get("size_sol"), 0.1) * health
+        size = (num(self.conf.get("size_sol"), 0.1) * health * guard
                 * max(0.3, min(1.0, num(size_mult, 1.0))))
+        # и последнее слово — за долей раздачи: из крупной позиции в свежей
+        # монете просто не выйти
+        size, cap_note = self.supply_cap(size, sol_price, mcap)
+        if cap_note:
+            log.info("$%s: %s", symbol or mint[:8], cap_note)
         size = round(size, 4)
+        if size < 0.001:
+            self._note_block("размер после ограничений слишком мал")
+            return None
         try:
             tokens, fill = await self.executor.buy(mint, size, price, sol_price)
         except Exception as e:  # noqa: BLE001
@@ -1132,6 +1241,8 @@ class Trader:
 
         p = Position(mint=mint, symbol=symbol, launchpad=launchpad, mode=self.mode,
                      score=score, strategy=strategy, meta=meta, ceiling=ceiling,
+                     entry_mcap=num(mcap),
+                     supply_pct=(size * sol_price / mcap * 100.0) if mcap > 0 else 0.0,
                      thesis=thesis, opened_ts=time.time(), entry_price=fill,
                      entry_sol_price=sol_price, size_sol=size, tokens=tokens,
                      high_price=fill, high_ts=time.time(),
@@ -1162,6 +1273,13 @@ class Trader:
         take = num(r.get("take_profit_pct"), 60)
         if take > 0 and change >= take:
             return "take_profit"
+
+        # цель по капитализации: монета доехала до нужной капы на кривой —
+        # выходим по факту, а не по проценту от входа
+        target = num(r.get("target_mcap_usd"))
+        if target and p.entry_mcap > 0 and p.entry_price > 0:
+            if p.entry_mcap * (price / p.entry_price) >= target:
+                return "target"
 
         # Половина уже в кармане. Остаток не отдаём назад в ноль — забираем
         # его, пока он ещё в плюсе: иначе удачный вход превращается в пустой.
@@ -1268,13 +1386,25 @@ class Trader:
                 p.high_price, p.high_ts = price, time.time()
             p.last_check = time.time()
 
-            # сначала частичная фиксация: снять половину на удвоении важнее,
-            # чем ждать общего выхода — на этом и держится стратегия «кимчи»
+            # сначала частичная фиксация: снять часть на рывке важнее, чем
+            # ждать общего выхода — на этом держатся и «кимчи», и «деку»
             r = self.rules(p)
             at = num(r.get("scale_out_at_pct"))
-            share = num(r.get("scale_out_pct")) / 100.0
-            if not p.scaled_out and at > 0 and share > 0 and p.change_pct(price) >= at:
-                await self.scale_out(p, price, sol_price, share)
+            change = p.change_pct(price)
+            tranche = num(r.get("tranche_pct"))
+            if tranche > 0 and at > 0 and change >= at:
+                # выход траншами: понемногу на каждом следующем рывке
+                step = max(1.0, num(r.get("tranche_step_pct"), 25))
+                taken = round(p.sold_pct / tranche) if tranche else 0
+                left_sol = p.tokens * price / sol_price if sol_price else 0.0
+                moonbag = num(r.get("moonbag_sol"))
+                if (change >= at + step * taken and p.sold_pct < 95
+                        and (not moonbag or left_sol > moonbag)):
+                    await self.scale_out(p, price, sol_price, tranche / 100.0)
+            else:
+                share = num(r.get("scale_out_pct")) / 100.0
+                if not p.scaled_out and at > 0 and share > 0 and change >= at:
+                    await self.scale_out(p, price, sol_price, share)
 
             reason = self._exit_reason(p, price)
             if reason:
