@@ -59,7 +59,11 @@ DEFAULTS: dict[str, Any] = {
     "stop_loss_pct": -18.0,          # режем убыток рано
     "scale_out_at_pct": 50.0,        # на +50% забираем половину — это вложенное
     "scale_out_pct": 50.0,
-    "breakeven_after_scale": True,   # после этого стоп переезжает в ноль
+    "breakeven_after_scale": True,   # после этого стоп переезжает вверх
+    # …но не в ноль: выход ровно по входу превращает удачную сделку в пустую.
+    # После фиксации половины остаток отдаём только с прибылью.
+    "keep_after_scale_pct": 20.0,    # ниже этого плюса остаток не отдаём
+    "trail_after_scale_pct": 15.0,   # и трейлинг по остатку становится плотнее
     "trailing_stop_pct": 20.0,       # откат от максимума
     "trailing_after_pct": 50.0,      # трейлинг включается после этой прибыли
     "timeout_minutes": 15.0,         # не растёт — выходим, деньги нужны дальше
@@ -171,7 +175,7 @@ LAMPORTS = 1_000_000_000
 
 EXIT_PLAIN = {"take_profit": "тейк", "stop_loss": "стоп", "trailing": "трейлинг",
               "timeout": "таймаут", "manual": "вручную", "breakeven": "в ноль",
-              "decay": "внимание ушло"}
+              "decay": "внимание ушло", "locked": "забрал остаток в плюсе"}
 
 EXIT_LABELS = {
     "take_profit": "🎯 тейк-профит",
@@ -180,6 +184,7 @@ EXIT_LABELS = {
     "timeout": "⏳ таймаут",
     "manual": "✋ вручную",
     "breakeven": "🛟 стоп в ноль",
+    "locked": "🔒 остаток забрал в плюсе",
     "decay": "🥱 внимание ушло",
 }
 
@@ -784,7 +789,7 @@ def scale_message(p: Position, fill: float, got_sol: float, share: float) -> str
     back = "вложенное вернул" if got_sol >= p.size_sol * 0.9 else "часть в карман"
     return (f"{tag} 💰 <b>снял {share * 100:.0f}% ${esc(p.symbol)}</b>\n"
             f"+{got_sol:.4f} SOL по {price_str(fill)} ({p.change_pct(fill):+.0f}%)\n"
-            f"{back}, остаток — мунбег, стоп в ноль")
+            f"{back}, остаток — мунбег, ниже плюса не отдам")
 
 
 def positions_message(positions: list[Position], conf: dict[str, Any]) -> str:
@@ -872,7 +877,9 @@ def lesson(r: dict) -> str:
     if reason == "decay":
         return "максимум был давно, цена отошла — забрали, пока было что"
     if reason == "breakeven":
-        return "половину сняли на удвоении, остаток закрыт по входу — итог в плюсе"
+        return "половину сняли раньше, остаток закрыт по входу — итог в плюсе"
+    if reason == "locked":
+        return "половина снята, остаток забрали в плюсе — сделка не сдулась в ноль"
     if reason == "trailing":
         return f"дали доехать, {pnl:+.0f}% и откат от максимума"
     if reason == "take_profit":
@@ -1156,10 +1163,12 @@ class Trader:
         if take > 0 and change >= take:
             return "take_profit"
 
-        # половина уже в кармане — дальше не рискуем ничем: вернулось к входу,
-        # забираем остаток и всё равно остаёмся в плюсе
-        if p.scaled_out and r.get("breakeven_after_scale") and change <= 0:
-            return "breakeven"
+        # Половина уже в кармане. Остаток не отдаём назад в ноль — забираем
+        # его, пока он ещё в плюсе: иначе удачный вход превращается в пустой.
+        if p.scaled_out and r.get("breakeven_after_scale"):
+            floor = num(r.get("keep_after_scale_pct"), 20)
+            if change <= floor:
+                return "locked" if floor > 0 else "breakeven"
         if change <= num(r.get("stop_loss_pct"), -35):
             return "stop_loss"
 
@@ -1176,6 +1185,9 @@ class Trader:
 
         trail_after = num(r.get("trailing_after_pct"), 30)
         trail = num(r.get("trailing_stop_pct"), 25)
+        if p.scaled_out and num(r.get("trail_after_scale_pct")):
+            # после фиксации половины бережём то, что уже наросло
+            trail = num(r.get("trail_after_scale_pct"), 15)
         if trail and p.high_price > 0 and p.change_pct(p.high_price) >= trail_after:
             drop = (price / p.high_price - 1) * 100.0
             if drop <= -trail:
