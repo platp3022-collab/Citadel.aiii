@@ -207,6 +207,14 @@ CONFIG: dict[str, Any] = {
         "min_own_score": 25,       # ниже этого не заходим даже за кошельками
         "fast_follow_minutes": 5,  # позже — входим уменьшенным размером
     },
+    # Внимание: говорят ли о монете вообще. Reddit, новости, платные показы
+    # на DexScreener и ссылки самого токена. Без ключей и без платных API.
+    "attention": {
+        "enabled": True,
+        "check_top": 6,            # для скольких лучших монет идём в сеть
+        "cache_minutes": 20,
+        "silence_penalty": -4,     # тишина вокруг монеты — тоже сигнал
+    },
     # Нарратив и внимание: в какой мете монета, первая она или клон,
     # и платит ли эта мета по собственным закрытым сделкам бота.
     "narrative": {
@@ -1682,7 +1690,8 @@ class Bot:
                 conf={**(cfg("fresh.overrides") or {}),
                       "storage_path": cfg("storage.path", "data/memebot.db"),
                       "wallets": cfg("wallets") or {},
-                      "narrative": cfg("narrative") or {}},
+                      "narrative": cfg("narrative") or {},
+                      "attention": cfg("attention") or {}},
                 news=self.news, preset=str(cfg("fresh.preset", "axiom")),
                 on_alert=self.on_fresh_alert, wallets=self.wallets,
                 scout=self.scout)
@@ -2268,6 +2277,13 @@ class Bot:
             lines.append("• <b>Нейросеть</b> — финальный вердикт по монете")
             lines.append("  включена" if os.environ.get("ANTHROPIC_API_KEY")
                          else "  выключена: нет ANTHROPIC_API_KEY")
+            lines.append("")
+            lines.append("• <b>Внимание</b> — говорят ли о монете: Reddit за сутки, "
+                         "новости, платные показы, соцсети токена")
+            lines.append("  тишина вокруг свежего лонча штрафует: расти не на чем")
+            lines.append(f"  {esc(self.fresh.attention.status_line())}"
+                         if self.fresh is not None and self.fresh.attention
+                         else "  выключено")
             lines.append("")
             lines.append("• <b>Нарратив и мета</b> — в какой мете монета "
                          "(ИИ-агенты, политика, животные, чейны), первая она "

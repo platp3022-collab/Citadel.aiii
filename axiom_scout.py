@@ -42,9 +42,14 @@ from typing import Any, Awaitable, Callable, Iterable
 import aiohttp
 
 try:
-    import narrative as narratives          # мета, нарратив, внимание
+    import narrative as narratives          # мета, нарратив, потолок
 except ImportError:                          # noqa: BLE001
     narratives = None
+
+try:
+    import attention as attention_mod        # говорят ли о монете вообще
+except ImportError:                          # noqa: BLE001
+    attention_mod = None
 
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("axiom_scout")
@@ -461,6 +466,7 @@ class Launch:
     telegram: str = ""
     website: str = ""
 
+    attention: Any = None                 # разговор вокруг монеты (attention.py)
     bundle_flag: bool = False             # признаки бандла/снайперов из риск-чека
     rug_score: float | None = None        # RugCheck score_normalised (0 = чисто)
     rug_flags: list[str] = field(default_factory=list)
@@ -1372,6 +1378,13 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
     if nar is not None:
         signals.append(Signal("Мета и нарратив", nar_points, 15, nar.note))
 
+    # Разговор вокруг монеты. Мем-коин растёт вниманием, а не метриками:
+    # тишина вокруг свежего лонча — это не нейтрально, это отсутствие топлива.
+    att = getattr(l, "attention", None)
+    att_points = num(getattr(att, "points", 0.0))
+    if att is not None and getattr(att, "checked", False):
+        signals.append(Signal("Внимание вокруг монеты", att_points, 15, att.note))
+
     # Момент миграции — отдельная сделка: кривая пройдена, покупатели с DEX
     # ещё впереди. Но только пока идёт объём, иначе переезжать нечему.
     mig_points = 0.0
@@ -1383,7 +1396,7 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
                               else f"кривая {curve:.0f}%" if curve is not None
                               else "добегает кривую"))
 
-    score = max(0.0, min(100.0, raw * mult + bonus + smart_bonus + nar_points + mig_points))
+    score = max(0.0, min(100.0, raw * mult + bonus + smart_bonus + nar_points + mig_points + att_points))
     a = FreshAnalysis(launch=l, score=score, signals=signals, flags=flags,
                       multiplier=mult, verdict=verdict_text(score, flags),
                       news_titles=titles, narratives=narratives,
@@ -1729,6 +1742,11 @@ class FreshScanner:
         self.news = news
         self.wallets = wallets          # слежка за кошельками, если подключена
         self.scout = scout              # разведчик: сам ищет такие кошельки
+        self.attention = None           # разговор вокруг монеты
+        if attention_mod is not None and (self.conf.get("attention") or {}).get(
+                "enabled", True):
+            self.attention = attention_mod.AttentionReader(
+                session, conf=self.conf.get("attention") or {})
         self.reader = None              # разбор нарратива и меты
         if narratives is not None and (self.conf.get("narrative") or {}).get("enabled", True):
             self.reader = narratives.NarrativeReader({
@@ -1898,6 +1916,10 @@ class FreshScanner:
             l, conf=self.conf, smart=self._smart(l.mint)).score, reverse=True)
         shortlist = candidates[:int(num(self.conf.get("shortlist_limit"), 12))]
         await self.feed.enrich(shortlist)
+        if self.attention is not None:
+            # в сеть за разговором ходим только для лучших: источники
+            # бесплатные, и злоупотреблять ими нечем
+            await self.attention.enrich(shortlist)
 
         if self.scout is not None:
             for l in candidates:
