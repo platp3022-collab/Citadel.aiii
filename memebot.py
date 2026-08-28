@@ -173,9 +173,11 @@ CONFIG: dict[str, Any] = {
         "daily_limit_sol": 0,      # 0 = сколько угодно за сутки
         "max_positions": 0,        # 0 = сколько угодно монет одновременно
         "cooldown_minutes": 0,     # 0 = можно заходить в монету снова сразу
-        "take_profit_pct": 60.0,
-        "stop_loss_pct": -35.0,
-        "timeout_minutes": 30.0,
+        # потолка на прибыли нет, минус режем рано — иначе средний минус
+        # съедает средний плюс, а на мем-коинах минусов всегда больше
+        "take_profit_pct": 0.0,
+        "stop_loss_pct": -18.0,
+        "timeout_minutes": 15.0,
         # Сделки по чужим кошелькам ведём иначе: там ловят иксы, а не +60%.
         # Половину снимаем на удвоении, остаток едет дальше со стопом в ноль.
         "rules": {
@@ -1609,6 +1611,8 @@ HELP = (
     "/meta — какая мета кормит прямо сейчас\n"
     "/version — версия сборки и что в ней включено\n"
     "/limits — сколько сделок бот может сделать за сутки\n"
+    "/tune — математика сделок: плюсы против минусов\n"
+    "/risk — стоп, трейлинг, фиксация половины, время\n"
     "/app — мини-апп со статистикой в браузере\n"
     "\n<b>Торговля</b>:\n"
     "/wallet — кошелёк бота и баланс\n"
@@ -2137,6 +2141,45 @@ class Bot:
                     "<i>Где брать адреса: gmgn.ai, kolscan.io, dune.com — "
                     "там видно топы трейдеров, кто стабильно в плюсе. "
                     "Совпали 2 кошелька на монете — бот заходит.</i>", chat_id)
+        elif cmd in ("/tune", "/разбор"):
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                await self.tg.send(self.trader.tune(), chat_id)
+        elif cmd in ("/risk", "/риск"):
+            if self.trader is None:
+                await self.tg.send("Торговый модуль не подключён.", chat_id)
+            else:
+                c = self.trader.conf
+                keys = {"stop": ("stop_loss_pct", -1), "стоп": ("stop_loss_pct", -1),
+                        "trail": ("trailing_stop_pct", 1), "трейл": ("trailing_stop_pct", 1),
+                        "take": ("take_profit_pct", 1), "тейк": ("take_profit_pct", 1),
+                        "half": ("scale_out_at_pct", 1), "половина": ("scale_out_at_pct", 1),
+                        "time": ("timeout_minutes", 1), "время": ("timeout_minutes", 1)}
+                if (arg or "").lower() in keys and len(parts) > 2:
+                    key, sign = keys[arg.lower()]
+                    # стоп задаём положительным числом — так его и называют вслух
+                    c[key] = abs(num(parts[2].replace(",", "."))) * sign
+                    await self.tg.send(f"⚙️ {esc(key)} = {c[key]:g}", chat_id)
+                else:
+                    await self.tg.send(
+                        "🛡 <b>Как ведём сделку</b>\n\n"
+                        f"Стоп: <b>{num(c.get('stop_loss_pct'), -18):.0f}%</b>\n"
+                        "Тейк: <b>" + (f"{num(c.get('take_profit_pct')):.0f}%"
+                                       if num(c.get("take_profit_pct")) else
+                                       "без потолка") + "</b>\n"
+                        f"Половину снимаем на: <b>+{num(c.get('scale_out_at_pct'), 50):.0f}%</b>"
+                        " (дальше стоп в ноль)\n"
+                        f"Трейлинг: <b>{num(c.get('trailing_stop_pct'), 20):.0f}%</b> "
+                        f"от максимума после +{num(c.get('trailing_after_pct'), 50):.0f}%\n"
+                        f"Время в позиции: <b>{num(c.get('timeout_minutes'), 15):.0f} мин</b>\n\n"
+                        "Менять так:\n"
+                        "<code>/risk stop 15</code>\n"
+                        "<code>/risk trail 18</code>\n"
+                        "<code>/risk half 40</code>\n"
+                        "<code>/risk time 20</code>\n"
+                        "<code>/risk take 0</code> — снять потолок прибыли\n\n"
+                        "<i>Что из этого менять — покажет /tune.</i>", chat_id)
         elif cmd in ("/limits", "/лимиты"):
             if self.trader is None:
                 await self.tg.send("Торговый модуль не подключён.", chat_id)
@@ -2473,6 +2516,8 @@ class Bot:
         ("meta", "Какая мета кормит"),
         ("version", "Версия сборки и модули"),
         ("limits", "Лимиты: позиции, размер, сутки"),
+        ("tune", "Разбор: почему плюс или минус"),
+        ("risk", "Стоп, трейлинг, фиксация"),
         ("fresh", "Что видит бот сейчас"),
         ("status", "Состояние бота"),
         ("trade", "Включить или остановить входы"),

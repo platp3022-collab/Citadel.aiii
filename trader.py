@@ -51,11 +51,18 @@ DEFAULTS: dict[str, Any] = {
     "min_score": 0,                  # 0 = берём всё, что бот назвал «НОРМ»
 
     # ---- выход ----
-    "take_profit_pct": 60.0,         # фиксируем прибыль
-    "stop_loss_pct": -35.0,          # режем убыток
-    "trailing_stop_pct": 25.0,       # откат от максимума после выхода в плюс
-    "trailing_after_pct": 30.0,      # трейлинг включается после этой прибыли
-    "timeout_minutes": 30.0,         # не растёт — выходим
+    # Форма сделки важнее точности входа: минусов на мем-коинах всегда больше,
+    # чем плюсов, поэтому минус должен быть маленьким, а плюс — без потолка.
+    # Прежние «тейк +60 / стоп −35» гарантированно давали минус на дистанции:
+    # средний минус выходил больше среднего плюса.
+    "take_profit_pct": 0.0,          # 0 = потолка нет, плюс едет дальше
+    "stop_loss_pct": -18.0,          # режем убыток рано
+    "scale_out_at_pct": 50.0,        # на +50% забираем половину — это вложенное
+    "scale_out_pct": 50.0,
+    "breakeven_after_scale": True,   # после этого стоп переезжает в ноль
+    "trailing_stop_pct": 20.0,       # откат от максимума
+    "trailing_after_pct": 50.0,      # трейлинг включается после этой прибыли
+    "timeout_minutes": 15.0,         # не растёт — выходим, деньги нужны дальше
 
     # ---- правила выхода под конкретную стратегию ----
     # У сделки по чужим кошелькам («кимчи») другая математика: там ловят не
@@ -64,8 +71,8 @@ DEFAULTS: dict[str, Any] = {
     # там уже нечем, а верхняя граница не поставлена вовсе.
     # Внимание не держится вечно: пошёл максимум, а дальше монета встала —
     # это и есть момент, когда пора выходить, не дожидаясь стопа.
-    "decay_after_pct": 40.0,         # с какого плюса следим за угасанием
-    "decay_stall_minutes": 12.0,     # столько без нового максимума
+    "decay_after_pct": 25.0,         # с какого плюса следим за угасанием
+    "decay_stall_minutes": 6.0,      # столько без нового максимума
     "decay_drop_pct": 15.0,          # и настолько ниже максимума
 
     # Потолок монеты решает, как её вести. Клон чужого нарратива отрабатывает
@@ -97,8 +104,8 @@ DEFAULTS: dict[str, Any] = {
         # а объём: пока он есть — держим, пропал — выходим быстро.
         "миграция": {
             "take_profit_pct": 0.0,
-            "stop_loss_pct": -25.0,
-            "scale_out_at_pct": 100.0,     # вернули вложенное на удвоении
+            "stop_loss_pct": -20.0,
+            "scale_out_at_pct": 80.0,      # вернули вложенное пораньше
             "scale_out_pct": 50.0,
             "breakeven_after_scale": True,
             "trailing_after_pct": 80.0,
@@ -109,7 +116,7 @@ DEFAULTS: dict[str, Any] = {
         },
         "кимчи": {
             "take_profit_pct": 0.0,        # потолка нет: остаток бежит за иксами
-            "stop_loss_pct": -32.0,
+            "stop_loss_pct": -25.0,
             "scale_out_at_pct": 100.0,     # удвоился — снимаем часть
             "scale_out_pct": 50.0,         # ровно половину
             "breakeven_after_scale": True, # после этого стоп переезжает в ноль
@@ -138,6 +145,18 @@ DEFAULTS: dict[str, Any] = {
     "min_sol_reserve": 0.02,         # неснижаемый остаток на комиссии
     "confirm_timeout": 90,           # сколько ждём подтверждения сети
     "rpc_url": "",                   # пусто = SOLANA_RPC_URL из .env или публичный
+
+    # Самоконтроль: стратегия, которая на дистанции только сливает, сама
+    # уходит на укороченный размер, а потом на паузу. Без этого бот способен
+    # ровным слоем слить депозит в то, что перестало работать.
+    "self_control": {
+        "enabled": True,
+        "window": 12,            # по скольким последним сделкам судим
+        "min_trades": 6,         # меньше — судить рано
+        "half_size_below": -0.05,   # −5% от вложенного → половина размера
+        "pause_below": -0.15,       # −15% → пауза
+        "pause_minutes": 90,
+    },
 
     "poll_seconds": 30,              # как часто переоценивать позиции
     "storage_path": "data/memebot.db",
@@ -347,6 +366,13 @@ class TradeStore:
             rows = self.conn.execute(
                 "SELECT * FROM trades WHERE status='closed'"
                 " ORDER BY exit_ts DESC LIMIT ?", (int(limit),)).fetchall()
+        return [dict(r) for r in rows]
+
+    def recent_by_strategy(self, strategy: str, limit: int = 12) -> list[dict]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM trades WHERE status='closed' AND strategy=?"
+                " ORDER BY exit_ts DESC LIMIT ?", (strategy, int(limit))).fetchall()
         return [dict(r) for r in rows]
 
     def all_closed(self) -> list[dict]:
@@ -916,6 +942,7 @@ class Trader:
         self.stop_event = asyncio.Event()
         self.last_error = ""
         self.blocks: dict[str, int] = {}      # на чём отваливались входы
+        self.paused: dict[str, float] = {}    # стратегия → до какого времени пауза
         if self.positions:
             log.info("Подхватил %d открытых позиций из базы", len(self.positions))
 
@@ -982,6 +1009,50 @@ class Trader:
         return ("<b>Почему не заходил</b> (с запуска):\n"
                 + "\n".join(f"  • {esc(k)}: {v}" for k, v in top))
 
+    def strategy_health(self, strategy: str) -> tuple[float, str]:
+        """Как эта стратегия отработала на последних сделках.
+
+        Возвращает поправку к размеру (1.0 / 0.5 / 0.0 — пауза) и словами,
+        почему. Судим по своим же закрытым сделкам, а не по ощущениям.
+        """
+        conf = self.conf.get("self_control") or {}
+        if not conf.get("enabled", True):
+            return 1.0, ""
+        until = self.paused.get(strategy, 0.0)
+        if until > time.time():
+            return 0.0, f"на паузе ещё {(until - time.time()) / 60:.0f} мин"
+
+        rows = self.store.recent_by_strategy(strategy, int(num(conf.get("window"), 12)))
+        if len(rows) < int(num(conf.get("min_trades"), 6)):
+            return 1.0, ""
+        invested = sum(num(r.get("size_sol")) for r in rows)
+        if invested <= 0:
+            return 1.0, ""
+        ratio = sum(num(r.get("pnl_sol")) for r in rows) / invested
+
+        if ratio <= num(conf.get("pause_below"), -0.15):
+            self.paused[strategy] = time.time() + num(conf.get("pause_minutes"), 90) * 60
+            note = (f"стратегия «{strategy}» на {len(rows)} сделках дала "
+                    f"{ratio * 100:+.0f}% — ставлю на паузу")
+            log.warning(note)
+            return 0.0, note
+        if ratio <= num(conf.get("half_size_below"), -0.05):
+            return 0.5, (f"стратегия «{strategy}» в минусе {ratio * 100:+.0f}% — "
+                         f"вхожу половинным размером")
+        return 1.0, ""
+
+    def health_line(self) -> str:
+        """Что самоконтроль думает про каждую стратегию прямо сейчас."""
+        seen = {r.get("strategy") or "метрики" for r in self.store.recent_closed(60)}
+        if not seen:
+            return "Самоконтроль: сделок пока мало, сужу позже."
+        out = []
+        for name in sorted(seen):
+            mult, note = self.strategy_health(name)
+            mark = "✅" if mult >= 1 else "🟡" if mult > 0 else "⛔"
+            out.append(f"  {mark} {esc(name)}" + (f" — {esc(note)}" if note else ""))
+        return "<b>Самоконтроль</b>\n" + "\n".join(out)
+
     def _blocked(self, mint: str, score: float) -> str:
         """Почему в эту монету заходить нельзя. Пустая строка — можно."""
         if not self.conf.get("enabled", True):
@@ -1025,8 +1096,19 @@ class Trader:
             log.warning("Нет цены для $%s — вход отменён", symbol or mint[:8])
             return None
 
+        # стратегия, которая на дистанции сливает, входит уменьшенным размером
+        # или не входит вовсе — это важнее любого сигнала на конкретной монете
+        health, why = self.strategy_health(strategy)
+        if health <= 0:
+            log.info("Пропускаю $%s: %s", symbol or mint[:8], why)
+            self._note_block(f"стратегия на паузе: {strategy}")
+            return None
+        if why:
+            log.info("$%s: %s", symbol or mint[:8], why)
+
         # клонам чужого нарратива даём меньше денег: потолок ниже, риск тот же
-        size = num(self.conf.get("size_sol"), 0.1) * max(0.3, min(1.0, num(size_mult, 1.0)))
+        size = (num(self.conf.get("size_sol"), 0.1) * health
+                * max(0.3, min(1.0, num(size_mult, 1.0))))
         size = round(size, 4)
         try:
             tokens, fill = await self.executor.buy(mint, size, price, sol_price)
@@ -1249,6 +1331,55 @@ class Trader:
                        + (f" ({pnl / invested * 100:+.0f}%)" if invested else "")
                        + f"\n  сделок {len(items)}, в плюс {wins} "
                          f"({wins / len(items) * 100:.0f}%)")
+        return "\n".join(out)
+
+    def tune(self, hours: float = 24 * 7) -> str:
+        """Математика сделок: средний плюс против среднего минуса.
+
+        Главный вопрос не «сколько сделок в плюс», а «плюсы крупнее минусов
+        или нет». Если средний минус больше среднего плюса, дистанция всегда
+        приводит в минус, какой бы ни был винрейт.
+        """
+        rows = self.store.closed_since(time.time() - hours * 3600)
+        if len(rows) < 3:
+            return ("📐 <b>Разбор</b>\n\nСделок пока мало — считать не по чему. "
+                    "Вернись, когда наберётся хотя бы десяток.")
+        wins = [r for r in rows if num(r.get("pnl_sol")) > 0]
+        losses = [r for r in rows if num(r.get("pnl_sol")) <= 0]
+        invested = sum(num(r.get("size_sol")) for r in rows) or 1.0
+        total = sum(num(r.get("pnl_sol")) for r in rows)
+        avg_win = sum(num(r.get("pnl_sol")) for r in wins) / len(wins) if wins else 0.0
+        avg_loss = sum(num(r.get("pnl_sol")) for r in losses) / len(losses) if losses else 0.0
+
+        by_reason: dict[str, list[float]] = {}
+        for r in rows:
+            by_reason.setdefault(r.get("exit_reason") or "—", []).append(
+                num(r.get("pnl_sol")))
+
+        out = [f"📐 <b>Разбор за {hours / 24:.0f} дн</b>", "",
+               f"Сделок: <b>{len(rows)}</b> · в плюс {len(wins)} "
+               f"({len(wins) / len(rows) * 100:.0f}%)",
+               f"Итог: <b>{fmt_sol(total)}</b> на {invested:.2f} SOL вложенных "
+               f"({total / invested * 100:+.1f}%)",
+               f"Средний плюс: <b>{avg_win:+.4f}</b> · средний минус: "
+               f"<b>{avg_loss:+.4f}</b> SOL", ""]
+
+        out.append("<b>Где деньги</b>")
+        for reason, items in sorted(by_reason.items(), key=lambda kv: sum(kv[1])):
+            out.append(f"  • {EXIT_PLAIN.get(reason, reason)}: {len(items)} шт, "
+                       f"{fmt_sol(sum(items))}")
+
+        out += ["", self.health_line(), ""]
+        if avg_win and abs(avg_loss) >= avg_win:
+            out.append("⚠️ <i>Средний минус не меньше среднего плюса — на дистанции "
+                       "это минус при любом винрейте. Стоит сузить стоп "
+                       "(<code>/risk stop 15</code>) или дать плюсам ехать дальше "
+                       "(<code>/risk trail 18</code>).</i>")
+        elif total > 0:
+            out.append("<i>Форма правильная: плюсы крупнее минусов.</i>")
+        else:
+            out.append("<i>Плюсы крупнее минусов, но входов в плюс мало — "
+                       "дело во входах, а не в выходах.</i>")
         return "\n".join(out)
 
     def journal(self, limit: int = 8) -> str:
