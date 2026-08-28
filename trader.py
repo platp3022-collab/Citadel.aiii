@@ -205,6 +205,19 @@ DEFAULTS: dict[str, Any] = {
     # −18% — деньги утекали не в плохих входах, а в опоздавших выходах.
     "fast_poll_seconds": 5,          # частый опрос, пока позиция молодая
     "fast_poll_minutes": 12,         # до этого возраста позиции держим быстрый цикл
+
+    # Выход по угасанию объёма — метод скальперов Axiom (видео Leck и общий
+    # плейбук): монета живёт, пока в неё заходят. Первый памп на объёме — норма,
+    # второй на меньшем объёме или плоский объём при стоящей цене — впереди
+    # слив, выходим не дожидаясь стопа. Объём тянем реже цены, чтобы частый
+    # цикл ведения не выбивал лимиты DexScreener.
+    "volume_exit": {
+        "enabled": True,
+        "after_pct": 25.0,           # следим за объёмом только когда уже в плюсе
+        "poll_seconds": 25,          # объём обновляем не чаще этого (кэш между)
+        "fade_ratio": 0.4,           # объём упал ниже этой доли от пика → сигнал
+        "min_off_high_pct": 8.0,     # и цена отошла от максимума хотя бы настолько
+    },
     "storage_path": "data/memebot.db",
 }
 
@@ -218,7 +231,8 @@ LAMPORTS = 1_000_000_000
 EXIT_PLAIN = {"take_profit": "тейк", "stop_loss": "стоп", "trailing": "трейлинг",
               "timeout": "таймаут", "manual": "вручную", "breakeven": "в ноль",
               "decay": "внимание ушло", "locked": "забрал остаток в плюсе",
-              "target": "дошёл до цели по капе", "tranche": "транш"}
+              "target": "дошёл до цели по капе", "tranche": "транш",
+              "volume_fade": "объём ушёл"}
 
 EXIT_LABELS = {
     "take_profit": "🎯 тейк-профит",
@@ -230,6 +244,7 @@ EXIT_LABELS = {
     "locked": "🔒 остаток забрал в плюсе",
     "target": "🎯 цель по капитализации",
     "decay": "🥱 внимание ушло",
+    "volume_fade": "🌫️ объём ушёл",
 }
 
 
@@ -543,6 +558,23 @@ class PriceFeed:
             if best:
                 out[mint] = best
         return out
+
+    async def volume_5m(self, mint: str) -> float | None:
+        """5-минутный объём монеты (максимум по её парам) из DexScreener.
+
+        None — данных нет: монета ещё на кривой и пары нет, либо DexScreener
+        промолчал. В этом случае выход по объёму просто не срабатывает, а
+        обычные правила по цене продолжают работать.
+        """
+        data = await self._get(f"{DEX_API}/latest/dex/tokens/{mint}")
+        pairs = (data or {}).get("pairs") or []
+        if not pairs:
+            return None
+        best = 0.0
+        for pair in pairs[:5]:
+            if isinstance(pair, dict):
+                best = max(best, num((pair.get("volume") or {}).get("m5")))
+        return best
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -937,6 +969,8 @@ def lesson(r: dict) -> str:
         return f"цель отработала за {held:.0f} мин"
     if reason == "timeout":
         return "монета встала на месте, ждать было нечего"
+    if reason == "volume_fade":
+        return f"объём выдохся при живой цене — вышли до слива, {pnl:+.0f}%"
     return f"{pnl:+.0f}% за {held:.0f} мин"
 
 
@@ -1002,6 +1036,10 @@ class Trader:
         self.last_error = ""
         self.blocks: dict[str, int] = {}      # на чём отваливались входы
         self.paused: dict[str, float] = {}    # стратегия → до какого времени пауза
+        # слежка за объёмом по позиции (в памяти, не в базе — позиции живут минуты)
+        self.vol_peak: dict[str, float] = {}  # пик 5-мин объёма, что видели
+        self.vol_last: dict[str, float] = {}  # последний известный объём
+        self._vol_ts: dict[str, float] = {}   # когда последний раз тянули объём
         self.streak_until = 0.0               # пауза после серии минусов
         if self.positions:
             log.info("Подхватил %d открытых позиций из базы", len(self.positions))
@@ -1369,10 +1407,38 @@ class Trader:
         p.last_price = price
         self.store.update(p)
         self.positions = [x for x in self.positions if x.row_id != p.row_id]
+        for cache in (self.vol_peak, self.vol_last, self._vol_ts):
+            cache.pop(p.mint, None)      # позиция закрыта — слежку за объёмом снимаем
         log.info("Выход $%s (%s): %+.4f SOL (%+.1f%%)",
                  p.symbol or p.mint[:8], reason, p.pnl_sol, p.pnl_pct)
         if self.send:
             await self.send(close_message(p))
+
+    async def _volume_faded(self, p: Position, price: float,
+                            sol_price: float, vconf: dict) -> bool:
+        """Выдохся ли объём у монеты, которая уже в плюсе.
+
+        Объём тянем не чаще vconf['poll_seconds'] (между — кэш), чтобы частый
+        цикл ведения не выбивал лимиты DexScreener. Сигнал: 5-мин объём упал
+        ниже доли fade_ratio от своего пика, а цена уже отошла от максимума —
+        значит заходить перестали, впереди слив.
+        """
+        now = time.time()
+        every = num(vconf.get("poll_seconds"), 25)
+        if now - self._vol_ts.get(p.mint, 0.0) >= every:
+            vol = await self.prices.volume_5m(p.mint)
+            self._vol_ts[p.mint] = now
+            if vol is not None:
+                self.vol_last[p.mint] = vol
+                if vol > self.vol_peak.get(p.mint, 0.0):
+                    self.vol_peak[p.mint] = vol
+        peak = self.vol_peak.get(p.mint, 0.0)
+        vol = self.vol_last.get(p.mint)
+        if vol is None or peak <= 0:
+            return False                 # данных по объёму нет — не мешаем ценовым правилам
+        off_high = (price / p.high_price - 1) * 100.0 if p.high_price else 0.0
+        return (vol < peak * num(vconf.get("fade_ratio"), 0.4)
+                and off_high <= -num(vconf.get("min_off_high_pct"), 8))
 
     async def refresh(self) -> None:
         """Переоценить открытые позиции и закрыть те, где сработало условие."""
@@ -1413,6 +1479,15 @@ class Trader:
                 share = num(r.get("scale_out_pct")) / 100.0
                 if not p.scaled_out and at > 0 and share > 0 and change >= at:
                     await self.scale_out(p, price, sol_price, share)
+
+            # Выход по угасанию объёма (метод из видео): раньше стопа ловим
+            # момент, когда в монету перестали заходить, а цена ещё держится.
+            vconf = self.conf.get("volume_exit") or {}
+            if (vconf.get("enabled", True)
+                    and change >= num(vconf.get("after_pct"), 25)
+                    and await self._volume_faded(p, price, sol_price, vconf)):
+                await self.close(p, price, sol_price, "volume_fade")
+                continue
 
             reason = self._exit_reason(p, price)
             if reason:
