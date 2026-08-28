@@ -51,6 +51,11 @@ try:
 except ImportError:                          # noqa: BLE001
     attention_mod = None
 
+try:
+    import stream as stream_mod              # запуски в реальном времени
+except ImportError:                          # noqa: BLE001
+    stream_mod = None
+
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("axiom_scout")
 
@@ -1742,6 +1747,17 @@ class FreshScanner:
         self.news = news
         self.wallets = wallets          # слежка за кошельками, если подключена
         self.scout = scout              # разведчик: сам ищет такие кошельки
+        # Поток запусков: узнаём о монете в секунду её создания, а не через
+        # 40 секунд опроса. Дальше ждём, пока по ней появятся данные, и
+        # разбираем — это всё равно на минуты раньше обычного прохода.
+        self.stream = None
+        self.fast_tracked = 0
+        self.fast_entered = 0
+        if stream_mod is not None and (self.conf.get("stream") or {}).get("enabled", True):
+            self.stream = stream_mod.LaunchStream(
+                session, conf=self.conf.get("stream") or {},
+                on_token=self._on_stream_token)
+
         self.attention = None           # разговор вокруг монеты
         if attention_mod is not None and (self.conf.get("attention") or {}).get(
                 "enabled", True):
@@ -1998,6 +2014,53 @@ class FreshScanner:
                  (" · отсев: " + ", ".join(f"{k} {v}" for k, v in self.last_drops.items()))
                  if self.last_drops else "")
         return sent
+
+    async def _on_stream_token(self, token: Any) -> None:
+        """Монета только что создана. Данных по ней ещё нет нигде: ни объёма,
+        ни холдеров. Поэтому не покупаем вслепую, а берём на короткий поводок
+        и возвращаемся к ней, как только по ней появятся цифры."""
+        sconf = self.conf.get("stream") or {}
+        if self.fast_tracked - self.fast_entered > int(num(sconf.get("max_pending"), 40)):
+            return          # очередь распухла — переживём этот запуск
+
+        # то немногое, что известно сразу: имя и сколько вложил сам дев
+        nar = None
+        if self.reader is not None:
+            try:
+                nar = self.reader.read(token.symbol, token.name, mint=token.mint)
+            except Exception as e:  # noqa: BLE001
+                log.debug("нарратив из потока: %s", e)
+        if nar is not None and nar.ceiling == "подражатель" \
+                and sconf.get("skip_copycats", True):
+            return          # клон известного тикера ловить в секунду смысла нет
+
+        self.fast_tracked += 1
+        await asyncio.sleep(num(sconf.get("first_check_seconds"), 45))
+        try:
+            a = await self.inspect(token.mint)
+        except Exception as e:  # noqa: BLE001
+            log.debug("быстрый разбор %s: %s", token.symbol, e)
+            return
+        if a is None:
+            return
+        a.launch.source = a.launch.source or "поток"
+        self.last_batch = ([a] + self.last_batch)[:20]
+        if a.decision != "enter":
+            return
+        self.fast_entered += 1
+        log.info("Из потока: $%s за %.0f с после запуска, скор %.0f",
+                 a.launch.symbol or token.mint[:6], token.age_seconds, a.score)
+        # дальше как в обычном проходе: в чат только если включены разборы,
+        # а в работу монета уходит через on_alert в любом случае
+        if self.conf.get("notify", False) and self.send is not None:
+            try:
+                await self.send(fresh_message(a, self.conf))
+            except Exception as e:  # noqa: BLE001
+                log.warning("отправка разбора из потока: %s", e)
+        self.store.record(a)
+        self.alerts += 1
+        if self.on_alert is not None:
+            await self.on_alert(a)
 
     def why_message(self) -> str:
         """Что бот увидел в последнем проходе и почему не зашёл."""

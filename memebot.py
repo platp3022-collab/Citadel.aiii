@@ -207,6 +207,15 @@ CONFIG: dict[str, Any] = {
         "min_own_score": 25,       # ниже этого не заходим даже за кошельками
         "fast_follow_minutes": 5,  # позже — входим уменьшенным размером
     },
+    # Поток запусков: узнаём о монете в секунду создания, а не через 40 секунд
+    # опроса лент. Это единственный способ перестать заходить последним.
+    "stream": {
+        "enabled": True,
+        "first_check_seconds": 45,   # через сколько возвращаемся к монете с данными
+        "max_dev_buy_sol": 25.0,     # дев выкупил свой запуск на столько — бандл
+        "skip_copycats": True,       # клоны известных тикеров в потоке не ловим
+        "max_pending": 40,
+    },
     # Внимание: говорят ли о монете вообще. Reddit, новости, платные показы
     # на DexScreener и ссылки самого токена. Без ключей и без платных API.
     "attention": {
@@ -1691,7 +1700,8 @@ class Bot:
                       "storage_path": cfg("storage.path", "data/memebot.db"),
                       "wallets": cfg("wallets") or {},
                       "narrative": cfg("narrative") or {},
-                      "attention": cfg("attention") or {}},
+                      "attention": cfg("attention") or {},
+                      "stream": cfg("stream") or {}},
                 news=self.news, preset=str(cfg("fresh.preset", "axiom")),
                 on_alert=self.on_fresh_alert, wallets=self.wallets,
                 scout=self.scout)
@@ -1970,6 +1980,12 @@ class Bot:
             return
         await self.trader.loop(self.stop_event)
 
+    async def stream_loop(self) -> None:
+        """Поток запусков pump.fun: монеты приходят в момент создания."""
+        if self.fresh is None or getattr(self.fresh, "stream", None) is None:
+            return
+        await self.fresh.stream.run(self.stop_event)
+
     async def fresh_loop(self) -> None:
         """Автопилот по свежим лончам: сам ищет, сам смотрит новости, сам решает."""
         if self.fresh is None:
@@ -2240,6 +2256,9 @@ class Bot:
                 lines.append(("✅ " if mod is not None else "❌ ") + title)
             lines.append(("✅ " if self.fresh is not None and self.fresh.reader is not None
                           else "❌ ") + "нарратив и меты")
+            lines.append(("✅ " if self.fresh is not None
+                          and getattr(self.fresh, "stream", None) is not None
+                          else "❌ ") + "поток запусков в реальном времени")
             lines.append("")
             if self.fresh is not None:
                 lines.append(f"Профиль: <b>{esc(self.fresh.preset.upper())}</b>, "
@@ -2323,6 +2342,10 @@ class Bot:
                 await self.tg.send("Сканер не подключён.", chat_id)
             else:
                 text = self.fresh.why_message()
+                if getattr(self.fresh, "stream", None) is not None:
+                    text += ("\n\n" + esc(self.fresh.stream.status_line())
+                             + f"\nВзято в быстрый разбор: {self.fresh.fast_tracked}, "
+                               f"вошли из них: {self.fresh.fast_entered}")
                 if self.trader is not None:
                     # сканер мог найти монету, а вход всё равно не состоялся —
                     # без этой части непонятно, почему сделок мало
@@ -2584,7 +2607,7 @@ class Bot:
                              self.tracker_loop(), self.telegram_loop(),
                              self.fresh_loop(), self.trader_loop(),
                              self.tunnel_loop(), self.wallets_loop(),
-                             self.scout_loop())
+                             self.scout_loop(), self.stream_loop())
 
 
 # ════════════════════════════════════════════════════════════════════════════
