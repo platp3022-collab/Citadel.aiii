@@ -198,7 +198,13 @@ DEFAULTS: dict[str, Any] = {
         "pause_minutes": 90,
     },
 
-    "poll_seconds": 30,              # как часто переоценивать позиции
+    "poll_seconds": 30,              # базовый цикл, когда свежих позиций нет
+    # Свежую позицию проверяем часто. Стоп −18% без этого превращается в −60%:
+    # мем-коин валится за секунды и между двумя редкими опросами проскакивает
+    # стоп целиком. На истории именно это давало средний минус −55% при стопе
+    # −18% — деньги утекали не в плохих входах, а в опоздавших выходах.
+    "fast_poll_seconds": 5,          # частый опрос, пока позиция молодая
+    "fast_poll_minutes": 12,         # до этого возраста позиции держим быстрый цикл
     "storage_path": "data/memebot.db",
 }
 
@@ -992,6 +998,7 @@ class Trader:
         self.executor: PaperExecutor = self._make_executor()
         self.positions: list[Position] = self.store.open_positions()
         self.stop_event = asyncio.Event()
+        self.wake = asyncio.Event()           # открылась позиция → сразу проверить
         self.last_error = ""
         self.blocks: dict[str, int] = {}      # на чём отваливались входы
         self.paused: dict[str, float] = {}    # стратегия → до какого времени пауза
@@ -1249,6 +1256,7 @@ class Trader:
                      last_price=fill, last_check=time.time())
         p.row_id = self.store.insert(p)
         self.positions.append(p)
+        self.wake.set()          # разбудить цикл ведения: первая проверка — сразу
         log.info("Вход $%s по %.10f, %.3f SOL (%s)", symbol or mint[:8], fill, size, self.mode)
         if self.send:
             await self.send(open_message(p, self.conf))
@@ -1416,7 +1424,9 @@ class Trader:
 
     async def loop(self, stop_event: asyncio.Event | None = None) -> None:
         stop = stop_event or self.stop_event
-        interval = num(self.conf.get("poll_seconds"), 30)
+        base = num(self.conf.get("poll_seconds"), 30)
+        fast = num(self.conf.get("fast_poll_seconds"), 5)
+        fast_win = num(self.conf.get("fast_poll_minutes"), 12)
         while not stop.is_set():
             try:
                 await self.refresh()
@@ -1424,10 +1434,24 @@ class Trader:
             except Exception as e:  # noqa: BLE001
                 self.last_error = str(e)[:200]
                 log.exception("сбой ведения позиций: %s", e)
+            # Пока в работе есть свежая позиция — крутимся часто, чтобы стоп
+            # успевал сработать у цены, а не постфактум на дне. Когда свежих
+            # позиций нет, возвращаемся к базовому циклу и не жжём лимиты API.
+            interval = base
+            if fast > 0 and any(p.age_minutes < fast_win for p in self.positions):
+                interval = min(base, fast)
+            # Ждём либо таймаут, либо сигнал «открылась позиция» — тогда её
+            # первую проверку не откладываем на целый цикл.
+            self.wake.clear()
+            waiters = [asyncio.ensure_future(stop.wait()),
+                       asyncio.ensure_future(self.wake.wait())]
             try:
-                await asyncio.wait_for(stop.wait(), timeout=interval)
-            except asyncio.TimeoutError:
-                pass
+                await asyncio.wait(
+                    waiters, timeout=interval, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for w in waiters:
+                    if not w.done():
+                        w.cancel()
 
     # ---------- отчёты ----------
 
