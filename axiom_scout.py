@@ -112,6 +112,21 @@ DEFAULTS: dict[str, Any] = {
         "top10_from_minutes": 3,   # в первые минуты концентрация всегда высокая
         "block_bundle": True,      # признак бандла = отказ
     },
+    # Подтверждение входа — рычаг под высокий винрейт. Скор монету не отличает
+    # (проверено на реальных сделках: победители и сливы шли с одним скором),
+    # поэтому заходим только туда, где ПРЯМО СЕЙЧАС виден заход, а не слив:
+    # покупателей больше продавцов, цена не валится, mint/freeze отозваны.
+    # По умолчанию выключено, включает пресет (axiom). Режет частоту — это
+    # осознанная плата за то, чтобы красных сделок было меньше.
+    "confirm": {
+        "enabled": False,
+        "window_minutes": 30,          # проверяем молодняк; постарше — обычные сигналы
+        "min_trades_5m": 15,           # меньше сделок и мало холдеров → вслепую не входим
+        "min_holders": 40,
+        "min_buy_ratio": 0.55,         # покупателей должно быть больше половины
+        "min_price_change_5m": -8.0,   # цена уже валится — мимо
+        "require_authority_revoked": True,  # активный mint/freeze — мимо
+    },
     # Отдельная сделка: токен добегает кривую и переезжает на DEX.
     "migration": {
         "enabled": True,
@@ -173,14 +188,19 @@ PRESETS: dict[str, dict[str, Any]] = {
         # порог входа ниже. Пользователю нужно много сделок, а не одна в час.
         # Защита от рагов (быстрый аудит, фатальные флаги) при этом остаётся —
         # частота не должна превращаться в ровный слив в honeypot'ы.
-        "min_score": 50, "interval_seconds": 20, "max_per_scan": 10,
+        # Порог входа держим низким НАМЕРЕННО: скор монету не отличает (шум),
+        # поэтому пусть монеты доходят до решения «enter», а качество решает
+        # гейт confirm по живому потоку — он и есть настоящий фильтр винрейта.
+        "min_score": 45, "interval_seconds": 20, "max_per_scan": 10,
         "shortlist_limit": 30,
         # pump.fun как источник свежих монет: без него бот видит New Pairs
         # с опозданием (только Jupiter/DexScreener), оттого и редкие входы.
+        # Ленту смотрим часто и широко, но входим только в подтверждённые.
         "sources": {"jupiter": True, "pumpfun": True, "dexscreener": True},
+        "confirm": {"enabled": True},   # входим только в живой заход → выше винрейт
         "terminals_shown": ["Axiom", "FOMO", "GMGN", "Photon"],
-        "auto": {"enabled": True, "only_enter": True, "enter_score": 50,
-                 "watch_score": 38, "block_on_red": True},
+        "auto": {"enabled": True, "only_enter": True, "enter_score": 45,
+                 "watch_score": 35, "block_on_red": True},
     },
     # «Деку»: ранний вход строго на кривой, маленькая капа, жёсткий контроль
     # доли раздачи и выход траншами к капитализации $50-60K. Размер сделки
@@ -1365,6 +1385,42 @@ def quick_audit(l: Launch, conf: dict[str, Any]) -> str:
     return ""
 
 
+def confirm_gate(l: Launch, conf: dict[str, Any]) -> str:
+    """Подтверждение входа под высокий винрейт: заходим только в монету,
+    которая прямо сейчас показывает заход, а не слив. Возвращает причину
+    отказа или пустую строку, если монета подтвердилась.
+
+    Смысл: скор монету не отличает, а вот поток — да. Мгновенные сливы на
+    старте почти всегда идут с перевесом продавцов, падающей ценой или
+    активным mint. Отсекаем их до входа, а не переживаем после.
+    """
+    cconf = conf.get("confirm") or {}
+    if not cconf.get("enabled", False):
+        return ""
+    if l.age_minutes > num(cconf.get("window_minutes"), 30):
+        return ""                      # монета постарше — распределение видно обычными сигналами
+    buys, sells = int(l.buys_5m), int(l.sells_5m)
+    trades = buys + sells
+    # 1) нет потока и мало холдеров — данных для входа нет, вслепую не заходим
+    if (trades < int(num(cconf.get("min_trades_5m"), 15))
+            and l.holders < int(num(cconf.get("min_holders"), 40))):
+        return f"нет подтверждения ({trades} сделок, {l.holders} холдеров)"
+    # 2) продавцов больше покупателей — так выглядит слив на старте
+    if trades and l.buy_ratio_5m < num(cconf.get("min_buy_ratio"), 0.55):
+        return f"продавцов больше покупателей ({buys}/{sells})"
+    # 3) цена уже валится — не ловим падающий нож
+    floor = num(cconf.get("min_price_change_5m"), -8.0)
+    if floor and l.price_change_5m and l.price_change_5m < floor:
+        return f"цена уже падает {l.price_change_5m:.0f}% за 5 мин"
+    # 4) активный mint/freeze — рычаг рага, для высокого винрейта не рискуем
+    if cconf.get("require_authority_revoked", True):
+        if l.mint_revoked is False:
+            return "mint authority активен"
+        if l.freeze_revoked is False:
+            return "freeze authority активен"
+    return ""
+
+
 def on_migration(l: Launch, conf: dict[str, Any]) -> bool:
     """Токен добегает кривую или только что переехал на DEX."""
     mconf = conf.get("migration") or {}
@@ -1449,6 +1505,11 @@ def analyze_launch(l: Launch, news: Any = None, llm: dict | None = None,
 
     # быстрый аудит перебивает всё: и скор, и кошельки, и вердикт нейросети
     a.audit_fail = quick_audit(l, conf)
+    # подтверждение входа под высокий винрейт: нет живого захода — не входим,
+    # даже если скор и вердикт нейросети «за». Аудит важнее, поэтому только
+    # если он уже не забраковал монету.
+    if not a.audit_fail and a.decision == "enter":
+        a.audit_fail = confirm_gate(l, conf)
     if a.audit_fail:
         a.flags = list(a.flags) + [f"🔴 {a.audit_fail}"]
         a.decision = "skip"
