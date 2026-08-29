@@ -169,11 +169,18 @@ PRESETS: dict[str, dict[str, Any]] = {
         "launchpads": ["pump", "bonk"], "quote_tokens": ["SOL", "USD1"],
         "max_dev_pct": 100.0, "max_top10_pct": 100.0, "max_dev_migrations": 9999,
         "require_mint_revoked": False, "require_freeze_revoked": False,
-        "min_score": 58, "interval_seconds": 40, "max_per_scan": 4,
-        "shortlist_limit": 15,
+        # Воронка раскрыта на частоту: скан вдвое чаще, в разбор больше монет,
+        # порог входа ниже. Пользователю нужно много сделок, а не одна в час.
+        # Защита от рагов (быстрый аудит, фатальные флаги) при этом остаётся —
+        # частота не должна превращаться в ровный слив в honeypot'ы.
+        "min_score": 50, "interval_seconds": 20, "max_per_scan": 10,
+        "shortlist_limit": 30,
+        # pump.fun как источник свежих монет: без него бот видит New Pairs
+        # с опозданием (только Jupiter/DexScreener), оттого и редкие входы.
+        "sources": {"jupiter": True, "pumpfun": True, "dexscreener": True},
         "terminals_shown": ["Axiom", "FOMO", "GMGN", "Photon"],
-        "auto": {"enabled": True, "only_enter": True, "enter_score": 58,
-                 "watch_score": 45, "block_on_red": True},
+        "auto": {"enabled": True, "only_enter": True, "enter_score": 50,
+                 "watch_score": 38, "block_on_red": True},
     },
     # «Деку»: ранний вход строго на кривой, маленькая капа, жёсткий контроль
     # доли раздачи и выход траншами к капитализации $50-60K. Размер сделки
